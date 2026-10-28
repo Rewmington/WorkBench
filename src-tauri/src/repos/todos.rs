@@ -64,6 +64,21 @@ fn query_list(conn: &Connection, sql: &str, zone: &str) -> Result<Vec<Todo>> {
     Ok(out)
 }
 
+/// 所有分区的活动待办。日历视图与工作台首屏要的是「跨区的一天」，
+/// 按区循环调用只会把同一个查询做四遍。
+pub fn list_all(conn: &Connection) -> Result<Vec<Todo>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {COLS} FROM todos WHERE deleted_at IS NULL ORDER BY pinned DESC, sort_key ASC"
+    ))?;
+    let rows = stmt.query_map([], map_row)?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    with_tags(conn, &mut out)?;
+    Ok(out)
+}
+
 /// 某区内未删除的全部待办（含已完成，「已完成」视图要用）。
 pub fn list(conn: &Connection, zone: &str) -> Result<Vec<Todo>> {
     query_list(

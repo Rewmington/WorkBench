@@ -89,6 +89,19 @@ const focus = ref<string | null>(null)
 /** 还没有对应数据时保持 null —— 宁可无徽章，不显示假计数（§2 原则 5） */
 const counts = ref<Record<string, number | null>>({})
 
+/** 详情面板的当前对象。窄窗时它变成覆盖层，所以「有没有被用户主动打开」要单独记。 */
+export type Selection =
+  | { kind: 'todo'; id: string }
+  | { kind: 'resource'; id: string }
+  | { kind: 'day'; day: number }
+  | null
+
+const selection = ref<Selection>(null)
+const detailOpen = ref(false)
+/** 命令面板说「新建待办」时，视图要自己把输入框聚焦。递增计数而不是布尔，连点两次也能感知。 */
+const composerTick = ref(0)
+const composerTarget = ref<'todo' | 'resource' | 'note'>('todo')
+
 export function useShell() {
   function go(next: ViewId, at?: string) {
     view.value = next
@@ -99,5 +112,29 @@ export function useShell() {
     counts.value = { ...counts.value, [key]: value }
   }
 
-  return { view, focus, counts, go, setCount, NAV, VIEW_TITLES }
+  function select(next: Selection) {
+    selection.value = next
+    detailOpen.value = next !== null
+  }
+
+  function requestComposer(target: 'todo' | 'resource' | 'note' = 'todo') {
+    composerTarget.value = target
+    composerTick.value += 1
+  }
+
+  return {
+    view,
+    focus,
+    counts,
+    selection,
+    detailOpen,
+    composerTick,
+    composerTarget,
+    go,
+    setCount,
+    select,
+    requestComposer,
+    NAV,
+    VIEW_TITLES,
+  }
 }

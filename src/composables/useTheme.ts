@@ -51,21 +51,16 @@ function persist<K extends keyof typeof KEYS>(key: K, value: unknown) {
   void api.settingsSet(KEYS[key], value)
 }
 
+/** 模块级：命令面板要在组件 setup 之外也能切主题，所以不挂在 useTheme() 的返回值里。 */
+export function toggleMode() {
+  mode.value = resolved.value === 'dark' ? 'light' : 'dark'
+}
+
 export function useTheme() {
   watch(mode, (v) => persist('mode', v))
   watch(preset, (v) => persist('preset', v))
   watch(accent, (v) => persist('accent', v))
   watch(reducedMotion, (v) => persist('reducedMotion', v))
 
-  return {
-    mode,
-    preset,
-    accent,
-    reducedMotion,
-    resolved,
-    load,
-    toggleMode() {
-      mode.value = resolved.value === 'dark' ? 'light' : 'dark'
-    },
-  }
+  return { mode, preset, accent, reducedMotion, resolved, load, toggleMode }
 }

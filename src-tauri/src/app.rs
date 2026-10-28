@@ -13,12 +13,32 @@ use crate::state::{AppState, Paths};
 use crate::sync::device;
 use crate::ui::{menus, tray, windows};
 
+#[cfg(debug_assertions)]
+fn seed_flag() -> Option<i32> {
+    // 走环境变量而不是 argv：`tauri dev` 会把 argv 插到 `cargo run` 自己那串参数前面，
+    // 传参顺序在 CLI 各版本间不稳，env 没有这个问题。
+    let from_env = std::env::var("ANVIL_SEED").ok();
+    let from_arg = std::env::args()
+        .skip_while(|a| a != "--seed")
+        .nth(1)
+        .filter(|v| !v.starts_with('-'));
+    let raw = from_env.or(from_arg)?;
+    raw.parse::<i32>().ok().filter(|v| (7..=720).contains(v))
+}
+
 fn bootstrap() -> Result<(Connection, Paths, String)> {
     let paths = Paths::local_app_data()?;
     paths.ensure()?;
     let mut conn = db::open(&paths.db)?;
     let applied = db::migrations::migrate(&mut conn)?;
     let device_id = device::load_or_create(&paths.device_id)?;
+
+    // 只给 debug 构建用的造数据入口（M5 的满数据截图、M7 的逐图核对都靠它）
+    #[cfg(debug_assertions)]
+    if let Some(days_back) = seed_flag() {
+        let n = crate::seed::populate(&mut conn, &crate::time::SystemNow, &device_id, days_back)?;
+        log::info!("种子数据：写入 {n} 条（{days_back} 天）");
+    }
 
     // 「数据位置可感知」从日志就开始：一眼能看出库没落到 Roaming。
     log::info!(
@@ -67,9 +87,36 @@ pub fn run() {
             commands::system::paths,
             commands::system::device_id,
             commands::system::context_menu,
+            commands::system::open_data_dir,
             commands::settings::settings_all,
             commands::settings::settings_get,
             commands::settings::settings_set,
+            commands::todos::todos_list,
+            commands::todos::todos_all,
+            commands::todos::todos_list_undone,
+            commands::todos::todos_get,
+            commands::todos::todos_children,
+            commands::todos::todos_create,
+            commands::todos::todos_update,
+            commands::todos::todos_set_done,
+            commands::todos::todos_delete,
+            commands::todos::todos_restore,
+            commands::todos::todos_reorder,
+            commands::todos::todos_set_tags,
+            commands::launcher::resource_add_from_path,
+            commands::launcher::resource_pick,
+            commands::launcher::resource_add_web,
+            commands::launcher::resources_list,
+            commands::launcher::resource_launch,
+            commands::launcher::resource_rename,
+            commands::launcher::resource_move,
+            commands::launcher::resource_delete,
+            commands::launcher::resource_set_secret,
+            commands::launcher::resource_reveal_secret,
+            commands::launcher::zones_list,
+            commands::launcher::zone_add,
+            commands::launcher::zone_delete,
+            commands::palette::palette_search,
         ])
         // 托盘与右键菜单的点击都汇到这一个分发口。
         .on_menu_event(|app, event| menus::handle(app, event.id().as_ref()))
