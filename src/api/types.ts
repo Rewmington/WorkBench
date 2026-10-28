@@ -187,6 +187,45 @@ export interface MedicineTodayPayload {
   meta: { todayTaken?: number; todayOwed?: number; lowCount?: number; nowMinutes?: number }
 }
 
+/** 备份流水的一行。`kind` 是 daily / manual / restore，直接决定这行怎么念。 */
+export interface BackupLogRow {
+  at: number
+  ok: boolean
+  bytes: number | null
+  remotePath: string | null
+  error: string | null
+  kind: string
+}
+
+export interface BackupStatus {
+  /** 邮箱在 settings 里，应用密码只在 Windows 凭据管理器里 —— 两个都齐才算配好 */
+  configured: boolean
+  email: string | null
+  lastSuccessAt: number | null
+  lastError: string | null
+  lastErrorAt: number | null
+  log: BackupLogRow[]
+  paths: PathsView
+  journalMode: string
+}
+
+export interface BackupOutcome {
+  at: number
+  ok: boolean
+  bytes: number | null
+  remotePath: string | null
+  error: string | null
+  /** 没配凭据是跳过，不是失败：不该进失败退避，也不该在 UI 上写成错误 */
+  skipped: boolean
+}
+
+export interface RemoteFile {
+  name: string
+  size: number
+  /** 文件名对不对得上我们的握手格式 */
+  readable: boolean
+}
+
 export interface Api {
   paths(): Promise<PathsView>
   deviceId(): Promise<string>
@@ -241,4 +280,17 @@ export interface Api {
   /** 「补买 X」是用户点出来的，不是系统偷偷建的 */
   linkedRestockTodo(name: string, daysLeft: number | null): Promise<Todo>
   linkedSetBlogDir(path: string): Promise<SourcePaths>
+
+  backupStatus(): Promise<BackupStatus>
+  backupNow(): Promise<BackupOutcome>
+  /** 邮箱进 settings（它不是秘密，且要解释凭据条目属于谁），应用密码只进凭据管理器 */
+  backupSaveCredentials(email: string, password: string): Promise<BackupStatus>
+  backupClearCredentials(): Promise<BackupStatus>
+  backupListRemote(): Promise<RemoteFile[]>
+  /** 只列目录，不写任何东西 */
+  backupTestConnection(): Promise<number>
+  /** 整文件覆盖当前库；成功后应用会重启 */
+  backupRestore(name: string): Promise<BackupOutcome>
+  /** 不联网也能证明「换机能解开」这条链路 */
+  backupSelfTest(email: string, password: string): Promise<boolean>
 }

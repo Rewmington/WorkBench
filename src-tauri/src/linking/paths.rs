@@ -31,7 +31,7 @@ pub fn blog_repo_dir(conn: &Connection) -> Result<PathBuf> {
 
 pub fn medicine_db_path(conn: &Connection) -> Result<PathBuf> {
     if let Some(serde_json::Value::String(s)) =
-        settings::get_json(conn, "linked.medicine.dbPath")?
+        settings::get_json(conn, settings::KEY_MEDICINE_DB)?
     {
         if !s.trim().is_empty() {
             return Ok(PathBuf::from(s));

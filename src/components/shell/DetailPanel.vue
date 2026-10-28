@@ -159,7 +159,7 @@ async function launchIt() {
         <p v-if="secret !== null" class="dd">{{ secret === 'unavailable' ? '没有备注' : secret }}</p>
       </template>
 
-      <div v-else class="y-empty">选中任何待办、速达条目，这里显示它的全貌与操作。空的时候不占地方。</div>
+      <div v-else class="y-empty">选中任何待办、速达条目，这里显示它的全貌与操作。</div>
     </div>
 
     <footer v-if="todo || resource" class="y-dfoot">

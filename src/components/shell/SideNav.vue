@@ -1,23 +1,38 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 import { api } from '../../api'
 import type { PathsView } from '../../api/types'
+import { useBackup } from '../../composables/useBackup'
+import { useClock } from '../../composables/useClock'
 import { NAV, useShell } from '../../composables/useShell'
+import { relTime } from '../../lib/reltime'
 
 const { view, counts, go } = useShell()
+const backup = useBackup()
+const { now } = useClock()
 
 const paths = ref<PathsView | null>(null)
-const lastBackup = ref<string | null>(null)
 
 // 路径只截尾显示，完整值留在 title 里 —— 原则 4 要的是「能看见绝对路径」，不是被省略号吞掉
 const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p
 const parentDir = (p: string) => p.replace(/[\\/][^\\/]*$/, '')
 
+/**
+ * 上次成功时间只有一个来源：backup_log（useBackup 的 status）。
+ * 早先这里读 settings 的 backup.lastSuccessAt，那个键从没被写过，于是页面说「上次成功 4 分钟前」、
+ * 侧栏同时说「未配置」—— 两张脸对不上，正是原则 5 要避免的。
+ */
+const backupCard = computed(() => {
+  const st = backup.status.value
+  if (!st?.configured) return { v: '未配置', sub: '填一次应用密码后每天自动快照' }
+  if (!st.lastSuccessAt) return { v: '还没成功过', sub: '凭据已配，云端还没有第一份快照' }
+  return { v: relTime(now.value, st.lastSuccessAt), sub: null }
+})
+
 onMounted(async () => {
   paths.value = await api.paths()
-  const at = await api.settingsGet('backup.lastSuccessAt')
-  lastBackup.value = typeof at === 'number' ? new Date(at).toLocaleString('zh-CN') : null
+  if (!backup.status.value) void backup.load()
 })
 </script>
 
@@ -56,8 +71,8 @@ onMounted(async () => {
       </div>
       <div class="y-picker">
         <span class="k">坚果云备份</span>
-        <span class="v">{{ lastBackup ?? '未配置' }}</span>
-        <span v-if="!lastBackup" class="sub">填一次应用密码后每天自动快照</span>
+        <span class="v">{{ backupCard.v }}</span>
+        <span v-if="backupCard.sub" class="sub">{{ backupCard.sub }}</span>
       </div>
     </div>
   </aside>

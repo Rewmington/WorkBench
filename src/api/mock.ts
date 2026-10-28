@@ -1,8 +1,12 @@
 import type {
   Api,
+  BackupLogRow,
+  BackupOutcome,
+  BackupStatus,
   MedicineTodayPayload,
   PaletteHit,
   PathsView,
+  RemoteFile,
   Resource,
   SettingsView,
   SnapshotView,
@@ -29,7 +33,7 @@ const paths: PathsView = {
   icons: String.raw`C:\Users\hp\AppData\Local\dev.rewmington.anvil\icons`,
   logs: String.raw`C:\Users\hp\AppData\Local\dev.rewmington.anvil\logs`,
   backups: String.raw`C:\Users\hp\AppData\Local\dev.rewmington.anvil\backups`,
-  deviceId: 'pc-0196e4b3a1c27d80a9b0c1d2e3f40000',
+  deviceId: String.raw`C:\Users\hp\AppData\Local\dev.rewmington.anvil\device.id`,
   journalMode: 'wal',
 }
 
@@ -125,12 +129,52 @@ interface Store {
   zones: Zone[]
   secrets: Record<string, string>
   settings: Record<string, unknown>
+  backup: BackupSeed
+}
+
+/** 备份在浏览器里只演「状态机」：配没配凭据、流水、远端清单。加解密链路归 cargo test。 */
+interface BackupSeed {
+  email: string | null
+  hasPass: boolean
+  log: BackupLogRow[]
+  remote: RemoteFile[]
+}
+
+function freshBackup(): BackupSeed {
+  const t = Date.now()
+  return {
+    email: 'me@wmddd.online',
+    hasPass: true,
+    remote: [
+      { name: abackupName(new Date(t - 4 * 60_000), 'a1b2c3d4'), size: 138_112, readable: true },
+      { name: abackupName(new Date(t - 26 * 3_600_000), '9f8e7d6c'), size: 137_024, readable: true },
+      { name: abackupName(new Date(t - 50 * 3_600_000), '5e4d3c2b'), size: 132_096, readable: true },
+      // 药箱在同一个账号里的文件：real 侧永远列不出来，这里也不列
+    ],
+    log: [
+      { at: t - 26 * 3_600_000, ok: false, bytes: null, remotePath: null, error: '坚果云请求失败：dns error: 没有达到要求的名称服务器', kind: 'daily' },
+      { at: t - 26 * 3_600_000 + 61_000, ok: true, bytes: 137_024, remotePath: abackupName(new Date(t - 26 * 3_600_000), '9f8e7d6c'), error: null, kind: 'daily' },
+      { at: t - 4 * 60_000, ok: true, bytes: 138_112, remotePath: abackupName(new Date(t - 4 * 60_000), 'a1b2c3d4'), error: null, kind: 'manual' },
+    ],
+  }
+}
+
+// 与 Rust 的 file_name() 同格式：anvil-<UTC 时间戳>-<8 hex>.abackup
+function abackupName(d: Date, tag: string): string {
+  return `anvil-${d.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')}-${tag}.abackup`
 }
 
 const KEY = 'anvil.mock.store.v1'
 
 function freshStore(): Store {
-  return { todos: seedTodos(), resources: seedResources(), zones: seedZones(), secrets: {}, settings: {} }
+  return {
+    todos: seedTodos(),
+    resources: seedResources(),
+    zones: seedZones(),
+    secrets: {},
+    settings: {},
+    backup: freshBackup(),
+  }
 }
 
 function load(): Store {
@@ -433,6 +477,60 @@ export const mockApi: Api = {
     medicineDbExists: true,
     onlineCheckEnabled: true,
   }),
+
+  // ---- 备份：只演状态机，加解密与传输由 cargo test + tools/m4-check.mjs 负责 ----
+  backupStatus: async (): Promise<BackupStatus> => {
+    const b = store.backup
+    // 与 Rust 的 read_status 同一条 ORDER BY at DESC：之前直接在升序种子上 find()，
+    // 取到的是**最旧**一次成功，界面上就出现「上次成功 2 天前」压着「4 分钟前刚备份」。
+    const desc = [...b.log].sort((x, y) => y.at - x.at)
+    return {
+      configured: !!b.email && b.hasPass,
+      email: b.email,
+      lastSuccessAt: desc.find((l) => l.ok)?.at ?? null,
+      lastError: desc.find((l) => !l.ok)?.error ?? null,
+      lastErrorAt: desc.find((l) => !l.ok)?.at ?? null,
+      log: desc.slice(0, 20),
+      paths,
+      journalMode: paths.journalMode,
+    }
+  },
+  backupNow: async (): Promise<BackupOutcome> => {
+    const at = Date.now()
+    if (!store.backup.email || !store.backup.hasPass) {
+      return { at, ok: false, bytes: null, remotePath: null, error: '还没配好坚果云凭据，备份先不跑', skipped: true }
+    }
+    const bytes = 120_000 + Math.floor(Math.random() * 40_000)
+    const remotePath = abackupName(new Date(at), Math.random().toString(16).slice(2, 10))
+    store.backup.log.unshift({ at, ok: true, bytes, remotePath, error: null, kind: 'manual' })
+    store.backup.remote.unshift({ name: remotePath, size: bytes, readable: true })
+    save()
+    return { at, ok: true, bytes, remotePath, error: null, skipped: false }
+  },
+  backupSaveCredentials: async (email, password): Promise<BackupStatus> => {
+    if (!email.trim()) throw new Error('邮箱不能为空')
+    if (!password.trim()) throw new Error('应用密码不能为空')
+    store.backup.email = email.trim()
+    store.backup.hasPass = true
+    save()
+    return mockApi.backupStatus()
+  },
+  backupClearCredentials: async (): Promise<BackupStatus> => {
+    store.backup.email = null
+    store.backup.hasPass = false
+    save()
+    return mockApi.backupStatus()
+  },
+  backupListRemote: async () => store.backup.remote.filter((f) => !f.name.startsWith('device-')),
+  backupTestConnection: async () => store.backup.remote.length,
+  backupRestore: async (name): Promise<BackupOutcome> => {
+    const at = Date.now()
+    if (name.startsWith('device-')) throw new Error('那是药箱的同步文件，不是工作台的备份')
+    store.backup.log.unshift({ at, ok: true, bytes: null, remotePath: name, error: null, kind: 'restore' })
+    save()
+    return { at, ok: true, bytes: null, remotePath: name, error: null, skipped: false }
+  },
+  backupSelfTest: async (email, password) => !!email.trim() && !!password.trim(),
 }
 
 function snap(kind: string, status: SnapshotView['status'], items: unknown[], detail = '', extraMeta: Record<string, unknown> = {}): SnapshotView {

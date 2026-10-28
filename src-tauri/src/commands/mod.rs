@@ -3,6 +3,7 @@
 //! 约定（见 `db/mod.rs`）：repo 只收 `&Connection`，事务由这里持有。
 //! 需要多语句原子性的命令走 `in_tx`，单条 UPDATE 的直接用 `&Connection`。
 
+pub mod backup;
 pub mod launcher;
 pub mod linked;
 pub mod palette;

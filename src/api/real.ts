@@ -2,9 +2,12 @@ import { invoke } from '@tauri-apps/api/core'
 
 import type {
   Api,
+  BackupOutcome,
+  BackupStatus,
   LinkedState,
   PaletteHit,
   PathsView,
+  RemoteFile,
   Resource,
   SettingsView,
   SnapshotView,
@@ -13,7 +16,7 @@ import type {
   Zone,
 } from './types'
 
-/// 命令名 = Rust 函数名（snake_case）；参数对象用 camelCase 键。
+// 命令名 = Rust 函数名（snake_case）；参数对象用 camelCase 键。
 export const realApi: Api = {
   paths: () => invoke<PathsView>('paths'),
   deviceId: () => invoke<string>('device_id'),
@@ -63,4 +66,14 @@ export const realApi: Api = {
   linkedRestockTodo: (name, daysLeft) =>
     invoke<Todo>('linked_restock_todo', { name, daysLeft }),
   linkedSetBlogDir: (path) => invoke<SourcePaths>('linked_set_blog_dir', { path }),
+
+  backupStatus: () => invoke<BackupStatus>('backup_status'),
+  backupNow: () => invoke<BackupOutcome>('backup_now'),
+  backupSaveCredentials: (email, password) =>
+    invoke<BackupStatus>('backup_save_credentials', { email, password }),
+  backupClearCredentials: () => invoke<BackupStatus>('backup_clear_credentials'),
+  backupListRemote: () => invoke<RemoteFile[]>('backup_list_remote'),
+  backupTestConnection: () => invoke<number>('backup_test_connection'),
+  backupRestore: (name) => invoke<BackupOutcome>('backup_restore', { name }),
+  backupSelfTest: (email, password) => invoke<boolean>('backup_self_test', { email, password }),
 }

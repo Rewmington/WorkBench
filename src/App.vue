@@ -16,6 +16,7 @@ import { VIEW_TITLES, useShell } from './composables/useShell'
 import { useTodos } from './composables/useTodos'
 import { usePalette } from './composables/usePalette'
 import { toggleMode, useTheme } from './composables/useTheme'
+import Backup from './views/Backup.vue'
 import Blog from './views/Blog.vue'
 import Calendar from './views/Calendar.vue'
 import Launcher from './views/Launcher.vue'
@@ -131,6 +132,7 @@ function showHint(text: string) {
         <Calendar v-else-if="shell.view.value === 'calendar'" />
         <Blog v-else-if="shell.view.value === 'blog'" />
         <Medicine v-else-if="shell.view.value === 'medicine'" />
+        <Backup v-else-if="shell.view.value === 'backup'" />
         <div v-else class="y-empty">
           {{ runningInBrowser ? '浏览器预览（UI 验证用）· ' : '' }}「{{ title }}」要在后续里程碑接上；待办、速达、日历现在就能用，
           <button type="button" class="inline-link" @click="palette.show()">命令面板</button>也已经通了。

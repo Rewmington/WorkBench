@@ -74,6 +74,7 @@ pub const KEY_THEME_ACCENT: &str = "theme.accent";
 pub const KEY_MOTION_REDUCED: &str = "ui.reducedMotion";
 pub const KEY_WIDGET_ORDER: &str = "ui.widgetOrder";
 pub const KEY_BLOG_REPO_DIR: &str = "linked.blog.repoDir";
+pub const KEY_MEDICINE_DB: &str = "linked.medicine.dbPath";
 pub const KEY_BLOG_ONLINE_CHECK: &str = "linked.blog.onlineCheck";
 pub const KEY_WDAV_EMAIL: &str = "webdav.email";
 pub const KEY_BACKUP_ENABLED: &str = "backup.enabled";

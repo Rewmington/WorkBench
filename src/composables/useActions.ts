@@ -1,4 +1,5 @@
 import { api } from '../api'
+import { useBackup } from '../composables/useBackup'
 import { NAV } from '../composables/useShell'
 import { useShell } from '../composables/useShell'
 import { toggleMode } from '../composables/useTheme'
@@ -18,6 +19,7 @@ export interface Action {
  */
 export function useActions(): Action[] {
   const shell = useShell()
+  const backup = useBackup()
 
   const navigate: Action[] = NAV.flatMap((group) =>
     group.items.map((item) => ({
@@ -55,6 +57,27 @@ export function useActions(): Action[] {
   const system: Action[] = [
     { id: 'theme.toggle', label: '切换深色 / 浅色', group: '外观', run: () => toggleMode() },
     { id: 'data.openDir', label: '打开数据文件夹', hint: '库文件与图标缓存', group: '系统', run: () => api.openDataDir() },
+    {
+      id: 'backup.now',
+      label: '立即备份到坚果云',
+      hint: '加密后 PUT 到 /dav/workbench-backup/',
+      group: '系统',
+      // 先跳过去再跑：结果与流水都渲染在备份页，站在别的视图点它会得到「什么都没发生」
+      run: async () => {
+        shell.go('backup')
+        await backup.runNow()
+      },
+    },
+    {
+      id: 'backup.test',
+      label: '测试坚果云连接',
+      hint: '只列目录，不写任何东西',
+      group: '系统',
+      run: async () => {
+        shell.go('backup')
+        await backup.testConnection()
+      },
+    },
   ]
 
   return [...create, ...navigate, ...system]

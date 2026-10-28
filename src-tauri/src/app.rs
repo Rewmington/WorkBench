@@ -1,6 +1,6 @@
 //! 组合根：状态、插件、托盘、窗口事件、命令注册。
 
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
@@ -66,6 +66,7 @@ pub fn run() {
         db: Mutex::new(conn),
         device_id: Arc::from(device_id.as_str()),
         tray_hint_shown: AtomicBool::new(false),
+        backup_failures: AtomicU32::new(0),
         paths,
     };
 
@@ -124,11 +125,20 @@ pub fn run() {
             commands::linked::linked_check_online,
             commands::linked::linked_restock_todo,
             commands::linked::linked_set_blog_dir,
+            commands::backup::backup_status,
+            commands::backup::backup_now,
+            commands::backup::backup_save_credentials,
+            commands::backup::backup_clear_credentials,
+            commands::backup::backup_list_remote,
+            commands::backup::backup_test_connection,
+            commands::backup::backup_restore,
+            commands::backup::backup_self_test,
         ])
         // 托盘与右键菜单的点击都汇到这一个分发口。
         .on_menu_event(|app, event| menus::handle(app, event.id().as_ref()))
         .setup(|app| {
             tray::build(app)?;
+            crate::backup::schedule::spawn(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window: &Window, event: &WindowEvent| match event {

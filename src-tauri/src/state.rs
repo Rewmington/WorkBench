@@ -104,6 +104,8 @@ pub struct AppState {
     pub device_id: Arc<str>,
     /// 首次收进托盘时提示一次「关掉了但还在跑」，之后不再打扰。
     pub tray_hint_shown: std::sync::atomic::AtomicBool,
+    /// 备份连续失败次数，决定下一次退避多久。
+    pub backup_failures: std::sync::atomic::AtomicU32,
 }
 
 impl AppState {

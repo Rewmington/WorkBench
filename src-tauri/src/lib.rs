@@ -1,4 +1,5 @@
 pub mod app;
+pub mod backup;
 pub mod commands;
 pub mod db;
 pub mod error;
