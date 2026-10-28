@@ -1,6 +1,6 @@
+use crate::error::Result;
 use rusqlite::{params, Connection};
 use serde_json::Value;
-use crate::error::Result;
 
 /// `settings(key, value_json)`：主题、布局、快捷键、服务开关。
 /// 坚果云应用密码不进这张表 —— 它走 Windows 凭据管理器（PLAN §6.2）。
@@ -18,7 +18,13 @@ pub fn get_json(conn: &Connection, key: &str) -> Result<Option<Value>> {
     Ok(raw.and_then(|s| serde_json::from_str(&s).ok()))
 }
 
-pub fn set_json(conn: &Connection, key: &str, value: &Value, now_ms: i64, device: &str) -> Result<()> {
+pub fn set_json(
+    conn: &Connection,
+    key: &str,
+    value: &Value,
+    now_ms: i64,
+    device: &str,
+) -> Result<()> {
     conn.execute(
         "INSERT INTO settings (key, value_json, updated_at, updated_by)
          VALUES (?1, ?2, ?3, ?4)
@@ -86,6 +92,9 @@ mod tests {
         // 默认值确实落了库
         assert_eq!(all(&conn).unwrap().len(), 1);
         set_json(&conn, KEY_MOTION_REDUCED, &Value::Bool(true), 2, "pc-b").unwrap();
-        assert_eq!(get_json(&conn, KEY_MOTION_REDUCED).unwrap(), Some(Value::Bool(true)));
+        assert_eq!(
+            get_json(&conn, KEY_MOTION_REDUCED).unwrap(),
+            Some(Value::Bool(true))
+        );
     }
 }

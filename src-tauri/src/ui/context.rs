@@ -38,13 +38,14 @@ pub fn popup(window: Window, kind: MenuKind) -> Result<()> {
             .item(&PredefinedMenuItem::paste(app, Some("粘贴"))?)
             .item(&PredefinedMenuItem::select_all(app, Some("全选"))?),
         MenuKind::Shell => {
-            let copy = MenuItemBuilder::with_id(super::menus::ID_COPY, "复制选中内容").build(app)?;
+            let copy =
+                MenuItemBuilder::with_id(super::menus::ID_COPY, "复制选中内容").build(app)?;
             builder.item(&copy)
         }
     };
 
-    let open_dir = MenuItemBuilder::with_id(super::menus::ID_OPEN_DIR, "打开数据文件夹")
-        .build(app)?;
+    let open_dir =
+        MenuItemBuilder::with_id(super::menus::ID_OPEN_DIR, "打开数据文件夹").build(app)?;
     let reload = MenuItemBuilder::with_id(super::menus::ID_RELOAD, "重新加载").build(app)?;
     let settings = MenuItemBuilder::with_id(super::menus::ID_SETTINGS, "设置").build(app)?;
 

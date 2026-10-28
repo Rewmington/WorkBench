@@ -51,9 +51,11 @@ mod tests {
         assert_eq!(version(&conn).unwrap(), 1);
 
         let n: i64 = conn
-            .query_row("SELECT count(*) FROM sqlite_master WHERE type='table'", [], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         // 13 张表 + sqlite_sequence（backup_log 用了 AUTOINCREMENT）
         assert!(n >= 13, "期望至少 13 张表，实际 {n}");
