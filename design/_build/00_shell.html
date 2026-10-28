@@ -1,0 +1,541 @@
+<style>
+  /* ---------- 外壳（换页导航） ---------- */
+  .wb-doc { margin: 0; background: #07090a; color: #eef2f0; font: 400 13px/1.5 Inter, ui-sans-serif, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .wb-doc[data-theme="light"] { background: #e6eae9; color: #14181a; }
+  .wb { position: sticky; top: 0; z-index: 20; backdrop-filter: blur(14px); background: rgba(7,9,10,.82); border-bottom: 1px solid rgba(255,255,255,.08); padding: 11px 16px 10px; }
+  .wb-doc[data-theme="light"] .wb { background: rgba(238,241,240,.88); border-bottom-color: rgba(20,30,26,.1); }
+  .wb-top { display: flex; align-items: baseline; gap: 10px; margin-bottom: 9px; flex-wrap: wrap; }
+  .wb-top .t { font-size: 14.5px; font-weight: 800; letter-spacing: -.02em; }
+  .wb-top .s { font-size: 11.5px; opacity: .62; }
+  .wb-top .sp { flex: 1; }
+  .wb-theme { font: inherit; font-size: 12px; font-weight: 650; padding: 6px 11px; border-radius: 8px; border: 1px solid rgba(128,140,135,.34); background: rgba(128,140,135,.1); color: inherit; cursor: pointer; }
+  .wb-nav { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .wb-grp { display: flex; align-items: center; gap: 5px; }
+  .wb-grp > .lb { font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; opacity: .45; margin-right: 3px; }
+  .wb-btn { font: inherit; font-size: 12.5px; font-weight: 650; padding: 7px 12px; border-radius: 9px; border: 1px solid transparent; background: rgba(128,140,135,.13); color: inherit; opacity: .78; cursor: pointer; white-space: nowrap; }
+  .wb-btn:hover { opacity: 1; }
+  .wb-btn[aria-pressed="true"] { opacity: 1; background: #f4f7f5; color: #0d1211; box-shadow: 0 2px 8px rgba(0,0,0,.3); }
+  .wb-doc[data-theme="light"] .wb-btn[aria-pressed="true"] { background: #14181a; color: #f4f7f5; }
+  .wb-btn.y[aria-pressed="true"] { background: #34d399; color: #06301f; }
+  .wb-hint { font-size: 11px; opacity: .45; margin-left: auto; }
+  .wb-hint kbd { font: 650 10px/1 ui-monospace, Consolas, monospace; padding: 2.5px 5px; border-radius: 4px; border: 1px solid rgba(128,140,135,.34); }
+  #stage > * { display: none; }
+  #stage > [data-show] { display: block; }
+  svg { display: block; }
+  code { font: 500 11.5px/1.5 ui-monospace, Consolas, monospace; background: rgba(128,140,135,.16); padding: 1.5px 5px; border-radius: 5px; }
+
+  /* ---------- 方案 Y：你截图的原样复刻 ---------- */
+  .ycs {
+    --bg: #080b0a; --panel: #0d1110; --card: #131816; --card-2: #0f1413;
+    --line: rgba(255,255,255,.07); --line-2: rgba(255,255,255,.12);
+    --t1: #f1f5f3; --t2: #a3ada8; --t3: #6b7570;
+    --accent: #2ee27a; --accent-2: #10b981; --accent-ink: #04240f;
+    --blue: #60a5fa; --amber: #fbbf24; --red: #f87171;
+    --r: 14px;
+    padding: 16px; color: var(--t1); background: var(--bg);
+    font: 400 13px/1.5 Inter, ui-sans-serif, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  .ycs[data-theme="light"] {
+    --bg: #eef1f0; --panel: #f8faf9; --card: #ffffff; --card-2: #f2f5f4;
+    --line: rgba(20,30,26,.09); --line-2: rgba(20,30,26,.16);
+    --t1: #101614; --t2: #57615d; --t3: #8a938e;
+    --accent: #059669; --accent-2: #10b981; --accent-ink: #ffffff;
+    --blue: #2563eb; --amber: #b45309; --red: #b91c1c;
+  }
+  .ycs * { box-sizing: border-box; }
+  .ycs button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  .y-note { font-size: 12px; line-height: 1.7; color: var(--t2); padding: 11px 14px; border-left: 2px solid var(--accent); background: rgba(128,140,135,.1); border-radius: 0 10px 10px 0; margin: 0 0 13px; }
+  .y-note b { color: var(--t1); }
+  .y-win { border-radius: 16px; overflow: hidden; border: 1px solid var(--line-2); box-shadow: 0 30px 70px rgba(0,0,0,.5); background: radial-gradient(900px 420px at 12% -10%, rgba(46,226,122,.10), transparent 60%), radial-gradient(700px 380px at 92% 4%, rgba(56,120,255,.09), transparent 62%), var(--bg); }
+  .y-shell { display: grid; grid-template-columns: 208px minmax(0,1fr) 302px; min-height: 640px; }
+
+  /* 侧栏 */
+  .y-side { background: var(--panel); border-right: 1px solid var(--line); padding: 15px 11px 12px; display: flex; flex-direction: column; }
+  .y-logo { display: flex; align-items: center; gap: 8px; padding: 2px 6px 16px; }
+  .y-logo .b { width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(150deg, var(--accent), #0a7a45); display: grid; place-items: center; color: #04240f; font-weight: 900; font-size: 11px; letter-spacing: -.03em; }
+  .y-logo .n { font-size: 15px; font-weight: 800; letter-spacing: -.02em; }
+  .y-logo .s { font-size: 10px; color: var(--t3); font-weight: 700; letter-spacing: .06em; }
+  .y-nav { display: flex; flex-direction: column; gap: 1px; }
+  .y-nav .it { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; color: var(--t2); font-weight: 550; font-size: 12.5px; position: relative; }
+  .y-nav .it .n { margin-left: auto; font-size: 11px; color: var(--t3); font-variant-numeric: tabular-nums; }
+  .y-nav .it[aria-current="page"] { background: linear-gradient(90deg, rgba(46,226,122,.16), rgba(46,226,122,.04)); color: var(--t1); font-weight: 750; box-shadow: inset 0 0 0 1px rgba(46,226,122,.22); }
+  .y-nav .it[aria-current="page"] .chev { margin-left: 4px; color: var(--accent); }
+  .y-nav .grp { font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--t3); padding: 14px 10px 5px; }
+  .y-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px rgba(46,226,122,.16); flex: none; }
+  .y-sidefoot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
+  .y-picker { border: 1px solid var(--line-2); background: var(--card); border-radius: 10px; padding: 9px 10px; font-size: 12px; display: flex; align-items: center; gap: 7px; }
+  .y-picker .k { font-size: 10px; color: var(--t3); font-weight: 800; letter-spacing: .06em; }
+  .y-user { display: flex; align-items: center; gap: 9px; padding: 9px 6px 0; }
+  .y-user .av { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(150deg,#2f3a35,#111614); display: grid; place-items: center; font-size: 10.5px; font-weight: 800; color: var(--t2); box-shadow: inset 0 0 0 1px var(--line-2); }
+  .y-user .nm { font-size: 12.5px; font-weight: 700; }
+  .y-user .rl { font-size: 10.5px; color: var(--t3); display: flex; align-items: center; gap: 5px; }
+
+  /* 中栏 */
+  .y-ctr { min-width: 0; padding: 15px 16px 16px; }
+  .y-head { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 14px; }
+  .y-head h1 { margin: 0; font-size: 21px; font-weight: 800; letter-spacing: -.03em; }
+  .y-head .sub { font-size: 11.5px; color: var(--t3); margin-top: 4px; }
+  .y-search { flex: 1; max-width: 380px; margin: 4px auto 0; display: flex; align-items: center; gap: 9px; padding: 9px 12px; border-radius: 11px; border: 1px solid var(--line-2); background: var(--card); color: var(--t3); font-size: 12.5px; }
+  .y-search .kbd { margin-left: auto; font: 700 10.5px/1 ui-monospace, Consolas, monospace; padding: 3.5px 6px; border-radius: 5px; border: 1px solid var(--line-2); background: rgba(128,140,135,.12); color: var(--t2); }
+  .y-acts { display: flex; align-items: center; gap: 7px; }
+  .y-ico { width: 32px; height: 32px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--card); display: grid; place-items: center; color: var(--t2); }
+  .y-primary { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-weight: 800; font-size: 12.5px; box-shadow: 0 8px 22px rgba(46,226,122,.28); }
+
+  /* KPI：照片模糊底（参考图第 1 特征） */
+  .y-kpis { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 11px; margin-bottom: 14px; }
+  .y-kpi { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r); padding: 13px 14px; min-height: 106px; background: var(--card); }
+  .y-kpi .ph { position: absolute; inset: -30% -10% auto auto; width: 130%; height: 190%; filter: blur(26px) saturate(1.45) brightness(.6); opacity: .92; }
+  .y-kpi .ph.n0 { background: radial-gradient(closest-side, #b9f2d4, #4bbf8a 45%, #123a2a 78%, transparent); }
+  .y-kpi .ph.n1 { background: radial-gradient(closest-side, #ffd9a8, #e0703a 40%, #2b1a3a 80%, transparent); }
+  .y-kpi .ph.n2 { background: radial-gradient(closest-side, #a8d5ff, #3b6fe0 42%, #101a3a 80%, transparent); }
+  .y-kpi .ph.n3 { background: radial-gradient(closest-side, #ffc2d8, #d63b6a 40%, #2a1020 80%, transparent); }
+  .ycs[data-theme="light"] .y-kpi .ph { opacity: .62; filter: blur(26px) saturate(1.2) brightness(1.06); }
+  .y-kpi > * { position: relative; }
+  .y-kpi .en { font: 800 9.5px/1 ui-monospace, Consolas, monospace; letter-spacing: .13em; color: var(--t2); }
+  .y-kpi .cn { font-size: 11.5px; color: var(--t3); font-weight: 650; margin-left: 6px; }
+  .y-kpi .num { font-size: 34px; font-weight: 850; letter-spacing: -.045em; line-height: 1.05; margin-top: 8px; font-variant-numeric: tabular-nums; }
+  .y-kpi .num span { font-size: 11.5px; font-weight: 650; opacity: .72; margin-left: 5px; letter-spacing: 0; }
+  .y-kpi .d { font-size: 11px; color: var(--t2); font-weight: 650; margin-top: 7px; }
+  .y-kpi .d i { font-style: normal; color: var(--accent); }
+  .y-kpi.sel { background: #f6faf7; color: #0d1211; border-color: transparent; box-shadow: 0 16px 36px rgba(0,0,0,.32); }
+  .y-kpi.sel .en, .y-kpi.sel .cn, .y-kpi.sel .d { color: #4b5450; }
+  .y-kpi.sel .d i { color: #059669; }
+  .ycs[data-theme="light"] .y-kpi.sel { box-shadow: 0 10px 26px rgba(20,30,26,.13); }
+
+  /* 中栏两列：队列 + 3D 环 */
+  .y-mid { display: grid; grid-template-columns: 268px minmax(0,1fr); gap: 12px; }
+  .y-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .y-sech { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+  .y-sech h2 { margin: 0; font-size: 13.5px; font-weight: 800; letter-spacing: -.015em; }
+  .y-demo { font-size: 9.5px; font-weight: 800; letter-spacing: .06em; color: var(--t3); border: 1px solid var(--line-2); padding: 2.5px 7px; border-radius: 20px; }
+  .y-q { border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 10px 11px; }
+  .y-q .h { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 750; margin-bottom: 8px; }
+  .y-q .h .c { color: var(--t3); font-weight: 700; }
+  .y-q .h .chev { margin-left: auto; color: var(--t3); }
+  .y-qr { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 12px; }
+  .y-qr .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+  .y-qr .st { font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 5px; background: rgba(46,226,122,.14); color: var(--accent); flex: none; }
+  .y-qr .st.read { background: rgba(96,165,250,.14); color: var(--blue); }
+  .y-qr .tm { font-size: 10.5px; color: var(--t3); font-variant-numeric: tabular-nums; flex: none; }
+
+  /* 3D 卡片环 */
+  .y-stage { position: relative; border: 1px solid var(--line); border-radius: var(--r); background: linear-gradient(180deg, var(--card), var(--card-2)); padding: 11px; min-width: 0; }
+  .y-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+  .y-tool { display: flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--card-2); color: var(--t2); }
+  .y-tool.on { background: rgba(46,226,122,.13); border-color: rgba(46,226,122,.3); color: var(--accent); }
+  .y-live { margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 750; color: var(--accent); }
+  .y-ringbox { position: relative; height: 268px; perspective: 1100px; display: grid; place-items: center; overflow: hidden; }
+  .y-ring { position: relative; width: 128px; height: 168px; transform-style: preserve-3d; animation: yspin 26s linear infinite; animation-delay: -17.3s; }
+  .y-ring[data-paused] { animation-play-state: paused; }
+  @keyframes yspin { from { transform: rotateY(0) } to { transform: rotateY(360deg) } }
+  .y-c { position: absolute; inset: 0; border-radius: 11px; padding: 11px; background: linear-gradient(165deg, #f7faf8, #cfd8d3); color: #16211c; box-shadow: 0 12px 26px rgba(0,0,0,.4); transform: rotateY(calc(var(--i) * 60deg)) translateZ(210px); backface-visibility: hidden; }
+  .y-c .id { font: 700 9px/1 ui-monospace, Consolas, monospace; letter-spacing: .1em; opacity: .55; }
+  .y-c .ln { height: 5px; border-radius: 3px; background: rgba(20,30,26,.14); margin-top: 7px; }
+  .y-c .ti { font-size: 11.5px; font-weight: 800; margin-top: 12px; line-height: 1.35; }
+  .y-c .mt { font-size: 10px; opacity: .6; margin-top: 5px; }
+  .y-c.hot { background: linear-gradient(165deg, #4ef29a, #0f9b5f); color: #04240f; box-shadow: 0 16px 40px rgba(46,226,122,.34); }
+  .y-gauge { position: absolute; left: 14px; top: 14px; z-index: 3; width: 128px; border-radius: 12px; padding: 12px 13px; background: rgba(14,19,17,.86); border: 1px solid var(--line-2); box-shadow: 0 18px 40px rgba(0,0,0,.5); backdrop-filter: blur(10px); }
+  .ycs[data-theme="light"] .y-gauge { background: rgba(255,255,255,.9); }
+  .y-gauge .k { font-size: 11px; color: var(--t2); font-weight: 650; }
+  .y-gauge .v { font-size: 27px; font-weight: 850; letter-spacing: -.04em; margin-top: 5px; font-variant-numeric: tabular-nums; }
+  .y-gauge .m { font-size: 10.5px; color: var(--t3); margin-top: 2px; }
+  .y-gauge .bar { height: 4px; border-radius: 3px; background: rgba(128,140,135,.25); margin-top: 9px; overflow: hidden; }
+  .y-gauge .bar i { display: block; height: 100%; width: 84%; background: var(--accent); }
+  .y-drag { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 8px 10px; border-radius: 9px; background: var(--card-2); border: 1px solid var(--line); font-size: 11px; color: var(--t3); }
+  .y-drag b { color: var(--t2); font-weight: 700; }
+
+  /* 时间轴 */
+  .y-time { margin-top: 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--card); padding: 11px 12px; }
+  .y-timeh { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; }
+  .y-timeh .t { font-size: 12.5px; font-weight: 800; }
+  .y-timeh .m { font-size: 11.5px; color: var(--t3); margin-left: auto; }
+  .y-seg { display: flex; gap: 3px; padding: 3px; background: rgba(128,140,135,.14); border-radius: 9px; }
+  .y-seg span { padding: 4.5px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; color: var(--t2); }
+  .y-seg .on { background: var(--accent); color: var(--accent-ink); }
+  .y-days { display: flex; gap: 4px; align-items: center; overflow: hidden; }
+  .y-days i { font-style: normal; font-size: 10px; color: var(--t3); width: 21px; text-align: center; flex: none; font-variant-numeric: tabular-nums; }
+  .y-days i.now { color: #04240f; background: var(--accent); border-radius: 50%; font-weight: 800; }
+  .y-days i.dim { opacity: .38; }
+  .y-track { height: 5px; border-radius: 3px; background: rgba(128,140,135,.2); margin-top: 9px; overflow: hidden; }
+  .y-track i { display: block; height: 100%; width: 62%; background: linear-gradient(90deg, var(--accent-2), var(--accent)); }
+
+  /* 右栏：智能详情 */
+  .y-detail { background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; }
+  .y-dh { display: flex; align-items: center; gap: 7px; padding: 15px 15px 12px; }
+  .y-dh .t { font-size: 12.5px; font-weight: 800; letter-spacing: .02em; }
+  .y-dh .pin { margin-left: auto; color: var(--t3); }
+  .y-db { padding: 0 15px 12px; flex: 1; }
+  .y-id { font: 700 10px/1 ui-monospace, Consolas, monospace; letter-spacing: .09em; color: var(--t3); margin-bottom: 9px; }
+  .y-dt { font-size: 17px; font-weight: 850; letter-spacing: -.025em; line-height: 1.35; }
+  .y-dt .tag { font-size: 10px; font-weight: 800; color: var(--red); background: rgba(248,113,113,.14); padding: 3px 7px; border-radius: 6px; margin-left: 7px; vertical-align: middle; white-space: nowrap; }
+  .y-dd { font-size: 12.5px; color: var(--t2); line-height: 1.65; margin: 9px 0 14px; }
+  .y-dl { display: grid; grid-template-columns: 66px minmax(0,1fr); gap: 10px 10px; font-size: 12px; }
+  .y-dl dt { color: var(--t3); font-weight: 650; }
+  .y-dl dd { margin: 0; color: var(--t1); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .y-chip { font-size: 10.5px; font-weight: 700; padding: 2.5px 8px; border-radius: 20px; background: rgba(128,140,135,.16); color: var(--t2); }
+  .y-chip.a { background: rgba(46,226,122,.13); color: var(--accent); }
+  .y-ai { margin-top: 15px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 11px 12px; }
+  .y-ai .h { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 800; margin-bottom: 8px; }
+  .y-ai .h .no { margin-left: auto; font-size: 9.5px; font-weight: 800; letter-spacing: .04em; color: var(--amber); border: 1px solid rgba(251,191,36,.35); background: rgba(251,191,36,.1); padding: 2px 6px; border-radius: 5px; }
+  .y-ai ul { margin: 0; padding-left: 15px; color: var(--t2); font-size: 12px; line-height: 1.7; }
+  .y-ai .more { display: inline-block; margin-top: 9px; font-size: 11.5px; font-weight: 750; color: var(--t1); border: 1px solid var(--line-2); border-radius: 8px; padding: 5px 9px; background: var(--card-2); }
+  .y-dfoot { border-top: 1px solid var(--line); background: var(--card-2); padding: 11px 14px; display: flex; gap: 8px; }
+  .y-ghost { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 9px; border-radius: 9px; border: 1px solid var(--line-2); font-weight: 700; font-size: 12px; }
+  .y-solid { flex: 1.15; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 9px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); font-weight: 850; font-size: 12px; }
+  .y-more { width: 34px; border-radius: 9px; border: 1px solid var(--line-2); display: grid; place-items: center; color: var(--t2); }
+  .ycost { margin-top: 13px; display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 11px; }
+  .ycost .c { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 12px 13px; }
+  .ycost .c .h { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--t3); margin-bottom: 8px; }
+  .ycost .c p { margin: 0; font-size: 12px; line-height: 1.7; color: var(--t2); }
+  .ycost .c p b { color: var(--t1); }
+  .ycost .c.warn { border-color: rgba(251,191,36,.3); background: rgba(251,191,36,.06); }
+
+  /* ---------- 对比与选择 ---------- */
+  .wb-pick { padding: 16px; max-width: 1240px; margin: 0 auto; }
+  .pk-note { font-size: 12.5px; line-height: 1.7; color: var(--t2); padding: 11px 14px; border-left: 2px solid #34d399; background: rgba(128,140,135,.1); border-radius: 0 10px 10px 0; margin: 0 0 14px; }
+  .pk-note b { color: var(--t1); }
+  .pk-h { font-size: 13.5px; font-weight: 800; letter-spacing: -.01em; margin: 20px 0 10px; }
+  .pk-h span { font-size: 11.5px; font-weight: 600; color: var(--t3); margin-left: 8px; }
+  .pk-card { border: 1px solid rgba(128,140,135,.22); border-radius: 14px; background: rgba(255,255,255,.025); padding: 14px 15px; }
+  .wb-doc[data-theme="light"] .pk-card { background: #fff; border-color: rgba(20,30,26,.1); }
+  table.pk { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.pk th { text-align: left; font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--t3); padding: 0 10px 10px; font-weight: 800; }
+  table.pk td { padding: 11px 10px; border-top: 1px solid rgba(128,140,135,.18); vertical-align: top; line-height: 1.6; color: var(--t2); }
+  table.pk td:first-child { color: var(--t1); font-weight: 750; white-space: nowrap; }
+  table.pk b { color: var(--t1); }
+  .pk-yes { color: #34d399; font-weight: 800; } .pk-no { color: #f87171; font-weight: 800; } .pk-mid { color: #fbbf24; font-weight: 800; }
+  .pk-opts { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
+  .pk-opt { border: 1px solid rgba(128,140,135,.26); border-radius: 14px; padding: 14px; cursor: pointer; background: rgba(255,255,255,.025); display: flex; flex-direction: column; gap: 8px; }
+  .wb-doc[data-theme="light"] .pk-opt { background: #fff; }
+  .pk-opt:hover { border-color: rgba(52,211,153,.5); }
+  .pk-opt[data-on] { border-color: #34d399; box-shadow: 0 0 0 1px #34d399, 0 14px 34px rgba(0,0,0,.28); }
+  .pk-opt .r { display: flex; align-items: center; gap: 9px; font-size: 13.5px; font-weight: 800; }
+  .pk-opt .rad { width: 17px; height: 17px; border-radius: 50%; border: 1.8px solid rgba(128,140,135,.5); display: grid; place-items: center; flex: none; }
+  .pk-opt[data-on] .rad { border-color: #34d399; }
+  .pk-opt[data-on] .rad::after { content: ""; width: 9px; height: 9px; border-radius: 50%; background: #34d399; }
+  .pk-opt p { margin: 0; font-size: 12px; line-height: 1.7; color: var(--t2); }
+  .pk-opt p b { color: var(--t1); }
+  .pk-opt .cost { font-size: 11px; color: var(--t3); border-top: 1px dashed rgba(128,140,135,.3); padding-top: 8px; margin-top: auto; }
+  .pk-verdict { margin-top: 12px; border-radius: 12px; padding: 12px 14px; font-size: 12.5px; line-height: 1.7; background: rgba(52,211,153,.09); border: 1px solid rgba(52,211,153,.3); color: var(--t2); }
+  .pk-verdict b { color: var(--t1); }
+  .pk-ref { margin-top: 10px; }
+  .pk-ref img { width: 100%; border-radius: 12px; border: 1px solid rgba(128,140,135,.26); display: block; }
+  .pk-ref figcaption { font-size: 11px; color: var(--t3); margin-top: 7px; line-height: 1.6; }
+  .pk-two { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px; }
+</style>
+<!--{{EXTRA_CSS}}-->
+
+<div class="wb-doc" id="doc" data-theme="dark">
+<header class="wb">
+  <div class="wb-top">
+    <span class="t">Anvil · UI 选型</span>
+    <span class="s">同一份数据、两种做法：<b>候选一</b> = 照你那张截图原样做；<b>候选二</b> = 我按 PLAN §8 取舍后的三栏版。最后一栏可直接点选。</span>
+    <span class="sp"></span>
+    <button class="wb-theme" id="themeBtn">切换亮色</button>
+  </div>
+  <nav class="wb-nav">
+    <div class="wb-grp"><span class="lb">候选一</span>
+      <button class="wb-btn y" data-t="ycs:y">照你截图那版做</button>
+    </div>
+    <div class="wb-grp"><span class="lb">候选二 · 三栏</span>
+      <button class="wb-btn" data-t="wz:home">工作台</button>
+      <button class="wb-btn" data-t="wz:todo">待办 + 详情</button>
+      <button class="wb-btn" data-t="st:v">统计</button>
+      <button class="wb-btn" data-t="wz:link">外部联动</button>
+    </div>
+    <div class="wb-grp"><span class="lb">依据</span>
+      <button class="wb-btn" data-t="wz:verdict">借鉴了什么</button>
+      <button class="wb-btn" data-t="st:w">图表选型</button>
+      <button class="wb-btn" data-t="pk:cmp">对比与选择</button>
+      <button class="wb-btn" data-t="wz:phone">手机伴侣（v2 延后）</button>
+    </div>
+    <span class="wb-hint"><kbd>1</kbd>–<kbd>9</kbd> 换页 · <kbd>T</kbd> 换主题</span>
+  </nav>
+</header>
+
+<div id="stage">
+
+<!-- ============ 方案 Y：你截图的原样复刻 ============ -->
+<div class="ycs" id="ycs" data-theme="dark" data-pane="y">
+  <p class="y-note">这是把你那张 <b>YCS Knowledge OS</b> 截图<b>按原样复刻</b>、只把内容换成工作台数据：照片模糊底的 KPI 卡、常驻右栏智能详情、3D 卡片环 + 自动巡航、底部时间轴、文字侧栏带计数。截图里我们决定不做的三样，我用 <b style="color:var(--amber)">v1 不做</b> 标出来了 —— 你要选这版，就得连它们一起做。</p>
+  <div class="y-win"><div class="y-shell">
+
+    <aside class="y-side">
+      <div class="y-logo"><span class="b">AV</span><span><span class="n">Anvil</span><br><span class="s">LOCAL FIRST</span></span></div>
+      <nav class="y-nav">
+        <div class="it" aria-current="page"><span class="y-dot"></span>今日驾驶舱<span class="chev">›</span></div>
+        <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h10M4 12h10M4 18h6"/><path d="m17 15 2 2 3-4"/></svg>待办队列<span class="n">3</span></div>
+        <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H3z"/><path d="M3 7V5h5l2 2"/></svg>速达</div>
+        <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h11l3 3v15H5z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>笔记<span class="n">42</span></div>
+        <div class="grp">进行</div>
+        <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg>倒计时<span class="n">2</span></div>
+        <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h11l3 3v15H5z"/><path d="M8 9h8"/></svg>便签<span class="n">2</span></div>
+        <div class="grp">回顾</div>
+        <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>统计</div>
+        <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg>日历</div>
+        <div class="grp">外部</div>
+        <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v11H4z"/><path d="M8 20h8M12 16v4"/></svg>博客<span class="n">6</span></div>
+        <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.5 3.5 3.5 10.5a5 5 0 0 0 7 7l7-7a5 5 0 0 0-7-7z"/><path d="M7 7l10 10"/></svg>药箱<span class="n">2</span></div>
+        <div class="grp">系统</div>
+        <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 19h16"/></svg>备份</div>
+        <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>设置</div>
+      </nav>
+      <div class="y-sidefoot">
+        <div class="y-picker"><span class="k">LOCAL</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">dev.rewmington.anvil\app.db</span><span class="y-chip" style="font-size:9.5px;padding:2px 6px">仅本机</span></div>
+        <div class="y-picker" style="justify-content:space-between"><span class="k">备份</span><span style="display:flex;align-items:center;gap:6px"><span class="y-dot"></span>昨天 22:03</span><span style="color:var(--t3)">›</span></div>
+      </div>
+    </aside>
+
+    <div class="y-ctr">
+      <div class="y-head">
+        <div><h1>今日驾驶舱</h1><div class="sub">待办识别 · 节奏推进 · 习惯沉淀</div></div>
+        <div class="y-search"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>搜索待办、笔记、目录或标签…<span class="kbd">⌘K</span></div>
+        <div class="y-acts">
+          <button class="y-ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V8M10 20V4M16 20v-9M22 20H2"/></svg></button>
+          <button class="y-ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+          <button class="y-primary"><svg width="13" height="13" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.8"><path d="M12 5v14M5 12h14"/></svg>立即捕获</button>
+        </div>
+      </div>
+
+      <div class="y-kpis">
+        <div class="y-kpi sel"><span class="ph n0"></span><div><span class="en">TODAY / 今日到期</span></div><div class="num">3<span>项</span></div><div class="d">较昨日 <i>↑ 1</i></div></div>
+        <div class="y-kpi"><span class="ph n1"></span><div><span class="en">INBOX / 待整理</span></div><div class="num">5<span>条</span></div><div class="d">手机来 <i>2 条</i></div></div>
+        <div class="y-kpi"><span class="ph n2"></span><div><span class="en">DONE / 本周完成</span></div><div class="num">12<span>项</span></div><div class="d">日均 <i>2.4</i></div></div>
+        <div class="y-kpi"><span class="ph n3"></span><div><span class="en">LATE / 逾期未清</span></div><div class="num">1<span>项</span></div><div class="d">最久 <i style="color:var(--red)">2 小时</i></div></div>
+      </div>
+
+      <div class="y-mid">
+        <div class="y-col">
+          <div class="y-sech"><h2>待办队列</h2><span class="y-demo">演示数据</span></div>
+          <div class="y-q">
+            <div class="h"><span class="y-dot"></span>今日新增<span class="c">3</span><span class="chev">⌄</span></div>
+            <div class="y-qr"><span class="t">整理工作台数据模型</span><span class="st">逾期</span><span class="tm">08:00</span></div>
+            <div class="y-qr"><span class="t">写周报草稿</span><span class="st">待办</span><span class="tm">18:00</span></div>
+            <div class="y-qr"><span class="t">预约体检</span><span class="st">待办</span><span class="tm">10/30</span></div>
+          </div>
+          <div class="y-q">
+            <div class="h"><span style="width:7px;height:7px;border-radius:50%;background:var(--blue)"></span>长期积压<span class="c">4</span><span class="chev">⌄</span></div>
+            <div class="y-qr"><span class="t">给 x-hub 提同步 issue</span><span class="st read">在做</span><span class="tm">积压 12 天</span></div>
+            <div class="y-qr"><span class="t">备份策略写进 README</span><span class="st">待办</span><span class="tm">积压 8 天</span></div>
+          </div>
+          <div class="y-q">
+            <div class="h"><span style="width:7px;height:7px;border-radius:50%;background:var(--amber)"></span>待沉淀<span class="c">5</span><span class="chev">⌄</span></div>
+            <div class="y-qr"><span class="t">「手机只追加不改写」记进原则</span><span class="st">捕获</span><span class="tm">09:12</span></div>
+          </div>
+        </div>
+
+        <div class="y-stage">
+          <div class="y-tools">
+            <span class="y-tool on"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="9" ry="3.6"/></svg>3D 环绕</span>
+            <span class="y-tool on" id="ycruise"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5"/></svg>自动巡航</span>
+            <span class="y-tool">⌖ 复位视角</span>
+            <span class="y-tool">速度 2×</span>
+            <span class="y-tool">筛选 ⌄</span>
+            <span class="y-live"><span class="y-dot"></span>实时交互</span>
+          </div>
+          <div class="y-ringbox">
+            <div class="y-gauge"><div class="k">本周完成率</div><div class="v">84%</div><div class="m">16 / 19 项</div><div class="bar"><i></i></div></div>
+            <div class="y-ring" id="yring">
+              <div class="y-c" style="--i:0"><div class="id">TODO-001</div><div class="ln" style="width:70%"></div><div class="ln" style="width:90%"></div><div class="ln" style="width:55%"></div><div class="ti">写周报草稿</div><div class="mt">18:00 · 工作</div></div>
+              <div class="y-c" style="--i:1"><div class="id">TODO-002</div><div class="ln" style="width:80%"></div><div class="ln" style="width:60%"></div><div class="ti">预约体检</div><div class="mt">10/30 · 生活</div></div>
+              <div class="y-c hot" style="--i:2"><div class="id">TODO-003</div><div class="ln" style="width:85%;background:rgba(4,36,15,.2)"></div><div class="ln" style="width:65%;background:rgba(4,36,15,.2)"></div><div class="ti">整理工作台数据模型</div><div class="mt">逾期 2 小时</div></div>
+              <div class="y-c" style="--i:3"><div class="id">NOTE-042</div><div class="ln" style="width:75%"></div><div class="ln" style="width:50%"></div><div class="ti">同步字段要 rev + updated_by</div><div class="mt">笔记 · 09:12</div></div>
+              <div class="y-c" style="--i:4"><div class="id">TODO-004</div><div class="ln" style="width:60%"></div><div class="ti">备份策略写进 README</div><div class="mt">积压 8 天</div></div>
+              <div class="y-c" style="--i:5"><div class="id">TODO-005</div><div class="ln" style="width:72%"></div><div class="ti">给 x-hub 提同步 issue</div><div class="mt">在做 · 12 天</div></div>
+            </div>
+          </div>
+          <div class="y-drag"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 3v18M3 9h18"/></svg><span>按住拖动卡片环，滚轮缩放，点击卡片聚焦 —— <b>这块 PLAN §8.2 明确列为不借鉴</b>：透视 + 拖拽 + 巡航约 400 行，且没有信息增量。</span></div>
+        </div>
+      </div>
+
+      <div class="y-time">
+        <div class="y-timeh"><span class="t">完成时间轴</span><span class="y-demo">2026年10月</span>
+          <div class="y-seg" style="margin-left:auto"><span>月</span><span class="on">今天</span></div>
+        </div>
+        <div class="y-days"><i class="dim">18</i><i class="dim">19</i><i class="dim">20</i><i class="dim">21</i><i class="dim">22</i><i class="dim">23</i><i>24</i><i>25</i><i>26</i><i>27</i><i class="now">28</i><i class="dim">29</i><i class="dim">30</i><i class="dim">31</i><i class="dim">1</i><i class="dim">2</i><i class="dim">3</i><i class="dim">4</i><i class="dim">5</i><i class="dim">6</i><i class="dim">7</i></div>
+        <div class="y-track"><i></i></div>
+      </div>
+    </div>
+
+    <aside class="y-detail">
+      <div class="y-dh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="color:var(--accent)"><path d="m12 3 2.2 5.5L20 10l-5.8 1.5L12 17l-2.2-5.5L4 10l5.8-1.5z"/></svg><span class="t">智能详情</span><span class="pin"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v7M8 10h8l1.5 4h-11zM12 14v7"/></svg></span></div>
+      <div class="y-db">
+        <div class="y-id">TODO-0003 · rev 7</div>
+        <div class="y-dt">整理工作台数据模型<span class="tag">高优先级</span></div>
+        <div class="y-dd">逾期 2 小时。表结构已定：UUIDv7 主键 + <code>rev</code> + <code>updated_at</code> + <code>updated_by</code> + 软删墓碑，冲突走行级 Last-Write-Wins。</div>
+        <dl class="y-dl">
+          <dt>创建</dt><dd>今天 07:20 · 本机</dd>
+          <dt>所属目录</dt><dd>v1 · 数据层</dd>
+          <dt>首次发现</dt><dd>今天 07:20 · 本机</dd>
+          <dt>当前状态</dt><dd><span class="y-dot" style="width:6px;height:6px"></span>进行中</dd>
+          <dt>优先级</dt><dd><span style="color:var(--red);font-weight:800">高</span></dd>
+          <dt>标签</dt><dd><span class="y-chip a">项目</span><span class="y-chip">v1</span><span class="y-chip">+</span></dd>
+        </dl>
+        <div class="y-ai">
+          <div class="h"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="color:var(--accent)"><path d="m12 3 2.2 5.5L20 10l-5.8 1.5L12 17l-2.2-5.5L4 10l5.8-1.5z"/></svg>AI 助手建议<span class="no">v1 不做</span></div>
+          <ul><li>先做完这条：它挡住 M1 的 repo 层</li><li>把「取消勾选不清 <code>done_at</code>」写进约定</li><li>逾期项自动排到最前</li></ul>
+          <span class="more">查看建议详情</span>
+        </div>
+        <div class="y-ai" style="margin-top:10px">
+          <div class="h">联动动态<span class="no" style="color:var(--accent);border-color:rgba(46,226,122,.35);background:rgba(46,226,122,.1)">三栏版也有</span></div>
+          <ul><li>09:41 本机勾选子任务（rev 6→7）</li><li>09:12 速记捕获一条</li></ul>
+        </div>
+      </div>
+      <div class="y-dfoot">
+        <button class="y-ghost">编辑</button>
+        <button class="y-solid"><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.2" fill="none"><path d="m4 12 5 5L20 6"/></svg>标为完成</button>
+        <button class="y-more">⋯</button>
+      </div>
+    </aside>
+
+  </div></div>
+
+  <div class="ycost">
+    <div class="c warn"><div class="h">选这版要多付的</div><p><b>3D 卡片环</b>：透视 + 拖拽 + 巡航 + 缩放，约 400 行且要处理窗口 resize；<b>照片底</b>：每张 KPI 卡要真模糊，x-hub 实测 GPU 吃到 26% 才退回静态渐变；<b>AI 建议</b>：v1 明确不做，这块会是空壳。</p></div>
+    <div class="c"><div class="h">这版确实更好的</div><p><b>信息密度和"有东西可看"</b>。驾驶舱气质强，第一屏就能给出完成率 + 队列 + 时间轴三个视角，比三栏版的部件堆叠更像"产品在运转"。</p></div>
+    <div class="c"><div class="h">这版的隐性代价</div><p>个人待办一屏只有 3–5 条，<b>卡片环里会空</b>；时间轴在数据少的月份是一片灰点。参考图自己标了「演示数据」，它撑得起，我们撑不起。</p></div>
+  </div>
+</div>
+
+<!--{{D_PANES}}-->
+
+<!--{{ST_PANES}}-->
+
+<!-- ============ 对比与选择 ============ -->
+<div class="wb-pick" id="pk" data-pane="cmp">
+  <p class="pk-note">两版用的是<b>同一份数据、同一套令牌</b>，区别只在结构取舍。下面先给结论表，再给对照原图，最后点一下你选哪个 —— 选完会写进浏览器本地（<code>localStorage</code>），我据此冻结 PLAN §8 和令牌表。</p>
+
+  <div class="pk-h">逐维度对照<span>候选一 = 照你截图原样做 · 候选二 = 取舍后的三栏版</span></div>
+  <div class="pk-card">
+    <table class="pk">
+      <tr><td style="width:104px">维度</td><td style="width:47%">候选一 · 照你截图原样做</td><td>候选二 · 三栏融合版</td></tr>
+      <tr><td>三栏骨架</td><td class="pk-yes">有：侧栏 208 / 中栏 / 详情 302</td><td class="pk-yes">有：侧栏 226 / 中栏 / 详情 302</td></tr>
+      <tr><td>KPI 数字行</td><td class="pk-yes">4 张，照片模糊底 + 选中翻白</td><td class="pk-yes">4 张，静态渐变光晕 + 选中翻白</td></tr>
+      <tr><td>常驻详情面板</td><td class="pk-yes">智能详情 + AI 建议</td><td class="pk-yes">详情 + 联动动态（无 AI）</td></tr>
+      <tr><td>主视觉物</td><td><b>3D 卡片环</b>（炫，无信息增量）</td><td><b>待办列表 / 手写图表</b>（朴素，可扫读）</td></tr>
+      <tr><td>实现成本</td><td class="pk-no">高：卡片环 ≈400 行 + 真模糊调优</td><td class="pk-yes">低：全部是 grid/flex/SVG，约 250 行</td></tr>
+      <tr><td>GPU / 耗电</td><td class="pk-no">常驻 <code>backdrop-filter</code>，笔记本发热可见</td><td class="pk-yes">常驻面零模糊，只有弹窗用</td></tr>
+      <tr><td>数据少时长相</td><td class="pk-no">环里 3 张卡会很空，时间轴一片灰</td><td class="pk-mid">空部件折叠成虚线条，一屏 3 条也成立</td></tr>
+      <tr><td>800px 最小窗口</td><td class="pk-no">四列并排先撑不住</td><td class="pk-mid">1080 以下详情改滑出，720 以下侧栏收图标轨</td></tr>
+      <tr><td>主题三轴</td><td class="pk-mid">照片底与亮色主题打架，需重做素材</td><td class="pk-yes">全走 <code>--accent</code> 令牌，亮/暗自如</td></tr>
+      <tr><td>气质</td><td>数据产品 / 驾驶舱，"打开就想看"</td><td>行动工具 / 安静，"打开就想做"</td></tr>
+    </table>
+  </div>
+
+  <div class="pk-h">对照原图<span>你发的那张 YCS Knowledge OS 截图</span></div>
+  <figure class="pk-ref">
+    <!--{{YCS_IMG}}-->
+    <figcaption>候选一那版是它的 1:1 复刻（内容换成工作台数据）。若你觉得复刻得不够像，指出哪一块，我照原图重做那一块再让你选。</figcaption>
+  </figure>
+
+  <div class="pk-h">你的选择<span>点一张卡即记录，可换</span></div>
+  <div class="pk-opts">
+    <div class="pk-opt" data-opt="Y" tabindex="0" role="button" aria-pressed="false">
+      <div class="r"><span class="rad"></span>候选一 · 照你截图那版做</div>
+      <p>驾驶舱气质，第一屏信息最丰富。<b>代价</b>：3D 卡片环 + 照片模糊底 + AI 建议三块都要真做，M5 至少多一周，且亮色主题要额外设计素材。</p>
+      <div class="cost">追加范围：卡片环、真模糊、AI 建议（或留空壳）</div>
+    </div>
+    <div class="pk-opt" data-opt="D" tabindex="0" role="button" aria-pressed="false">
+      <div class="r"><span class="rad"></span>候选二 · 三栏融合（我的建议）</div>
+      <p>保留截图版三样真有用的：<b>常驻详情面板、KPI 数字行、选中卡翻亮</b>；去掉三样撑不住的：3D 环、照片底、AI 建议。<b>代价</b>：比截图版朴素，第一屏没那么"有产品感"。</p>
+      <div class="cost">追加范围：无，按 PLAN §8.4 断点做响应式即可</div>
+    </div>
+    <div class="pk-opt" data-opt="M" tabindex="0" role="button" aria-pressed="false">
+      <div class="r"><span class="rad"></span>候选三 · 三栏版骨架 + 截图版两处点缀</div>
+      <p>三栏版的结构，但从截图版借<b>顶部居中搜索胶囊</b>和<b>底部时间轴</b>（都用静态实现，不上 3D、不上真模糊）。视觉更饱满，成本 +1~2 天。</p>
+      <div class="cost">追加范围：时间轴部件（月粒度）、搜索胶囊上移</div>
+    </div>
+  </div>
+  <div class="pk-verdict" id="pkVerdict">还没选 —— 点上面任意一张卡。我的建议是 <b>候选二或候选三</b>：截图那版的三个招牌里，只有"详情面板 / KPI 行 / 选中翻亮"值得要，3D 环和照片底是给你 96 篇书卡那种数据量准备的，我们一天 3 条待办撑不起。</div>
+</div>
+
+</div><!-- /#stage -->
+
+<script>
+<!--{{ST_DATA_JS}}-->
+</script>
+
+<script>
+(() => {
+  const doc = document.getElementById('doc');
+  const roots = {
+    ycs: document.getElementById('ycs'),
+    wz: document.getElementById('wz'),
+    st: document.getElementById('st'),
+    pk: document.getElementById('pk')
+  };
+  const btns = [...document.querySelectorAll('.wb-btn')];
+  const show = (t, push) => {
+    const [rk, pk] = t.split(':');
+    Object.entries(roots).forEach(([k, el]) => {
+      if (!el) return;
+      if (k === rk) el.setAttribute('data-show',''); else el.removeAttribute('data-show');
+    });
+    const r = roots[rk];
+    if (r) r.querySelectorAll('[data-pane]').forEach(p => p.dataset.pane === pk ? p.setAttribute('data-active','') : p.removeAttribute('data-active'));
+    btns.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.t === t)));
+    if (push) history.replaceState(null, '', '#' + t);
+    window.scrollTo({ top: 0 });
+  };
+  btns.forEach(b => b.addEventListener('click', () => show(b.dataset.t, true)));
+
+  /* 主题：三个作用域一起切 */
+  const themeBtn = document.getElementById('themeBtn');
+  const setTheme = (light) => {
+    doc.dataset.theme = light ? 'light' : 'dark';
+    Object.values(roots).forEach(el => { if (el) el.dataset.theme = light ? 'light' : 'dark'; });
+    themeBtn.textContent = light ? '切换暗色' : '切换亮色';
+  };
+  themeBtn.addEventListener('click', () => setTheme(doc.dataset.theme !== 'light'));
+
+  /* 键盘换页 */
+  document.addEventListener('keydown', e => {
+    if (e.target.matches('input,textarea')) return;
+    const n = parseInt(e.key, 10);
+    if (n >= 1 && n <= btns.length) { show(btns[n - 1].dataset.t, true); return; }
+    if (e.key.toLowerCase() === 't') setTheme(doc.dataset.theme !== 'light');
+  });
+
+  /* 候选一视图的自动巡航开关 */
+  const cruise = document.getElementById('ycruise'), ring = document.getElementById('yring');
+  if (cruise) cruise.addEventListener('click', () => {
+    const on = cruise.classList.toggle('on');
+    if (on) ring.removeAttribute('data-paused'); else ring.setAttribute('data-paused','');
+  });
+
+  /* 实时时钟：mockup 里这块是真在走的，用来验 1s tick 的观感 */
+  const clock = document.getElementById('liveClock'), cdate = document.getElementById('liveDate');
+  const WK = ['日','一','二','三','四','五','六'], pad = n => String(n).padStart(2, '0');
+  const tick = () => {
+    const d = new Date();
+    if (clock) clock.textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    if (cdate) cdate.textContent = `${d.getMonth() + 1}月${d.getDate()}日 周${WK[d.getDay()]} · 1 秒 tick`;
+  };
+  tick(); setInterval(tick, 1000);
+
+  /* 选择：记进 localStorage */
+  const KEY = 'workbench-ui-choice';
+  const opts = [...document.querySelectorAll('.pk-opt')];
+  const verdict = document.getElementById('pkVerdict');
+  const TEXT = {
+    Y: '已选 <b>候选一 · 照你截图那版做</b>。PLAN §8 要改三处：§8.2 的"不借鉴 3D 卡片环 / 照片底"两条撤销；§4 里程碑 M5 加"卡片环 + 巡航"约一周；AI 建议区要么进 v1 范围要么留空壳 —— 这个得你定。',
+    D: '已选 <b>候选二 · 三栏融合</b>。下一步：冻结令牌表（明度阶梯 + <code>--accent</code> 三轴）→ 写 <code>src/style.css</code> → PLAN §8.5 待定项关掉。',
+    M: '已选 <b>候选三：三栏版骨架 + 截图版的搜索胶囊与时间轴</b>。PLAN §4 工作台部件清单加"完成时间轴"，§8.1 借鉴列表加第 6 条"顶部居中搜索胶囊"，§8.2 不动。'
+  };
+  const pick = (k) => {
+    opts.forEach(o => { const on = o.dataset.opt === k; on ? o.setAttribute('data-on','') : o.removeAttribute('data-on'); o.setAttribute('aria-pressed', String(on)); });
+    verdict.innerHTML = TEXT[k];
+    try { localStorage.setItem(KEY, k); } catch (e) {}
+  };
+  opts.forEach(o => o.addEventListener('click', () => pick(o.dataset.opt)));
+  opts.forEach(o => o.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(o.dataset.opt); } }));
+  let saved = null;
+  try { saved = localStorage.getItem(KEY); } catch (e) {}
+  if (saved && TEXT[saved]) pick(saved);
+
+  const h = location.hash.slice(1);
+  show(btns.some(b => b.dataset.t === h) ? h : 'ycs:y', false);
+})();
+</script>
+</div><!-- /.wb-doc -->
+

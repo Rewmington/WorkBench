@@ -1,0 +1,641 @@
+/* ---------------------------------------------------------------------------
+   Anvil · 设计令牌与基线样式
+   冻结依据：docs/PLAN.md §8.5（候选一）+ §8.6（反网页感清单，标 M0 的条目在此）。
+   规则：令牌只加不改 —— 改一个已有值要回看全部部件。
+   类名沿用 design/workbench-ui.html 候选一的 `y-` 前缀，便于逐条比对观感。
+   --------------------------------------------------------------------------- */
+
+:root {
+  /* ---- 表面（两档：底 / 面板 / 卡 / 次级卡）---- */
+  --bg: #080b0a;
+  --panel: #0d1110;
+  --card: #131816;
+  --card-2: #0f1413;
+
+  /* ---- 描边（暗色走明度阶梯 + 1px 边框，不靠烘焙渐变糊过去，§8.3.2）---- */
+  --line: rgba(255, 255, 255, 0.07);
+  --line-2: rgba(255, 255, 255, 0.12);
+
+  /* ---- 文字三档 ---- */
+  --t1: #f1f5f3;
+  --t2: #a3ada8;
+  --t3: #6b7571;
+
+  /* ---- 强调色 ---- */
+  --accent: #2ee27a;
+  --accent-2: #10b981;
+  --accent-ink: #04240f;
+  --accent-soft: rgba(46, 226, 122, 0.14);
+
+  /* ---- 语义色（状态不只靠颜色，§2 原则 3：同时改字重/位置/图标）---- */
+  --blue: #60a5fa;
+  --amber: #fbbf24;
+  --red: #f87171;
+  --violet: #a78bfa;
+
+  /* ---- 选中卡翻亮（唯一高亮区，§8.8.6）---- */
+  --card-sel: #f6faf7;
+  --sel-ink: #0d1211;
+  --sel-muted: #4b5450;
+  --sel-delta: #059669;
+
+  /* ---- 圆角与节奏 ---- */
+  --r: 14px;
+  --r-sm: 10px;
+  --r-xs: 8px;
+  --dur-1: 120ms;
+  --dur-2: 160ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+
+  /* ---- KPI 照片底 = 预烘焙多停点渐变（§8.8.2：零模糊、零额外合成层）---- */
+  --glow-0: radial-gradient(120% 90% at 88% -20%, #b9f2d4 0%, #4bbf8a 34%, #123a2a 68%, transparent 82%);
+  --glow-1: radial-gradient(120% 90% at 88% -20%, #ffd9a8 0%, #e0703a 32%, #2b1a3a 70%, transparent 84%);
+  --glow-2: radial-gradient(120% 90% at 88% -20%, #a8d5ff 0%, #3b6fe0 34%, #101a3a 70%, transparent 84%);
+  --glow-3: radial-gradient(120% 90% at 88% -20%, #ffc2d8 0%, #d63b6a 32%, #2a1020 70%, transparent 84%);
+  --glow-opacity: 0.5;
+
+  /* ---- 窗口底：两团大半径渐变 + --bg（§8.8.2 的实现换法，不是照片）---- */
+  --win-bg:
+    radial-gradient(900px 420px at 12% -10%, rgba(46, 226, 122, 0.1), transparent 60%),
+    radial-gradient(700px 380px at 92% 4%, rgba(56, 120, 255, 0.09), transparent 62%),
+    var(--bg);
+
+  /* ---- 版式尺寸（候选一冻结：侧栏 208 / 详情 302）---- */
+  --side-w: 208px;
+  --side-w-rail: 56px;
+  --detail-w: 302px;
+}
+
+/* ---- 亮色主题（§8.5：默认强调色下降到 #059669）---- */
+[data-mode='light'] {
+  --bg: #eef1f0;
+  --panel: #f8faf9;
+  --card: #ffffff;
+  --card-2: #f2f5f4;
+  --line: rgba(20, 30, 26, 0.09);
+  --line-2: rgba(20, 30, 26, 0.16);
+  --t1: #101614;
+  --t2: #57615d;
+  --t3: #8a938e;
+  --accent: #059669;
+  --accent-2: #10b981;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(5, 150, 105, 0.12);
+  --blue: #2563eb;
+  --amber: #b45309;
+  --red: #b91c1c;
+  --violet: #7c3aed;
+  --card-sel: #ffffff;
+  --sel-ink: #101614;
+  --sel-muted: #57615d;
+  --sel-delta: #059669;
+  --glow-opacity: 0.34;
+  --win-bg:
+    radial-gradient(900px 420px at 12% -10%, rgba(5, 150, 105, 0.1), transparent 60%),
+    radial-gradient(700px 380px at 92% 4%, rgba(37, 99, 235, 0.07), transparent 62%),
+    var(--bg);
+}
+
+/* ---- 预设轴：只微调表面色相，默认 graphite 就是上面的冻结值 ---- */
+[data-preset='moss'] {
+  --bg: #080b09;
+  --panel: #0c110f;
+  --card: #121816;
+  --card-2: #0e1412;
+}
+[data-preset='ink'] {
+  --bg: #080a0b;
+  --panel: #0d1012;
+  --card: #13171a;
+  --card-2: #0f1315;
+}
+
+/* ---- 强调色轴：只动强调色与语义蓝，表面不动 ---- */
+[data-accent='blue'] {
+  --accent: #4c9dfa;
+  --accent-2: #3b6fe0;
+  --accent-ink: #04122b;
+  --accent-soft: rgba(76, 157, 250, 0.14);
+}
+[data-accent='amber'] {
+  --accent: #f7b955;
+  --accent-2: #e0973a;
+  --accent-ink: #2b1a04;
+  --accent-soft: rgba(247, 185, 85, 0.14);
+}
+[data-accent='blue'] {
+  --blue: #2ee27a;
+}
+[data-mode='light'][data-accent='blue'] {
+  --accent: #2563eb;
+  --accent-2: #3b6fe0;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(37, 99, 235, 0.12);
+}
+[data-mode='light'][data-accent='amber'] {
+  --accent: #b45309;
+  --accent-2: #d97706;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(180, 83, 9, 0.12);
+}
+
+/* ---------------------------------------------------------------------------
+   基线（§8.6 标 M0 的条目）
+   --------------------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+  /* 13px 基准 + Inter / PingFang SC，不用系统默认 16px（§8.6） */
+  font: 400 13px/1.5 'Inter Variable', Inter, ui-sans-serif, -apple-system, 'PingFang SC', 'Microsoft YaHei',
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+[data-mode='light'] {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--t1);
+  /* 文字随手选中会露网页馅（§8.6）：全局关掉，只放开输入区与正文 */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  overflow: hidden;
+}
+
+/* 只有真正的输入区与正文可取字。button 不在名单里 —— 侧栏条目就是 button，
+   放进去等于允许人拖着选中导航文字（第一版截图就露出了）。 */
+input,
+textarea,
+select,
+[contenteditable='true'],
+.selectable,
+.md-preview,
+.detail-body,
+.palette-query {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+img {
+  -webkit-user-drag: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+h1,
+h2,
+h3,
+p,
+dl,
+dd,
+dt,
+ul,
+ol,
+li {
+  margin: 0;
+  padding: 0;
+}
+
+ul,
+ol {
+  list-style: none;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--t1);
+}
+
+/* 自绘 6px 细滚动条，悬停才显形（§8.6 M5 条目，基线先就位） */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+.scroller:hover::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+}
+.scroller::-webkit-scrollbar-thumb:active {
+  background: var(--t3);
+}
+
+/* ---------------------------------------------------------------------------
+   窗口骨架：无边框 + 自绘标题栏 + 三栏（§8.4 断点按内容区宽度）
+   --------------------------------------------------------------------------- */
+
+#app {
+  height: 100vh;
+}
+
+.y-win {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--win-bg);
+  color: var(--t1);
+  overflow: hidden;
+}
+
+/* 标题栏：拖拽区用 data-tauri-drag-region（wry 不认 -webkit-app-region） */
+.y-tbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 38px;
+  padding: 0 8px 0 12px;
+  flex: none;
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+  border-bottom: 1px solid var(--line);
+}
+.y-tbar .brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--t2);
+}
+.y-tbar .brand .b {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: linear-gradient(150deg, var(--accent), #0a7a45);
+  color: var(--accent-ink);
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 800;
+}
+.y-tbar .winbtns {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+.y-tbar .winbtns button {
+  width: 34px;
+  height: 26px;
+  border-radius: 6px;
+  color: var(--t3);
+  display: grid;
+  place-items: center;
+  transition:
+    background var(--dur-1) var(--ease),
+    color var(--dur-1) var(--ease);
+}
+.y-tbar .winbtns button:hover {
+  background: var(--card);
+  color: var(--t1);
+}
+.y-tbar .winbtns button.close:hover {
+  background: rgba(248, 113, 113, 0.16);
+  color: var(--red);
+}
+
+.y-shell {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--side-w) minmax(0, 1fr) var(--detail-w);
+}
+.y-shell[data-cols='mid'] {
+  grid-template-columns: var(--side-w) minmax(0, 1fr);
+}
+.y-shell[data-cols='narrow'] {
+  grid-template-columns: var(--side-w-rail) minmax(0, 1fr);
+}
+
+.y-side {
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 15px 11px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+}
+.y-side .grp {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--t3);
+  padding: 12px 10px 5px;
+}
+.y-nav .it {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: var(--r-sm);
+  color: var(--t2);
+  font-size: 12.5px;
+  font-weight: 550;
+  text-align: left;
+  transition:
+    background var(--dur-1) var(--ease),
+    color var(--dur-1) var(--ease);
+}
+.y-nav .it:hover {
+  background: var(--card);
+  color: var(--t1);
+}
+.y-nav .it[aria-current='page'] {
+  background: linear-gradient(90deg, var(--accent-soft), transparent 78%);
+  color: var(--t1);
+  font-weight: 750;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.y-nav .it .n {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--t3);
+  font-variant-numeric: tabular-nums;
+}
+.y-nav .it svg {
+  flex: none;
+  opacity: 0.85;
+}
+
+.y-sidefoot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.y-picker {
+  border: 1px solid var(--line-2);
+  background: var(--card);
+  border-radius: var(--r-sm);
+  padding: 10px 11px;
+  font-size: 11.5px;
+  color: var(--t2);
+  text-align: left;
+}
+.y-picker .k {
+  display: block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--t3);
+  margin-bottom: 4px;
+}
+.y-picker .v {
+  color: var(--t1);
+  font-weight: 650;
+}
+
+.y-ctr {
+  min-width: 0;
+  min-height: 0;
+  padding: 15px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.y-detail {
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* 窄窗时详情面板换成覆盖层（§8.4） */
+.y-drawer {
+  position: fixed;
+  top: 38px;
+  right: 0;
+  bottom: 0;
+  width: min(var(--detail-w), 86vw);
+  background: var(--panel);
+  border-left: 1px solid var(--line-2);
+  box-shadow: -18px 0 40px rgba(0, 0, 0, 0.34);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------------------------------------------------------------------------
+   通用部件
+   --------------------------------------------------------------------------- */
+
+.y-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+}
+.y-head h1 {
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+.y-search {
+  flex: 1;
+  max-width: 380px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--card);
+  color: var(--t3);
+  font-size: 12px;
+  transition: border-color var(--dur-1) var(--ease);
+}
+.y-search:hover {
+  border-color: var(--line-2);
+}
+.y-search kbd {
+  margin-left: auto;
+  font: inherit;
+  font-size: 10.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  color: var(--t2);
+}
+
+.y-acts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.iconbtn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--t2);
+  display: grid;
+  place-items: center;
+  transition:
+    background var(--dur-1) var(--ease),
+    color var(--dur-1) var(--ease);
+}
+.iconbtn:hover {
+  background: var(--card-2);
+  color: var(--t1);
+}
+
+.y-sech {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.y-sech h2 {
+  font-size: 13.5px;
+  font-weight: 800;
+}
+.y-demo {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--t3);
+  border: 1px solid var(--line-2);
+  padding: 2.5px 7px;
+  border-radius: 20px;
+}
+
+/* 空部件折叠成一行虚线条，不留死白（§8.3.3） */
+.y-empty {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 14px;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r);
+  color: var(--t3);
+  font-size: 12px;
+}
+
+.y-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2.5px 7px;
+  border-radius: 5px;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  color: var(--t2);
+}
+.y-chip.a {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+}
+.y-chip.r {
+  background: rgba(248, 113, 113, 0.14);
+  border-color: transparent;
+  color: var(--red);
+}
+.y-chip.b {
+  background: rgba(96, 165, 250, 0.14);
+  border-color: transparent;
+  color: var(--blue);
+}
+
+.y-ghost {
+  flex: 1;
+  height: 30px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-2);
+  background: var(--card);
+  color: var(--t2);
+  font-size: 12px;
+  font-weight: 650;
+}
+.y-ghost:hover {
+  background: var(--card-2);
+  color: var(--t1);
+}
+/* 实心 accent 面：同屏只允许出现一处（§8.8.6），选中态由调用方降级为 ghost */
+.y-solid {
+  flex: 1.15;
+  height: 30px;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 12px;
+  font-weight: 750;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.y-solid.quiet {
+  background: var(--card-2);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
+.flash {
+  animation: flash-in var(--dur-2) var(--ease);
+}
+@keyframes flash-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 降低动效：环巡航真停 + 关掉入场位移动画（§8.8.1 三停之一） */
+[data-motion='reduced'] * {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}

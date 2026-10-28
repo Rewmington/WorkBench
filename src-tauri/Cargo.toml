@@ -1,0 +1,74 @@
+[package]
+name = "anvil"
+version = "0.1.0"
+description = "Anvil · 个人工作台"
+authors = ["Rewmington"]
+edition = "2021"
+rust-version = "1.90"
+
+[lib]
+name = "anvil_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.4", features = [] }
+
+[dependencies]
+# ---- shell ----
+tauri = { version = "2.12.5", features = ["tray-icon", "image-png", "protocol-asset"] }
+tauri-plugin-single-instance = "2.5.5"
+tauri-plugin-autostart = "2.7.0"
+tauri-plugin-global-shortcut = "2.4.1"
+tauri-plugin-notification = "2.8.0"
+tauri-plugin-dialog = "2.8.4"
+tauri-plugin-opener = "2.7.2"
+
+# ---- data ----
+rusqlite = { version = "0.41.0", features = ["bundled"] }
+uuid = { version = "1.29.0", features = ["v7", "serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# ---- time ----
+chrono = { version = "0.4.45", features = ["clock"] }
+
+# ---- net (TLS must stay on schannel: this machine has no nasm/cmake, so rustls cannot build) ----
+ureq = { version = "3.5.0", default-features = false, features = ["native-tls", "gzip", "json"] }
+roxmltree = "0.21.2"
+
+# ---- crypto ----
+aes-gcm = "0.11.1"
+argon2 = "0.6.0"
+rand = "0.10.3"
+sha2 = "0.11.1"
+base64 = "0.23.1"
+keyring = { version = "4.2.0", default-features = false, features = ["v1"] }
+
+# ---- files / misc ----
+flate2 = "1.1.10"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+dirs = "7.0.0"
+thiserror = "2.0.21"
+log = "0.4.34"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_Graphics_Gdi",
+  "Win32_System_Com",
+  "Win32_System_Threading",
+  "Win32_Security_Credentials",
+  "Win32_Storage_FileSystem",
+] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = "s"
+strip = "symbols"
+panic = "abort"

@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>统计视图</title>
+<style>
+  .st {
+    --bg: #0a0c0b;
+    --glow-a: rgba(16,185,129,.13);
+    --glow-b: rgba(56,120,255,.10);
+    --panel: #0f1312;
+    --card: #141917;
+    --card-2: #101413;
+    --card-sel: #f4f7f5;
+    --ink-on-sel: #0d1211;
+    --ink-on-sel-2: #64706b;
+    --line: rgba(255,255,255,.065);
+    --line-2: rgba(255,255,255,.11);
+    --t1: #eef2f0; --t2: #a4ada9; --t3: #6d7671;
+    --accent: #34d399; --accent-ink: #06301f; --accent-soft: rgba(52,211,153,.13);
+    --blue: #60a5fa; --amber: #fbbf24; --red: #f87171; --violet: #a78bfa;
+    --heat0: rgba(255,255,255,.055);
+    --r: 13px;
+    background:
+      radial-gradient(700px 340px at 6% -8%, var(--glow-a), transparent 62%),
+      radial-gradient(620px 320px at 96% 0%, var(--glow-b), transparent 64%),
+      var(--bg);
+    color: var(--t1);
+    font: 400 13px/1.5 Inter, ui-sans-serif, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    margin: 0; padding: 16px;
+  }
+  .st[data-theme="light"] {
+    --bg: #eff2f1; --glow-a: rgba(16,185,129,.16); --glow-b: rgba(90,140,255,.14);
+    --panel: #f7f9f8; --card: rgba(255,255,255,.9); --card-2: rgba(255,255,255,.62);
+    --card-sel: #fff; --ink-on-sel: #0d1211; --ink-on-sel-2: #6b7570;
+    --line: rgba(20,30,26,.085); --line-2: rgba(20,30,26,.16);
+    --t1: #14181a; --t2: #5a625f; --t3: #8b938f;
+    --accent: #059669; --accent-ink: #fff; --accent-soft: rgba(5,150,105,.1);
+    --blue: #2563eb; --amber: #b45309; --red: #b91c1c; --violet: #7c3aed;
+    --heat0: rgba(20,30,26,.07);
+  }
+  .st * { box-sizing: border-box; }
+  .st button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  svg { display: block; }
+  code { font: 500 11.5px/1.5 ui-monospace, Consolas, monospace; background: rgba(128,140,135,.16); padding: 1.5px 5px; border-radius: 5px; color: var(--t1); }
+
+  .st-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 11px; flex-wrap: wrap; }
+  .st-tabs { display: flex; gap: 3px; padding: 4px; background: rgba(128,140,135,.16); border-radius: 11px; }
+  .st-tab { padding: 7px 13px; border-radius: 8px; color: var(--t2); font-weight: 650; font-size: 12.5px; }
+  .st-tab[aria-selected="true"] { background: var(--card-sel); color: var(--ink-on-sel); box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+  .st-sp { flex: 1; }
+  .st-btn { padding: 7px 12px; border-radius: 9px; border: 1px solid var(--line-2); color: var(--t2); font-weight: 650; font-size: 12px; background: var(--card); }
+  .st-pane { display: none; }
+  .st-pane[data-active] { display: block; }
+  .st-note { color: var(--t2); font-size: 12px; line-height: 1.65; padding: 10px 13px; border-left: 2px solid var(--accent); background: rgba(128,140,135,.1); border-radius: 0 9px 9px 0; margin: 0 0 12px; }
+  .st-note b { color: var(--t1); }
+
+  .win { border-radius: 15px; overflow: hidden; border: 1px solid var(--line-2); box-shadow: 0 26px 60px rgba(0,0,0,.42); background: var(--bg); }
+  .shell { display: grid; grid-template-columns: 226px minmax(0,1fr) 296px; }
+  .side { background: var(--panel); border-right: 1px solid var(--line); padding: 15px 11px 11px; display: flex; flex-direction: column; }
+  .logo { display: flex; align-items: baseline; gap: 7px; padding: 0 6px 15px; }
+  .logo .n { font-size: 16px; font-weight: 800; letter-spacing: -.02em; }
+  .logo .s { font-size: 10.5px; color: var(--t3); font-weight: 600; letter-spacing: .04em; }
+  .nav { display: flex; flex-direction: column; gap: 2px; }
+  .nav .it { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; color: var(--t2); font-weight: 550; position: relative; }
+  .nav .it[aria-current="page"] { background: var(--card); color: var(--t1); font-weight: 700; box-shadow: inset 0 0 0 1px var(--line); }
+  .nav .it[aria-current="page"]::before { content: ""; position: absolute; left: -11px; top: 9px; height: 16px; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent); }
+  .nav .it .n2 { margin-left: auto; font-size: 11px; color: var(--t3); font-variant-numeric: tabular-nums; font-weight: 600; }
+  .nav .grp { font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--t3); padding: 15px 10px 6px; }
+  .sidefoot { margin-top: auto; }
+  .scard { border: 1px solid var(--line); background: var(--card-2); border-radius: 11px; padding: 10px 11px; }
+  .scard .h { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--t3); margin-bottom: 7px; }
+  .scard .v { font-size: 12px; color: var(--t2); line-height: 1.5; }
+  .scard .v b { color: var(--t1); }
+  .live { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); display: inline-block; margin-right: 5px; }
+
+  .ctr { min-width: 0; display: flex; flex-direction: column; }
+  .topbar { display: flex; align-items: center; gap: 14px; padding: 16px 18px 13px; }
+  .topbar h1 { margin: 0; font-size: 20px; font-weight: 750; letter-spacing: -.025em; }
+  .crumb { font-size: 11.5px; color: var(--t3); margin-top: 3px; }
+  .search { margin-left: auto; display: flex; align-items: center; gap: 9px; width: 210px; padding: 8px 11px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--card-2); color: var(--t3); font-size: 12.5px; }
+  .kbd { font: 650 10.5px/1 ui-monospace, Consolas, monospace; padding: 3.5px 6px; border-radius: 5px; border: 1px solid var(--line-2); color: var(--t2); background: rgba(128,140,135,.12); margin-left: auto; }
+  .seg { display: flex; gap: 3px; padding: 3px; background: rgba(128,140,135,.16); border-radius: 10px; }
+  .seg span { padding: 5.5px 12px; border-radius: 7px; font-size: 11.5px; font-weight: 650; color: var(--t2); }
+  .seg .on { background: var(--card-sel); color: var(--ink-on-sel); box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+  .wctl { display: flex; gap: 2px; color: var(--t3); }
+  .wctl button { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; }
+  .body { padding: 0 18px 18px; }
+
+  .kpis { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 11px; margin-bottom: 11px; }
+  .kpi { border: 1px solid var(--line); border-radius: var(--r); padding: 13px 14px; background: var(--card); position: relative; overflow: hidden; }
+  .kpi::after { content: ""; position: absolute; inset: 0; background: radial-gradient(140px 70px at 88% 6%, var(--glow,transparent), transparent 70%); }
+  .kpi .lab { display: flex; gap: 6px; margin-bottom: 9px; position: relative; }
+  .kpi .en { font: 700 9.5px/1 ui-monospace, Consolas, monospace; letter-spacing: .12em; color: var(--t3); }
+  .kpi .cn { font-size: 11.5px; color: var(--t3); font-weight: 600; }
+  .kpi .num { font-size: 30px; font-weight: 800; letter-spacing: -.04em; line-height: 1; font-variant-numeric: tabular-nums; position: relative; }
+  .kpi .num span { font-size: 11.5px; font-weight: 600; color: var(--t3); margin-left: 5px; letter-spacing: 0; }
+  .kpi .d { margin-top: 9px; font-size: 11px; color: var(--t3); font-weight: 600; position: relative; }
+  .kpi .d i { font-style: normal; color: var(--accent); }
+  .kpi .d.down i { color: var(--red); }
+  .kpi.sel { background: var(--card-sel); border-color: transparent; box-shadow: 0 14px 34px rgba(0,0,0,.3); }
+  .kpi.sel .num { color: var(--ink-on-sel); }
+  .kpi.sel .en, .kpi.sel .cn, .kpi.sel .d, .kpi.sel .num span { color: var(--ink-on-sel-2); }
+  .kpi.sel .d i { color: #059669; }
+  .kpi.g { --glow: rgba(52,211,153,.22); } .kpi.b { --glow: rgba(96,165,250,.2); }
+  .kpi.a { --glow: rgba(251,191,36,.18); } .kpi.r { --glow: rgba(248,113,113,.2); }
+
+  .grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 11px; }
+  .card { border: 1px solid var(--line); background: var(--card); border-radius: var(--r); padding: 14px; }
+  .card.wide { grid-column: 1 / -1; }
+  .ch { display: flex; align-items: center; gap: 8px; margin-bottom: 13px; }
+  .ch .t { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--t2); }
+  .ch .q { font-size: 11.5px; color: var(--t3); }
+  .ch .r { margin-left: auto; font-size: 11px; color: var(--t3); }
+
+  /* ---- heatmap: fixed 12px cells, summary column on the right ---- */
+  .heatwrap { display: flex; gap: 22px; align-items: flex-start; flex-wrap: wrap; }
+  .heatgrid { display: flex; flex-direction: column; }
+  .hmonths { display: flex; gap: 3px; font-size: 10px; color: var(--t3); margin: 0 0 5px 22px; height: 12px; }
+  .hmonths span { width: 12px; flex: none; white-space: nowrap; }
+  .hrows { display: flex; gap: 3px; }
+  .hwk { display: flex; flex-direction: column; gap: 3px; width: 19px; flex: none; }
+  .hwk i { height: 12px; font-size: 9.5px; font-style: normal; color: var(--t3); line-height: 12px; }
+  .hcols { display: flex; gap: 3px; }
+  .hcol { display: flex; flex-direction: column; gap: 3px; }
+  .hc { width: 12px; height: 12px; border-radius: 3px; background: var(--heat0); }
+  .hc.l1 { background: rgba(52,211,153,.26); }
+  .hc.l2 { background: rgba(52,211,153,.46); }
+  .hc.l3 { background: rgba(52,211,153,.7); }
+  .hc.l4 { background: var(--accent); }
+  .hc.future { opacity: .28; }
+  .hc.today { box-shadow: 0 0 0 1.5px var(--blue); }
+  .hsid { flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 11px; }
+  .hstat { display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--t3); }
+  .hstat b { font-size: 19px; font-weight: 800; letter-spacing: -.03em; color: var(--t1); font-variant-numeric: tabular-nums; }
+  .hlegend { display: flex; align-items: center; gap: 4px; font-size: 10.5px; color: var(--t3); margin-top: auto; }
+  .hlegend i { width: 11px; height: 11px; border-radius: 3px; display: block; }
+  .hint2 { font-size: 11.5px; color: var(--t3); line-height: 1.55; border-top: 1px solid var(--line); padding-top: 10px; }
+  .hint2 b { color: var(--t1); }
+
+  /* ---- bars ---- */
+  .bars { display: flex; align-items: flex-end; gap: 7px; height: 124px; }
+  .bcol { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; height: 100%; justify-content: flex-end; min-width: 0; }
+  .bwrap { width: 100%; max-width: 20px; display: flex; flex-direction: column-reverse; border-radius: 4px; overflow: hidden; }
+  .b1 { background: linear-gradient(180deg, var(--accent), rgba(52,211,153,.5)); }
+  .b2 { background: rgba(248,113,113,.8); }
+  .bl { font-size: 9.5px; color: var(--t3); font-variant-numeric: tabular-nums; }
+  .bv { font-size: 10px; color: var(--t3); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .bcol.hot .bv { color: var(--t1); }
+  .bcol.hot .bl { color: var(--t2); }
+  .axis { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--t3); border-top: 1px solid var(--line); padding-top: 8px; margin-top: 9px; }
+  .axis em { font-style: normal; color: var(--red); }
+
+  /* ---- ring ---- */
+  .ring-wrap { display: flex; align-items: center; gap: 18px; }
+  .ring { position: relative; width: 118px; height: 118px; flex: none; }
+  .ring .c { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+  .ring .c .v { font-size: 25px; font-weight: 800; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
+  .ring .c .k { font-size: 10px; color: var(--t3); font-weight: 600; margin-top: 2px; }
+  .lg { display: flex; flex-direction: column; gap: 9px; font-size: 12px; min-width: 0; flex: 1; }
+  .lg .li { display: flex; align-items: center; gap: 8px; color: var(--t2); }
+  .lg .sw { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+  .lg .n { margin-left: auto; font-weight: 750; color: var(--t1); font-variant-numeric: tabular-nums; }
+
+  /* ---- hbars ---- */
+  .hbar { display: grid; grid-template-columns: 50px minmax(0,1fr) 28px; align-items: center; gap: 10px; padding: 6px 0; font-size: 12px; }
+  .hbar .nm { color: var(--t2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hbar .tr { height: 8px; border-radius: 4px; background: var(--heat0); overflow: hidden; }
+  .hbar .fl { height: 100%; border-radius: 4px; }
+  .hbar .vv { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--t1); }
+  .foot { font-size: 11px; color: var(--t3); margin-top: 11px; line-height: 1.55; }
+  .foot b { color: var(--t2); }
+
+  /* ---- 24h ---- */
+  .h24 { display: flex; align-items: flex-end; gap: 2px; height: 78px; }
+  .h24 .b { flex: 1; background: rgba(96,165,250,.45); border-radius: 2px 2px 0 0; min-height: 3px; }
+  .h24 .b.pk { background: var(--blue); }
+  .h24ax { display: flex; justify-content: space-between; font-size: 10px; color: var(--t3); margin-top: 6px; }
+
+  .insuf { grid-column: 1 / -1; border: 1px dashed var(--line-2); border-radius: var(--r); padding: 13px 14px; color: var(--t3); font-size: 12px; display: flex; align-items: center; gap: 10px; }
+  .insuf b { color: var(--t2); }
+  .insuf .go { margin-left: auto; color: var(--accent); font-weight: 700; white-space: nowrap; }
+
+  /* ---- detail ---- */
+  .detail { background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; }
+  .dh { display: flex; align-items: center; gap: 8px; padding: 15px 15px 11px; }
+  .dh .t { font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--t2); }
+  .db { padding: 0 15px 16px; flex: 1; }
+  .ins { font-size: 12.5px; color: var(--t2); line-height: 1.65; }
+  .ins b { color: var(--t1); }
+  .dl { display: grid; grid-template-columns: 72px minmax(0,1fr); gap: 9px 10px; font-size: 12px; margin-top: 13px; }
+  .dl dt { color: var(--t3); font-weight: 600; }
+  .dl dd { margin: 0; color: var(--t1); font-variant-numeric: tabular-nums; }
+  .mini { margin-top: 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--card); padding: 11px 12px; }
+  .mini .h { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--t3); margin-bottom: 9px; }
+  .spark { display: flex; align-items: flex-end; gap: 3px; height: 32px; }
+  .spark i { flex: 1; background: var(--accent); border-radius: 2px 2px 0 0; opacity: .8; }
+
+  /* ---- verdict ---- */
+  table.vt { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.vt th { text-align: left; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--t3); padding: 0 10px 9px; font-weight: 700; }
+  table.vt td { padding: 11px 10px; border-top: 1px solid var(--line); vertical-align: top; color: var(--t2); line-height: 1.55; }
+  table.vt td:first-child { color: var(--t1); font-weight: 650; white-space: nowrap; }
+  .yes { color: var(--accent); font-weight: 700; } .no { color: var(--red); font-weight: 700; } .maybe { color: var(--amber); font-weight: 700; }
+  .blk { border: 1px solid var(--line); background: var(--card); border-radius: var(--r); padding: 15px; }
+  .blk h3 { margin: 0 0 10px; font-size: 13px; font-weight: 750; }
+  .blk p { margin: 0 0 9px; color: var(--t2); font-size: 12.5px; line-height: 1.7; }
+  .blk p:last-child { margin-bottom: 0; }
+  .blk b { color: var(--t1); }
+</style>
+</head>
+<body>
+<div class="st" id="st" data-theme="dark">
+  <div class="st-bar">
+    <div class="st-tabs" role="tablist">
+      <button class="st-tab" role="tab" aria-selected="true" data-tab="v">统计视图</button>
+      <button class="st-tab" role="tab" aria-selected="false" data-tab="w">选型与理由</button>
+    </div>
+    <div class="st-sp"></div>
+    <button class="st-btn" id="stTheme">切换亮色</button>
+  </div>
+
+  <section class="st-pane" data-pane="v" data-active>
+    <p class="st-note">三栏版的侧栏「回顾」分组下加一项统计。<b>每张图右上角写了它回答的问题</b>，答不出动作的图不画。热力图用固定 12px 方格 + 右侧摘要列，不随容器拉伸。</p>
+    <div class="win"><div class="shell">
+      <aside class="side">
+        <div class="logo"><span class="n">Anvil</span><span class="s">LOCAL FIRST</span></div>
+        <nav class="nav">
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="10" rx="2"/><rect x="14" y="3" width="7" height="6" rx="2"/><rect x="3" y="16" width="18" height="5" rx="2"/></svg>工作台</div>
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h10M4 12h10M4 18h6"/><path d="m17 15 2 2 3-4"/></svg>待办<span class="n2">3</span></div>
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h11l3 3v15H5z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>笔记<span class="n2">42</span></div>
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H3z"/><path d="M3 7V5h5l2 2"/></svg>速达</div>
+          <div class="grp">回顾</div>
+          <div class="it" aria-current="page"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>统计</div>
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg>日历</div>
+        </nav>
+        <div class="sidefoot">
+          <div class="scard"><div class="h"><span class="live"></span>手机伴侣 · 已连</div><div class="v"><b>iPhone 15</b><br><span style="color:var(--t3);font-size:11px">同步位点 #1,284</span></div></div>
+        </div>
+      </aside>
+
+      <div class="ctr">
+        <div class="topbar">
+          <div><h1>统计</h1><div class="crumb">近 20 周 · 全部来自本机 done_at，未上传</div></div>
+          <div class="search"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>搜索…<span class="kbd">Ctrl K</span></div>
+          <div class="seg"><span>周</span><span class="on">月</span><span>年</span></div>
+          <div class="wctl"><button><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button><button><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/></svg></button><button><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+        </div>
+        <div class="body">
+          <div class="kpis">
+            <div class="kpi sel g"><div class="lab"><span class="en">DONE</span><span class="cn">本月完成</span></div><div class="num">48<span>项</span></div><div class="d">日均 <i>2.4</i></div></div>
+            <div class="kpi b"><div class="lab"><span class="en">STREAK</span><span class="cn">最长连续</span></div><div class="num">11<span>天</span></div><div class="d">当前 <i>6 天</i></div></div>
+            <div class="kpi a"><div class="lab"><span class="en">RATE</span><span class="cn">按时完成率</span></div><div class="num">83<span>%</span></div><div class="d">较上月 <i>↑ 5pt</i></div></div>
+            <div class="kpi r"><div class="lab"><span class="en">LATE</span><span class="cn">逾期未清</span></div><div class="num">2<span>项</span></div><div class="d down">最久 <i>9 天</i></div></div>
+          </div>
+
+          <div class="card wide" style="margin-bottom:11px">
+            <div class="ch"><span class="t">完成热力</span><span class="q">· 回答「我有没有连着做」</span><span class="r">悬停看当天</span></div>
+            <div class="heatwrap">
+              <div class="heatgrid">
+                <div class="hmonths" id="hmonths"></div>
+                <div class="hrows">
+                  <div class="hwk"><i></i><i>二</i><i></i><i>四</i><i></i><i>六</i><i></i></div>
+                  <div class="hcols" id="heat"></div>
+                </div>
+              </div>
+              <div class="hsid">
+                <div class="hstat"><b>20 周里 14 周</b><span>有完成记录</span></div>
+                <div class="hint2">断档集中在 <b>9 月第 2–3 周</b> —— 那两周出差，回来后用 3 天补了 11 项。<b>连续不是能力问题，是节奏被打断。</b></div>
+                <div class="hlegend"><span>少</span><i style="background:var(--heat0)"></i><i class="hc l1"></i><i class="hc l2"></i><i class="hc l3"></i><i class="hc l4"></i><span>多</span><span style="margin-left:8px">蓝框=今天</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid">
+            <div class="card">
+              <div class="ch"><span class="t">每日完成</span><span class="q">· 回答「哪几天在硬扛」</span></div>
+              <div class="bars" id="bars"></div>
+              <div class="axis"><span>10/15</span><span><em>■</em> 红段 = 补做的逾期项</span><span>10/28</span></div>
+            </div>
+            <div class="card">
+              <div class="ch"><span class="t">今日构成</span><span class="q">· 回答「今天清干净了没」</span></div>
+              <div class="ring-wrap">
+                <div class="ring">
+                  <svg width="118" height="118" viewBox="0 0 118 118">
+                    <circle cx="59" cy="59" r="48" fill="none" stroke="var(--heat0)" stroke-width="14"/>
+                    <circle cx="59" cy="59" r="48" fill="none" stroke="var(--accent)" stroke-width="14" stroke-linecap="round" stroke-dasharray="201 302" transform="rotate(-90 59 59)"/>
+                    <circle cx="59" cy="59" r="48" fill="none" stroke="var(--red)" stroke-width="14" stroke-dasharray="38 302" stroke-dashoffset="-204" transform="rotate(-90 59 59)"/>
+                  </svg>
+                  <div class="c"><div class="v">84<small style="font-size:13px">%</small></div><div class="k">16 / 19</div></div>
+                </div>
+                <div class="lg">
+                  <div class="li"><span class="sw" style="background:var(--accent)"></span>按时完成<span class="n">13</span></div>
+                  <div class="li"><span class="sw" style="background:rgba(52,211,153,.32)"></span>补做（曾逾期）<span class="n">3</span></div>
+                  <div class="li"><span class="sw" style="background:var(--red)"></span>逾期未清<span class="n">2</span></div>
+                  <div class="li"><span class="sw" style="background:var(--heat0)"></span>未到期<span class="n">1</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="ch"><span class="t">分类投入</span><span class="q">· 回答「时间花在哪」</span><span class="r">本月</span></div>
+              <div class="hbar"><span class="nm">项目</span><span class="tr"><span class="fl" style="width:74%;background:var(--accent)"></span></span><span class="vv">18</span></div>
+              <div class="hbar"><span class="nm">工作</span><span class="tr"><span class="fl" style="width:56%;background:var(--blue)"></span></span><span class="vv">14</span></div>
+              <div class="hbar"><span class="nm">学习</span><span class="tr"><span class="fl" style="width:32%;background:var(--violet)"></span></span><span class="vv">8</span></div>
+              <div class="hbar"><span class="nm">生活</span><span class="tr"><span class="fl" style="width:20%;background:var(--amber)"></span></span><span class="vv">5</span></div>
+              <div class="hbar"><span class="nm">其他</span><span class="tr"><span class="fl" style="width:8%;background:var(--t3)"></span></span><span class="vv">2</span></div>
+              <div class="foot">用长短比较，<b>不用饼图</b> —— 五块扇形的角度肉眼分不出大小。</div>
+            </div>
+            <div class="card">
+              <div class="ch"><span class="t">建待办的时段</span><span class="q">· 回答「我什么时候在规划」</span><span class="r">近 30 天</span></div>
+              <div class="h24" id="h24"></div>
+              <div class="h24ax"><span>0</span><span>6</span><span>12</span><span>18</span><span>23</span></div>
+              <div class="foot">高峰 <b>09:00</b> 与 <b>22:00</b>：晚上建、早上还，那 2 项逾期就是这么攒出来的。</div>
+            </div>
+            <div class="insuf">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex:none"><path d="M12 8v5M12 16h.01"/><circle cx="12" cy="12" r="9"/></svg>
+              <span><b>「按时完成率趋势」暂不显示</b> —— 需 ≥ 60 天，当前 41 天。凑不满就不画，不拿两周噪声当趋势。</span>
+              <span class="go">知道了</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="detail">
+        <div class="dh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="color:var(--accent)"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span class="t">选中 10月22日</span></div>
+        <div class="db">
+          <div class="ins">当天完成 <b>6 项</b>，其中 <b>2 项</b>是补做的逾期项 —— 全月唯一的"硬扛日"，前一天 0 完成。</div>
+          <dl class="dl">
+            <dt>完成</dt><dd>6 项（月均 1.6）</dd>
+            <dt>其中补做</dt><dd style="color:var(--amber)">2 项</dd>
+            <dt>新建</dt><dd>4 项</dd>
+            <dt>净变化</dt><dd style="color:var(--red)">−2</dd>
+            <dt>来源</dt><dd>PC 5 · iPhone 1</dd>
+          </dl>
+          <div class="mini">
+            <div class="h">近 14 天完成数</div>
+            <div class="spark" id="spark"></div>
+          </div>
+          <div class="mini">
+            <div class="h">这些数怎么来的</div>
+            <div class="ins" style="font-size:12px">全是 <code>todos</code> 表上 <code>done_at</code> 的聚合，一条 SQL 出结果，<b>不建统计表</b>。个人量级（几千行）走索引即可，物化视图是过度设计。</div>
+          </div>
+        </div>
+      </aside>
+    </div></div>
+  </section>
+
+  <section class="st-pane" data-pane="w">
+    <p class="st-note">判断标准：<b>个人工作台的数据量撑不起 BI 大屏</b>。一天完成 2–5 项、一年千余条，所以每张图必须能引出一个动作。</p>
+    <div class="grid">
+      <div class="card wide" style="grid-column:1/-1;padding:6px 14px 14px">
+        <div class="ch" style="margin-top:8px"><span class="t">选型表</span><span class="q">· 8 种常见图的取舍</span></div>
+        <table class="vt">
+          <tr><td style="width:112px">图</td><td style="width:64px">结论</td><td>理由</td></tr>
+          <tr><td>完成热力图</td><td class="yes">做</td><td>连续性是习惯数据最有价值的信号，一眼看出断在哪周。柱状图看形状，热力图看断点，替代不了。</td></tr>
+          <tr><td>每日柱状图</td><td class="yes">做</td><td>回答"哪几天在硬扛"。规则：<b>堆叠区分按时与补做</b>，否则只是在数数。</td></tr>
+          <tr><td>单值圆环</td><td class="yes">做</td><td>今日完成率本质是仪表盘（gauge）不是图表。中心放数字、环最多两段，是它唯一正确的用法。</td></tr>
+          <tr><td>横向条形</td><td class="yes">做</td><td>比较长度比比较角度准，中文标签还能直接写在条上，省掉图例。</td></tr>
+          <tr><td>时段直方图</td><td class="maybe">看量</td><td>洞察强（晚上建、早上还），但要 ≥ 30 天才有形状，所以带显示门槛。</td></tr>
+          <tr><td>多扇形饼图</td><td class="no">不做</td><td>超 3 块不可读，还必须配图例。<b>扇形只留给"完成/未完成"这种二段。</b></td></tr>
+          <tr><td>折线趋势</td><td class="no">不做</td><td>日粒度噪声大；周粒度你只有 12 个点，画出来像巧合。≥ 60 天才允许显示。</td></tr>
+          <tr><td>雷达 / 双轴 / 桑基</td><td class="no">不做</td><td>纯装饰。雷达面积不可比，双轴在两个指标时是杀鸡用牛刀，桑基需要个人待办不存在的流转关系。</td></tr>
+        </table>
+      </div>
+      <div class="blk">
+        <h3>实现：手写 SVG，不引图表库</h3>
+        <p>ECharts 压缩后 300 KB+（G2/AntV 同量级），而上面 5 张图手写约 250 行：热力图 = CSS grid 上色块、柱状图 = flex + 高度、圆环 = <code>stroke-dasharray</code>、横条 = div 宽度。</p>
+        <p>决定性理由是<b>主题跟随</b>：手写直接吃 <code>var(--accent)</code>，切暗色零成本；库要喂调色板，自带 tooltip 还会和玻璃浮层打架。与 x-hub"禁止原生 select"是同一条原则——<b>外观不受令牌控制的元素，在主题化应用里就是债</b>。</p>
+      </div>
+      <div class="blk">
+        <h3>对数据模型的影响（都要现在定）</h3>
+        <p><b>① <code>done_at</code> 已有</b>（PLAN §5.2）。补一条规则：<b>取消勾选不清空 <code>done_at</code></b>，只递增 <code>rev</code> —— 清空会让历史统计少一格。</p>
+        <p><b>② 需要 <code>created_at</code> + <code>created_by</code></b>。时段直方图靠 <code>created_at</code> 的小时分布，"来源"靠 <code>created_by</code>。原表只有 <code>updated_*</code>，这是本次讨论暴露的真缺口，必须落在 M1。</p>
+        <p><b>③ 不建 <code>activity_daily</code> 物化表。</b>几千行量级下 <code>done_at</code> 加索引即毫秒级；提前物化只会引入"统计与列表对不上"这类难查 bug。</p>
+      </div>
+      <div class="blk">
+        <h3>放哪</h3>
+        <p><b>独立「统计」视图</b>（侧栏"回顾"分组），不塞进工作台：统计是回顾性的，工作台是行动性的，混起来首页就变仪表盘 —— 正是 x-hub 刻意避开的。</p>
+        <p>工作台只留<b>圆环（今日完成率）+ 迷你热力图（近 12 周）</b>两个数字部件，看完不需要下钻。手机端<b>不做统计页</b>：伴侣端职责是勾选与捕获，看趋势是坐在 PC 前做的事。</p>
+      </div>
+      <div class="blk">
+        <h3>一条诚实条款</h3>
+        <p>「按时完成率趋势」在视图里是<b>灰掉的空态</b>，写明"需 ≥ 60 天，当前 41 天"。</p>
+        <p>多数带统计的产品会拿两周数据画一条自信的上扬曲线骗你。<b>你自己的工具不该骗你</b> —— 这和 PLAN §2 原则 5「联动诚实」是同一条原则的两个应用。</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+  const root = document.getElementById('st');
+  const tabs = [...root.querySelectorAll('.st-tab')];
+  const panes = [...root.querySelectorAll('.st-pane')];
+  const show = k => {
+    tabs.forEach(t => t.setAttribute('aria-selected', String(t.dataset.tab === k)));
+    panes.forEach(p => p.dataset.pane === k ? p.setAttribute('data-active','') : p.removeAttribute('data-active'));
+  };
+  tabs.forEach(t => t.addEventListener('click', () => show(t.dataset.tab)));
+  document.getElementById('stTheme').addEventListener('click', e => {
+    const dark = root.dataset.theme === 'dark';
+    root.dataset.theme = dark ? 'light' : 'dark';
+    e.currentTarget.textContent = dark ? '切换暗色' : '切换亮色';
+  });
+
+  // deterministic PRNG so the mock data is stable across reloads
+  let s = 20261028;
+  const rnd = () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648;
+
+  const TODAY = new Date(2026, 9, 28);
+  const WEEKS = 20;
+  const monday = new Date(TODAY);
+  monday.setDate(TODAY.getDate() - ((TODAY.getDay() + 6) % 7));
+  const start = new Date(monday);
+  start.setDate(monday.getDate() - (WEEKS - 1) * 7);
+
+  // gap: 9月第2-3周出差 → 0 完成
+  const inGap = d => d >= new Date(2026, 8, 7) && d <= new Date(2026, 8, 20);
+  const countFor = d => {
+    if (d > TODAY) return -1;
+    if (inGap(d)) return 0;
+    const wd = (d.getDay() + 6) % 7;
+    const base = (wd >= 5 ? 0.5 : 1) * (0.55 + rnd());
+    return Math.min(6, Math.round(base * 5 * (0.35 + rnd() * 0.9)));
+  };
+  const lvl = n => n <= 0 ? '' : n <= 1 ? 'l1' : n <= 2 ? 'l2' : n <= 3 ? 'l3' : 'l4';
+
+  const heat = document.getElementById('heat');
+  const months = document.getElementById('hmonths');
+  let monthHtml = '', lastMonth = -1;
+  const colsHtml = [];
+  for (let w = 0; w < WEEKS; w++) {
+    const wkStart = new Date(start); wkStart.setDate(start.getDate() + w * 7);
+    monthHtml += `<span title="${wkStart.getMonth() + 1}月">${wkStart.getMonth() !== lastMonth ? (wkStart.getMonth() + 1) + '月' : ''}</span>`;
+    lastMonth = wkStart.getMonth();
+    let cells = '';
+    for (let d = 0; d < 7; d++) {
+      const date = new Date(wkStart); date.setDate(wkStart.getDate() + d);
+      const n = countFor(date);
+      const cls = n < 0 ? 'future' : lvl(n);
+      const today = date.toDateString() === TODAY.toDateString() ? ' today' : '';
+      const label = n < 0 ? '未到' : n + ' 项';
+      cells += `<div class="hc ${cls}${today}" title="${date.getMonth() + 1}/${date.getDate()} · ${label}"></div>`;
+    }
+    colsHtml.push(`<div class="hcol">${cells}</div>`);
+  }
+  heat.innerHTML = colsHtml.join('');
+  months.innerHTML = monthHtml;
+
+  // last 14 days: [on-time, recovered-late]
+  const bars = document.getElementById('bars');
+  const series = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(TODAY); d.setDate(TODAY.getDate() - i);
+    const n = Math.max(0, countFor(d));
+    const late = n > 3 ? 2 : n > 1 ? 1 : 0;
+    series.push({ d, on: n - late, late });
+  }
+  const max = Math.max(...series.map(x => x.on + x.late)) || 1;
+  bars.innerHTML = series.map(x => {
+    const t = x.on + x.late, hot = t >= max * 0.7;
+    const h = Math.round(t / max * 100);
+    const onPct = t ? Math.round(x.on / t * 100) : 0;
+    return `<div class="bcol${hot ? ' hot' : ''}" title="${x.d.getMonth() + 1}/${x.d.getDate()} · 完成 ${t}（补做 ${x.late}）">
+      <span class="bv">${t || ''}</span>
+      <div class="bwrap" style="height:${h}%"><span class="b1" style="height:${onPct}%"></span><span class="b2" style="height:${100 - onPct}%"></span></div>
+      <span class="bl">${x.d.getDate()}</span></div>`;
+  }).join('');
+
+  document.getElementById('spark').innerHTML = series.map(x =>
+    `<i style="height:${Math.max(4, Math.round((x.on + x.late) / max * 100))}%"></i>`).join('');
+
+  const h24 = document.getElementById('h24');
+  const hh = [0,0,0,0,0,0,1,3,9,17,12,8,4,3,5,7,6,4,5,8,11,14,12,5];
+  const m24 = Math.max(...hh);
+  h24.innerHTML = hh.map((v, i) =>
+    `<span class="b${v > 11 ? ' pk' : ''}" style="height:${Math.max(4, Math.round(v / m24 * 100))}%" title="${i}:00 · ${v} 条"></span>`).join('');
+
+  show('v');
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,747 @@
+<style>
+  .wz {
+    --bg: #0a0c0b;
+    --bg-glow-a: rgba(16, 185, 129, .13);
+    --bg-glow-b: rgba(56, 120, 255, .10);
+    --bg-glow-c: rgba(244, 114, 182, .07);
+    --panel: #0f1312;
+    --card: #141917;
+    --card-2: #101413;
+    --card-sel: #f4f7f5;
+    --line: rgba(255, 255, 255, .065);
+    --line-2: rgba(255, 255, 255, .11);
+    --t1: #eef2f0;
+    --t2: #a4ada9;
+    --t3: #6d7671;
+    --accent: #34d399;
+    --accent-ink: #06301f;
+    --accent-soft: rgba(52, 211, 153, .13);
+    --blue: #60a5fa;
+    --amber: #fbbf24;
+    --red: #f87171;
+    --shadow: 0 1px 0 rgba(255,255,255,.045) inset, 0 16px 40px rgba(0,0,0,.5);
+    --r: 13px;
+    background:
+      radial-gradient(700px 340px at 6% -8%, var(--bg-glow-a), transparent 62%),
+      radial-gradient(620px 320px at 96% 0%, var(--bg-glow-b), transparent 64%),
+      radial-gradient(760px 380px at 50% 118%, var(--bg-glow-c), transparent 62%),
+      var(--bg);
+    color: var(--t1);
+    font: 400 13px/1.5 Inter, ui-sans-serif, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    border-radius: 16px;
+    padding: 14px;
+  }
+  .wz[data-theme="light"] {
+    --bg: #eff2f1;
+    --bg-glow-a: rgba(16, 185, 129, .16);
+    --bg-glow-b: rgba(90, 140, 255, .14);
+    --bg-glow-c: rgba(244, 114, 182, .12);
+    --panel: #f7f9f8;
+    --card: rgba(255,255,255,.86);
+    --card-2: rgba(255,255,255,.60);
+    --card-sel: #ffffff;
+    --line: rgba(20, 30, 26, .085);
+    --line-2: rgba(20, 30, 26, .16);
+    --t1: #14181a;
+    --t2: #5a625f;
+    --t3: #8b938f;
+    --accent: #059669;
+    --accent-ink: #ffffff;
+    --accent-soft: rgba(5, 150, 105, .10);
+    --blue: #2563eb;
+    --amber: #b45309;
+    --red: #b91c1c;
+    --shadow: 0 1px 2px rgba(20,30,26,.05), 0 10px 28px rgba(20,30,26,.07);
+  }
+  .wz * { box-sizing: border-box; }
+  .wz button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  svg { display: block; }
+
+  /* toolbar */
+  .wz-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 11px; flex-wrap: wrap; }
+  .wz-tabs { display: flex; gap: 3px; padding: 4px; background: rgba(128,140,135,.14); border-radius: 11px; }
+  .wz-tab { padding: 7px 13px; border-radius: 8px; color: var(--t2); font-weight: 650; font-size: 12.5px; white-space: nowrap; }
+  .wz-tab[aria-selected="true"] { background: var(--card-sel); color: #0d1211; box-shadow: 0 1px 4px rgba(0,0,0,.18); }
+  .wz-sp { flex: 1; }
+  .wz-btn { padding: 7px 12px; border-radius: 9px; border: 1px solid var(--line-2); color: var(--t2); font-weight: 650; font-size: 12px; background: var(--card); }
+  .wz-note { color: var(--t2); font-size: 12px; line-height: 1.65; padding: 10px 13px; border-left: 2px solid var(--accent); background: rgba(128,140,135,.09); border-radius: 0 9px 9px 0; margin: 0 0 12px; }
+  .wz-note b { color: var(--t1); }
+  .wz-pane { display: none; }
+  .wz-pane[data-active] { display: block; }
+
+  /* window */
+  .wz-win { border-radius: 15px; overflow: hidden; border: 1px solid var(--line-2); box-shadow: 0 26px 60px rgba(0,0,0,.42); background: var(--bg); }
+  .wz-shell { display: grid; grid-template-columns: 226px minmax(0,1fr) 302px; min-height: 616px; }
+  .wz-shell[data-nopanel] { grid-template-columns: 226px minmax(0,1fr); }
+  .wz-shell[data-nopanel] .wz-detail { display: none; }
+
+  /* sidebar */
+  .side { background: var(--panel); border-right: 1px solid var(--line); padding: 15px 11px 11px; display: flex; flex-direction: column; }
+  .logo { display: flex; align-items: baseline; gap: 7px; padding: 0 6px 15px; }
+  .logo .n { font-size: 16px; font-weight: 800; letter-spacing: -.02em; }
+  .logo .s { font-size: 10.5px; color: var(--t3); font-weight: 600; letter-spacing: .04em; }
+  .nav { display: flex; flex-direction: column; gap: 2px; }
+  .nav .it { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; color: var(--t2); font-weight: 550; position: relative; }
+  .nav .it[aria-current="page"] { background: var(--card); color: var(--t1); font-weight: 700; box-shadow: inset 0 0 0 1px var(--line); }
+  .nav .it[aria-current="page"]::before { content: ""; position: absolute; left: -11px; top: 9px; height: 16px; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent); }
+  .nav .it .dotlive { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .nav .it .n { margin-left: auto; font-size: 11px; color: var(--t3); font-variant-numeric: tabular-nums; font-weight: 600; }
+  .nav .grp { font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--t3); padding: 15px 10px 6px; }
+  .sidefoot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
+  .scard { border: 1px solid var(--line); background: var(--card-2); border-radius: 11px; padding: 10px 11px; }
+  .scard .h { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--t3); margin-bottom: 7px; }
+  .scard .v { font-size: 12px; color: var(--t2); line-height: 1.5; }
+  .scard .v b { color: var(--t1); font-weight: 650; }
+  .mono { font: 500 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--t2); word-break: break-all; }
+  .live { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); flex: none; }
+  .live.off { background: var(--amber); box-shadow: 0 0 0 3px rgba(251,191,36,.15); }
+
+  /* center */
+  .ctr { min-width: 0; display: flex; flex-direction: column; }
+  .topbar { display: flex; align-items: center; gap: 14px; padding: 16px 18px 13px; }
+  .topbar h1 { margin: 0; font-size: 20px; font-weight: 750; letter-spacing: -.025em; }
+  .crumb { font-size: 11.5px; color: var(--t3); margin-top: 3px; }
+  .search { margin-left: auto; display: flex; align-items: center; gap: 9px; width: 300px; padding: 8px 11px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--card-2); color: var(--t3); font-size: 12.5px; }
+  .kbd { font: 650 10.5px/1 ui-monospace, Consolas, monospace; padding: 3.5px 6px; border-radius: 5px; border: 1px solid var(--line-2); color: var(--t2); background: rgba(128,140,135,.12); margin-left: auto; }
+  .primary { display: flex; align-items: center; gap: 6px; padding: 8px 13px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-weight: 750; font-size: 12.5px; box-shadow: 0 6px 18px rgba(16,185,129,.26); }
+  .wctl { display: flex; gap: 2px; color: var(--t3); }
+  .wctl button { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; }
+  .wctl button:hover { background: rgba(128,140,135,.16); color: var(--t1); }
+  .body { padding: 0 18px 18px; flex: 1; min-width: 0; }
+
+  /* KPI row — borrowed from reference */
+  .kpis { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 11px; margin-bottom: 16px; }
+  .kpi { border: 1px solid var(--line); border-radius: var(--r); padding: 13px 14px; background: var(--card); position: relative; overflow: hidden; min-width: 0; }
+  .kpi::after { content: ""; position: absolute; inset: 0; background: radial-gradient(140px 70px at 88% 6%, var(--glow, transparent), transparent 70%); pointer-events: none; }
+  .kpi .lab { display: flex; align-items: baseline; gap: 6px; margin-bottom: 9px; }
+  .kpi .en { font: 700 9.5px/1 ui-monospace, Consolas, monospace; letter-spacing: .12em; color: var(--t3); }
+  .kpi .cn { font-size: 11.5px; color: var(--t3); font-weight: 600; }
+  .kpi .num { font-size: 32px; font-weight: 800; letter-spacing: -.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .kpi .num span { font-size: 11.5px; font-weight: 600; color: var(--t3); margin-left: 6px; letter-spacing: 0; }
+  .kpi .delta { margin-top: 9px; font-size: 11px; color: var(--t3); font-weight: 600; }
+  .kpi .delta i { font-style: normal; color: var(--accent); }
+  .kpi .delta.down i { color: var(--red); }
+  .kpi.sel { background: var(--card-sel); border-color: transparent; color: #101614; box-shadow: 0 14px 34px rgba(0,0,0,.30); }
+  .wz[data-theme="light"] .kpi.sel { box-shadow: 0 10px 26px rgba(20,30,26,.13); }
+  .kpi.sel .lab, .kpi.sel .en, .kpi.sel .cn, .kpi.sel .delta, .kpi.sel .num span { color: #6b7570; }
+  .kpi.sel .num { color: #0d1211; }
+  .kpi.sel .delta i { color: #059669; }
+  .kpi.g { --glow: rgba(52,211,153,.22); }
+  .kpi.b { --glow: rgba(96,165,250,.20); }
+  .kpi.a { --glow: rgba(251,191,36,.18); }
+  .kpi.r { --glow: rgba(248,113,113,.20); }
+
+  .sec { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .sec h2 { margin: 0; font-size: 14.5px; font-weight: 750; letter-spacing: -.015em; }
+  .sec .demo { font-size: 10px; font-weight: 700; letter-spacing: .06em; color: var(--t3); border: 1px solid var(--line-2); padding: 2.5px 7px; border-radius: 20px; }
+  .seg { display: flex; gap: 3px; padding: 3px; background: rgba(128,140,135,.13); border-radius: 10px; margin-left: auto; }
+  .seg span { padding: 5.5px 11px; border-radius: 7px; font-size: 11.5px; font-weight: 650; color: var(--t2); }
+  .seg .on { background: var(--card-sel); color: #0d1211; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+
+  /* lists */
+  .panel { border: 1px solid var(--line); background: var(--card); border-radius: var(--r); overflow: hidden; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 11px 13px; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: 0; }
+  .row.sel { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+  .box { width: 17px; height: 17px; border-radius: 5px; border: 1.7px solid var(--line-2); flex: none; display: grid; place-items: center; color: transparent; }
+  .box.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .pri { width: 8px; height: 8px; border-radius: 50%; flex: none; background: #4b5451; }
+  .pri.p1 { background: var(--amber); }
+  .pri.p2 { background: var(--red); }
+  .rt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  .rt.done { text-decoration: line-through; color: var(--t3); font-weight: 400; }
+  .meta { font-size: 11px; color: var(--t3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .meta.late { color: var(--red); font-weight: 700; }
+  .tag { font-size: 10.5px; font-weight: 650; padding: 2.5px 8px; border-radius: 20px; background: rgba(128,140,135,.16); color: var(--t2); }
+  .tag.a { background: var(--accent-soft); color: var(--accent); }
+  .src { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; color: var(--t3); }
+  .grphead { display: flex; align-items: center; gap: 8px; padding: 10px 13px; background: var(--card-2); border-bottom: 1px solid var(--line); font-size: 11.5px; font-weight: 700; color: var(--t2); }
+  .grphead .c { color: var(--t3); font-weight: 600; }
+  .grphead .chev { margin-left: auto; color: var(--t3); }
+
+  /* detail panel — the big borrow */
+  .detail { background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; }
+  .dh { display: flex; align-items: center; gap: 8px; padding: 15px 15px 11px; }
+  .dh .t { font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--t2); }
+  .db { padding: 0 15px 12px; flex: 1; overflow: hidden; }
+  .id { font: 600 10.5px/1 ui-monospace, Consolas, monospace; color: var(--t3); letter-spacing: .06em; margin-bottom: 8px; }
+  .dt { font-size: 16.5px; font-weight: 750; letter-spacing: -.02em; line-height: 1.35; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 700; padding: 3px 8px; border-radius: 6px; background: rgba(248,113,113,.14); color: var(--red); }
+  .badge.ok { background: var(--accent-soft); color: var(--accent); }
+  .badge.wt { background: rgba(96,165,250,.14); color: var(--blue); }
+  .dd { color: var(--t2); font-size: 12.5px; line-height: 1.6; margin: 9px 0 14px; }
+  .dl { display: grid; grid-template-columns: 62px minmax(0,1fr); gap: 9px 10px; font-size: 12px; }
+  .dl dt { color: var(--t3); font-weight: 600; }
+  .dl dd { margin: 0; color: var(--t1); display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
+  .prog { display: flex; align-items: center; gap: 8px; width: 100%; }
+  .prog .tr { flex: 1; height: 5px; border-radius: 3px; background: rgba(128,140,135,.22); overflow: hidden; }
+  .prog .fl { height: 100%; background: var(--accent); border-radius: 3px; }
+  .subtasks { margin-top: 14px; }
+  .subtasks .row { padding: 8px 0; border-bottom: 0; gap: 9px; }
+  .actcard { margin: 14px 0 0; border: 1px solid var(--line); border-radius: 11px; background: var(--card); padding: 11px 12px; }
+  .actcard .h { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--t3); margin-bottom: 9px; display: flex; align-items: center; gap: 6px; }
+  .feed { display: flex; gap: 9px; font-size: 11.5px; color: var(--t2); padding: 5px 0; align-items: flex-start; }
+  .feed .tm { color: var(--t3); font-variant-numeric: tabular-nums; flex: none; width: 38px; font-size: 10.5px; padding-top: 1px; }
+  .feed b { color: var(--t1); font-weight: 650; }
+  .dfoot { border-top: 1px solid var(--line); padding: 11px 15px; display: flex; gap: 8px; background: var(--card-2); }
+  .ghost { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 9px; border-radius: 9px; border: 1px solid var(--line-2); font-weight: 650; font-size: 12px; color: var(--t1); }
+  .solid { flex: 1.2; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 9px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); font-weight: 750; font-size: 12px; }
+  .iconbtn { width: 34px; border-radius: 9px; border: 1px solid var(--line-2); display: grid; place-items: center; color: var(--t2); }
+
+  /* bento widgets on home */
+  .bento { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 11px; }
+  .w { border: 1px solid var(--line); background: var(--card); border-radius: var(--r); padding: 13px; position: relative; overflow: hidden; }
+  .w.span2 { grid-column: span 2; }
+  .wh { display: flex; align-items: center; gap: 7px; margin-bottom: 11px; }
+  .wh .i { width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; color: #fff; flex: none; }
+  .wh .t { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--t2); }
+  .wh .r { margin-left: auto; font-size: 11px; color: var(--t3); }
+  .i1 { background: linear-gradient(140deg,#10b981,#34d399); }
+  .i2 { background: linear-gradient(140deg,#3b82f6,#60a5fa); }
+  .i3 { background: linear-gradient(140deg,#f59e0b,#fbbf24); }
+  .i4 { background: linear-gradient(140deg,#8b5cf6,#a78bfa); }
+  .i5 { background: linear-gradient(140deg,#ec4899,#f472b6); }
+  .i6 { background: linear-gradient(140deg,#475569,#94a3b8); }
+  .chips { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; }
+  .chip { display: grid; place-items: center; gap: 6px; padding: 10px 3px; border-radius: 10px; background: var(--card-2); border: 1px solid var(--line); }
+  .chip .g { width: 28px; height: 28px; border-radius: 9px; display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 11px; }
+  .chip .nm { font-size: 10.5px; color: var(--t2); max-width: 100%; overflow: hidden; white-space: nowrap; }
+  .meter { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--t2); margin-bottom: 8px; }
+  .meter .tr { flex: 1; height: 5px; border-radius: 3px; background: rgba(128,140,135,.2); overflow: hidden; }
+  .meter .fl { height: 100%; background: linear-gradient(90deg,#10b981,#34d399); }
+  .meter .fl.hot { background: linear-gradient(90deg,#f59e0b,#ef4444); }
+  .meter .vv { width: 34px; text-align: right; font-weight: 700; color: var(--t1); font-variant-numeric: tabular-nums; }
+  .sticky { background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 11px; color: var(--t2); font-size: 12.5px; line-height: 1.6; }
+  .sticky b { color: var(--t1); display: block; margin-bottom: 3px; }
+  .empty { display: flex; align-items: center; gap: 9px; padding: 12px 14px; border: 1px dashed var(--line-2); border-radius: var(--r); color: var(--t3); font-size: 12px; }
+  .empty .t { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--t2); }
+  .empty .a { margin-left: auto; color: var(--accent); font-weight: 700; }
+  .w.empty { grid-column: 1 / -1; }
+  .bigclock { font-size: 44px; font-weight: 800; letter-spacing: -.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .bigclock small { font-size: 16px; font-weight: 650; color: var(--t3); margin-left: 5px; letter-spacing: -.01em; }
+
+  /* phone */
+  .phones { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; padding: 6px 0; }
+  .phwrap { width: 286px; }
+  .phshell { border-radius: 34px; padding: 8px; background: linear-gradient(160deg,#2a2f2d,#0e1211); box-shadow: 0 26px 54px rgba(0,0,0,.5); }
+  .phn { border-radius: 27px; overflow: hidden; height: 566px; display: flex; flex-direction: column; background: var(--bg); }
+  .phstat { display: flex; align-items: center; padding: 11px 15px 3px; font-size: 11px; font-weight: 700; }
+  .phstat .r { margin-left: auto; color: var(--t2); font-weight: 600; }
+  .phtop { display: flex; align-items: center; gap: 8px; padding: 9px 15px 11px; }
+  .phtop .t { font-size: 17px; font-weight: 800; letter-spacing: -.025em; }
+  .pill { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700; padding: 4px 9px; border-radius: 20px; background: var(--accent-soft); color: var(--accent); margin-left: auto; }
+  .pill.warnc { background: rgba(251,191,36,.14); color: var(--amber); }
+  .phbody { flex: 1; padding: 0 11px; overflow: hidden; }
+  .phcard { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 11px; margin-bottom: 9px; }
+  .phkpi { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 9px; }
+  .phkpi .k { border: 1px solid var(--line); border-radius: 11px; padding: 10px 11px; background: var(--card); }
+  .phkpi .k .en { font: 700 9px/1 ui-monospace, Consolas, monospace; letter-spacing: .1em; color: var(--t3); }
+  .phkpi .k .num { font-size: 25px; font-weight: 800; letter-spacing: -.035em; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .phkpi .k.sel { background: var(--card-sel); color: #101614; border-color: transparent; }
+  .wz[data-theme="light"] .phkpi .k.sel { color: #101614; }
+  .phkpi .k.sel .en { color: #6b7570; }
+  .phkpi .k.sel .num { color: #0d1211; }
+  .phtab { display: flex; border-top: 1px solid var(--line); background: var(--card-2); }
+  .phtab div { flex: 1; display: grid; place-items: center; gap: 3px; padding: 9px 0 12px; font-size: 9.5px; font-weight: 650; color: var(--t3); }
+  .phtab .on { color: var(--accent); }
+  .cap { min-height: 82px; background: var(--card-2); border: 1px solid var(--line-2); border-radius: 12px; padding: 11px; font-size: 12.5px; line-height: 1.6; }
+  .cap .hint { color: var(--t3); font-size: 11px; margin-top: 7px; }
+  .banner { display: flex; gap: 8px; padding: 9px 11px; border-radius: 11px; background: rgba(251,191,36,.10); border: 1px solid rgba(251,191,36,.24); color: var(--amber); font-size: 11px; line-height: 1.5; margin-bottom: 9px; }
+  .banner b { color: var(--t1); }
+  .phcap { text-align: center; font-size: 11.5px; color: var(--t2); margin-top: 9px; line-height: 1.5; }
+  .phcap b { color: var(--t1); }
+
+  /* 外部联动 */
+  .lnk-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 11px; }
+  .lnk-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 700; padding: 3px 8px; border-radius: 20px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+  .lnk-pill.d { background: rgba(128,140,135,.16); color: var(--t2); }
+  .lnk-pill.w { background: rgba(251,191,36,.13); color: var(--amber); }
+  .lnk-pill.r { background: rgba(248,113,113,.13); color: var(--red); }
+  .lnk-lang { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .lnk-tick { font-variant-numeric: tabular-nums; }
+  .lnk-flow { display: flex; align-items: stretch; gap: 7px; flex-wrap: wrap; }
+  .lnk-node { flex: 1; min-width: 128px; border: 1px solid var(--line); background: var(--card-2); border-radius: 10px; padding: 9px 10px; }
+  .lnk-node .t { font-size: 11.5px; font-weight: 750; margin-bottom: 3px; display: flex; align-items: center; gap: 5px; }
+  .lnk-node .s { font-size: 10.5px; color: var(--t3); line-height: 1.5; }
+  .lnk-node.on { border-color: rgba(52,211,153,.34); background: var(--accent-soft); }
+  .lnk-arrow { display: grid; place-items: center; color: var(--t3); font-size: 13px; flex: none; }
+  .lnk-rows { display: flex; flex-direction: column; }
+  .lnk-r { display: flex; align-items: center; gap: 9px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+  .lnk-r:last-child { border-bottom: 0; }
+  .lnk-r .nm { font-weight: 650; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lnk-r .rgt { margin-left: auto; display: flex; align-items: center; gap: 7px; flex: none; }
+</style>
+
+<div class="wz" id="wz" data-theme="dark">
+  <div class="wz-bar">
+    <div class="wz-tabs" role="tablist">
+      <button class="wz-tab" role="tab" aria-selected="true" data-tab="home">D1 · 工作台</button>
+      <button class="wz-tab" role="tab" aria-selected="false" data-tab="todo">D2 · 待办 + 详情面板</button>
+      <button class="wz-tab" role="tab" aria-selected="false" data-tab="link">D4 · 外部联动</button>
+      <button class="wz-tab" role="tab" aria-selected="false" data-tab="phone">附 · 手机伴侣（v2 延后）</button>
+      <button class="wz-tab" role="tab" aria-selected="false" data-tab="verdict">借鉴了什么 / 没借鉴什么</button>
+    </div>
+    <div class="wz-sp"></div>
+    <button class="wz-btn" id="wzTheme">切换亮色</button>
+  </div>
+
+  <!-- D1 HOME -->
+  <section class="wz-pane" data-pane="home" data-active>
+    <div class="wz-win"><div class="wz-shell">
+      <aside class="side">
+        <div class="logo"><span class="n">Anvil</span><span class="s">LOCAL FIRST</span></div>
+        <nav class="nav">
+          <div class="it" aria-current="page"><span class="dotlive"></span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="10" rx="2"/><rect x="14" y="3" width="7" height="6" rx="2"/><rect x="3" y="16" width="18" height="5" rx="2"/></svg>工作台</div>
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h10M4 12h10M4 18h6"/><path d="m17 15 2 2 3-4"/></svg>待办<span class="n">3</span></div>
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h11l3 3v15H5z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>笔记<span class="n">42</span></div>
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H3z"/><path d="M3 7V5h5l2 2"/></svg>速达</div>
+          <div class="grp">运行中</div>
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg>倒计时<span class="n">2</span></div>
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h11l3 3v15H5z"/><path d="M8 9h8"/></svg>便签<span class="n">2</span></div>
+        </nav>
+        <div class="sidefoot">
+          <div class="scard">
+            <div class="h"><span class="live"></span>手机伴侣 · 已连</div>
+            <div class="v"><b>iPhone 15</b> · 192.168.1.37<br><span class="meta">上次同步 09:41:12 · 待推 0</span></div>
+          </div>
+          <div class="scard">
+            <div class="h"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/></svg>数据位置</div>
+            <div class="mono">%LOCALAPPDATA%\dev.rewmington.anvil\app.db</div>
+            <div class="v" style="margin-top:5px">18.4 MB · <b>仅本机</b></div>
+          </div>
+        </div>
+      </aside>
+      <div class="ctr">
+        <div class="topbar">
+          <div><h1>工作台</h1><div class="crumb">10月28日 周二 · 农历九月十六 · 晴 18°</div></div>
+          <div class="search"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>搜索待办、笔记、资源…<span class="kbd">Ctrl K</span></div>
+          <button class="primary"><svg width="13" height="13" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.8"><path d="M12 5v14M5 12h14"/></svg>捕获</button>
+          <div class="wctl"><button><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button><button><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/></svg></button><button><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+        </div>
+        <div class="body">
+          <div class="kpis">
+            <div class="kpi sel g"><div class="lab"><span class="en">TODAY</span><span class="cn">今日到期</span></div><div class="num">3<span>项</span></div><div class="delta">较昨日 <i>↑ 1</i></div></div>
+            <div class="kpi r"><div class="lab"><span class="en">OVERDUE</span><span class="cn">逾期</span></div><div class="num">1<span>项</span></div><div class="delta down">最久 <i>2 小时</i></div></div>
+            <div class="kpi b"><div class="lab"><span class="en">DONE</span><span class="cn">本周完成</span></div><div class="num">12<span>项</span></div><div class="delta">日均 <i>2.4</i></div></div>
+            <div class="kpi a"><div class="lab"><span class="en">INBOX</span><span class="cn">待整理捕获</span></div><div class="num">5<span>条</span></div><div class="delta">手机来 <i>2 条</i></div></div>
+          </div>
+          <div class="bento">
+            <div class="w span2">
+              <div class="wh"><span class="i i1"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M4 6h10M4 12h10M4 18h6"/><path d="m17 15 2 2 3-4"/></svg></span><span class="t">今日待办</span><span class="r">全部 3 · 打开 →</span></div>
+              <div class="panel" style="border:0;background:transparent">
+                <div class="row"><span class="box"></span><span class="pri p2"></span><span class="rt">整理工作台数据模型</span><span class="src"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="7" y="2" width="10" height="20" rx="2.5"/></svg>iPhone 09:12</span><span class="meta late">逾期 2h</span></div>
+                <div class="row"><span class="box"></span><span class="pri p1"></span><span class="rt">写周报草稿</span><span class="tag">工作</span><span class="meta">今天 18:00</span></div>
+                <div class="row"><span class="box"></span><span class="pri"></span><span class="rt">预约体检</span><span class="tag">生活</span><span class="meta">10月30日</span></div>
+              </div>
+            </div>
+            <div class="w">
+              <div class="wh"><span class="i i2"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="13" r="8"/><path d="M12 9v4"/></svg></span><span class="t">倒计时</span><span class="r">2 个</span></div>
+              <div class="row" style="padding:8px 0"><span class="pri p1"></span><span class="rt">需求评审</span><span class="meta" style="font-weight:750;color:var(--t1);font-size:13px">01:12:40</span></div>
+              <div class="row" style="padding:8px 0"><span class="pri"></span><span class="rt">健身</span><span class="meta">每天 19:30</span></div>
+              <div class="wh" style="margin:14px 0 11px"><span class="i i6"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8"/></svg></span><span class="t">系统</span></div>
+              <div class="meter"><span style="width:28px">CPU</span><span class="tr"><span class="fl" style="width:34%"></span></span><span class="vv">34%</span></div>
+              <div class="meter"><span style="width:28px">内存</span><span class="tr"><span class="fl hot" style="width:88%"></span></span><span class="vv">88%</span></div>
+            </div>
+            <div class="w">
+              <div class="wh"><span class="i i4"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H3z"/></svg></span><span class="t">速达 · 开发</span><span class="r">管理</span></div>
+              <div class="chips">
+                <div class="chip"><span class="g" style="background:linear-gradient(140deg,#6366f1,#8b5cf6)">VS</span><span class="nm">Code</span></div>
+                <div class="chip"><span class="g" style="background:linear-gradient(140deg,#0ea5e9,#22d3ee)">Db</span><span class="nm">DBeaver</span></div>
+                <div class="chip"><span class="g" style="background:linear-gradient(140deg,#f59e0b,#f43f5e)">Fk</span><span class="nm">Fork</span></div>
+                <div class="chip"><span class="g" style="background:linear-gradient(140deg,#10b981,#84cc16)">Tm</span><span class="nm">终端</span></div>
+              </div>
+              <div class="wh" style="margin:14px 0 11px"><span class="i i5"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 3h11l3 3v15H5z"/><path d="M8 9h8"/></svg></span><span class="t">便签 1</span><span class="r">⧉ 浮窗</span></div>
+              <div class="sticky"><b>明天上线检查</b>1. 迁移脚本 dry-run<br>2. 回滚包就位<br>3. 值班群通知</div>
+            </div>
+            <div class="w">
+              <div class="wh"><span class="i i3"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="t">时间</span><span class="r">天气</span></div>
+              <div class="bigclock">09:41<small>26</small></div>
+              <div class="meta" style="margin-top:9px">2026-10-28 周二 · 第 44 周</div>
+              <div class="sticky" style="margin-top:12px">今天 <b style="display:inline">3 项</b>到期，先看逾期那条。</div>
+            </div>
+            <div class="w empty"><span class="t">提示词</span><span>· 还没有内容</span><span class="a">+ 添加</span></div>
+            <div class="w empty"><span class="t">日历</span><span>· 本周无排期</span><span class="a">+ 添加</span></div>
+          </div>
+        </div>
+      </div>
+      <aside class="detail">
+        <div class="dh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="color:var(--accent)"><path d="m12 3 2.2 5.5L20 10l-5.8 1.5L12 17l-2.2-5.5L4 10l5.8-1.5z"/></svg><span class="t">今日焦点</span></div>
+        <div class="db">
+          <div class="id">TODO-2026-10-28-003</div>
+          <div class="dt">整理工作台数据模型</div>
+          <div style="margin-top:8px;display:flex;gap:6px;align-items:center"><span class="badge">紧急</span><span class="badge wt">逾期 2 小时</span></div>
+          <div class="dd">表结构已定：UUIDv7 主键 + <code>rev</code> + <code>updated_at</code> + <code>updated_by</code> + 软删墓碑。冲突走行级 Last-Write-Wins。</div>
+          <dl class="dl">
+            <dt>创建</dt><dd>今天 07:20 · 本机</dd>
+            <dt>截止</dt><dd style="color:var(--red);font-weight:650">今天 08:00</dd>
+            <dt>提醒</dt><dd>已触发 1 次</dd>
+            <dt>标签</dt><dd><span class="tag a">项目</span><span class="tag">v1</span></dd>
+            <dt>子任务</dt><dd><span class="prog"><span class="tr"><span class="fl" style="width:66%"></span></span><span class="meta">2/3</span></span></dd>
+          </dl>
+          <div class="actcard">
+            <div class="h"><span class="live"></span>联动动态</div>
+            <div class="feed"><span class="tm">09:41</span><span>勾选了「回复设计评审」<b>来自 iPhone</b></span></div>
+            <div class="feed"><span class="tm">09:12</span><span>新建「同步字段要 rev + updated_by」<b>捕获</b></span></div>
+            <div class="feed"><span class="tm">08:50</span><span>PC 端启动 <b>DBeaver</b></span></div>
+          </div>
+        </div>
+        <div class="dfoot">
+          <button class="solid"><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.2" fill="none"><path d="m4 12 5 5L20 6"/></svg>完成</button>
+          <button class="ghost">编辑</button>
+          <button class="iconbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></button>
+        </div>
+      </aside>
+    </div></div>
+  </section>
+
+  <!-- D2 TODO -->
+  <section class="wz-pane" data-pane="todo">
+    <div class="wz-win"><div class="wz-shell">
+      <aside class="side">
+        <div class="logo"><span class="n">Anvil</span><span class="s">LOCAL FIRST</span></div>
+        <nav class="nav">
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="10" rx="2"/><rect x="14" y="3" width="7" height="6" rx="2"/><rect x="3" y="16" width="18" height="5" rx="2"/></svg>工作台</div>
+          <div class="it" aria-current="page"><span class="dotlive"></span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h10M4 12h10M4 18h6"/><path d="m17 15 2 2 3-4"/></svg>待办<span class="n">3</span></div>
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h11l3 3v15H5z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>笔记<span class="n">42</span></div>
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H3z"/><path d="M3 7V5h5l2 2"/></svg>速达</div>
+          <div class="grp">筛选</div>
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>今天<span class="n">3</span></div>
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg>本周<span class="n">7</span></div>
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 4 2 5 5 .5-4 3.5 1.5 5L12 15l-4.5 3 1.5-5-4-3.5 5-.5z"/></svg>重要不紧急<span class="n">4</span></div>
+          <div class="grp">标签</div>
+          <div class="it"><span class="pri" style="background:var(--accent)"></span>项目<span class="n">6</span></div>
+          <div class="it"><span class="pri" style="background:var(--blue)"></span>工作<span class="n">11</span></div>
+          <div class="it"><span class="pri" style="background:var(--amber)"></span>生活<span class="n">3</span></div>
+        </nav>
+        <div class="sidefoot">
+          <div class="scard"><div class="h"><span class="live"></span>手机伴侣 · 已连</div><div class="v"><b>iPhone 15</b> · 待推 0<span class="meta" style="display:block;margin-top:3px">同步位点 #1,284</span></div></div>
+        </div>
+      </aside>
+      <div class="ctr">
+        <div class="topbar">
+          <div><h1>待办</h1><div class="crumb">今天 · 3 待办 · 1 逾期 · 1 已完成</div></div>
+          <div class="search"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>搜索待办…<span class="kbd">Ctrl K</span></div>
+          <button class="primary"><svg width="13" height="13" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.8"><path d="M12 5v14M5 12h14"/></svg>新建</button>
+          <div class="wctl"><button><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button><button><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/></svg></button><button><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+        </div>
+        <div class="body">
+          <div class="kpis">
+            <div class="kpi sel g"><div class="lab"><span class="en">TODAY</span><span class="cn">今天</span></div><div class="num">3<span>项</span></div><div class="delta">较昨日 <i>↑ 1</i></div></div>
+            <div class="kpi r"><div class="lab"><span class="en">OVERDUE</span><span class="cn">逾期</span></div><div class="num">1<span>项</span></div><div class="delta down">最久 <i>2 小时</i></div></div>
+            <div class="kpi a"><div class="lab"><span class="en">SOON</span><span class="cn">未来 7 天</span></div><div class="num">7<span>项</span></div><div class="delta">周五最挤 <i>3 项</i></div></div>
+            <div class="kpi b"><div class="lab"><span class="en">DONE</span><span class="cn">本周完成</span></div><div class="num">12<span>项</span></div><div class="delta">日均 <i>2.4</i></div></div>
+          </div>
+          <div class="sec"><h2>列表</h2><span class="demo">演示数据</span>
+            <div class="seg"><span class="on">按分组</span><span>按日期</span><span>日历</span></div>
+          </div>
+          <div class="panel">
+            <div class="grphead"><span class="pri p2"></span>紧急且重要<span class="c">1</span><span class="chev">⌄</span></div>
+            <div class="row sel"><span class="box"></span><span class="pri p2"></span><span class="rt">整理工作台数据模型</span><span class="src"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="7" y="2" width="10" height="20" rx="2.5"/></svg>iPhone 09:12</span><span class="tag a">项目</span><span class="meta late">逾期 2h</span></div>
+            <div class="grphead"><span class="pri p1"></span>今天要做<span class="c">2</span><span class="chev">⌄</span></div>
+            <div class="row"><span class="box"></span><span class="pri p1"></span><span class="rt">写周报草稿</span><span class="tag">工作</span><span class="meta">18:00</span></div>
+            <div class="row"><span class="box"></span><span class="pri"></span><span class="rt">预约体检</span><span class="tag">生活</span><span class="meta">10月30日</span></div>
+            <div class="grphead"><span class="pri" style="background:var(--accent)"></span>已完成<span class="c">1</span><span class="chev">⌄</span></div>
+            <div class="row" style="opacity:.6"><span class="box on"><svg width="11" height="11" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.4" fill="none"><path d="m4 12 5 5L20 6"/></svg></span><span class="rt done">回复设计评审</span><span class="meta">09:10 · iPhone</span></div>
+          </div>
+          <div class="empty" style="margin-top:11px"><span class="t">周期待办</span><span>· v1.1 功能，当前不显示</span><span class="a">了解</span></div>
+        </div>
+      </div>
+      <aside class="detail">
+        <div class="dh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="color:var(--accent)"><path d="M5 3h11l3 3v15H5z"/><path d="M8 9h8"/></svg><span class="t">详情</span></div>
+        <div class="db">
+          <div class="id">TODO-003 · rev 7</div>
+          <div class="dt">整理工作台数据模型</div>
+          <div style="margin-top:8px;display:flex;gap:6px;align-items:center"><span class="badge">紧急</span><span class="badge wt">逾期 2h</span><span class="badge ok">手机可见</span></div>
+          <div class="dd">表结构已定：UUIDv7 主键 + rev + updated_at + updated_by + 软删墓碑；冲突走行级 Last-Write-Wins。长文本规则：手机只追加不改写。</div>
+          <dl class="dl">
+            <dt>截止</dt><dd style="color:var(--red);font-weight:650">今天 08:00</dd>
+            <dt>提醒</dt><dd>已触发 1 次 · 下次 12:00</dd>
+            <dt>来源</dt><dd><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="7" y="2" width="10" height="20" rx="2.5"/></svg>iPhone · 09:12 捕获</dd>
+            <dt>最后写</dt><dd>本机 · 09:41 · rev 6→7</dd>
+            <dt>标签</dt><dd><span class="tag a">项目</span><span class="tag">v1</span></dd>
+          </dl>
+          <div class="subtasks">
+            <div class="grphead" style="border-radius:9px;border:1px solid var(--line)">子任务<span class="c">2/3</span><span class="chev">⌄</span></div>
+            <div class="row" style="padding:8px 0;border:0"><span class="box on"><svg width="10" height="10" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.6" fill="none"><path d="m4 12 5 5L20 6"/></svg></span><span class="rt done" style="font-weight:500">定同步字段约定</span></div>
+            <div class="row" style="padding:8px 0;border:0"><span class="box on"><svg width="10" height="10" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.6" fill="none"><path d="m4 12 5 5L20 6"/></svg></span><span class="rt done" style="font-weight:500">列 v1 表清单</span></div>
+            <div class="row" style="padding:8px 0;border:0"><span class="box"></span><span class="rt" style="font-weight:500">写 repo 层单测</span><span class="meta">待做</span></div>
+          </div>
+          <div class="actcard">
+            <div class="h"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" style="color:var(--accent)"><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><circle cx="12" cy="12" r="3.2"/></svg>变更历史</div>
+            <div class="feed"><span class="tm">09:41</span><span>rev 7 · 本机勾选子任务</span></div>
+            <div class="feed"><span class="tm">09:12</span><span>rev 5 · iPhone 新建（LWW 无冲突）</span></div>
+          </div>
+        </div>
+        <div class="dfoot">
+          <button class="solid"><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.2" fill="none"><path d="m4 12 5 5L20 6"/></svg>完成</button>
+          <button class="ghost">改期</button>
+          <button class="iconbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></button>
+        </div>
+      </aside>
+    </div></div>
+  </section>
+
+  <!-- D3 PHONE -->
+  <section class="wz-pane" data-pane="phone">
+    <p class="wz-note" style="margin-bottom:14px">同一套设计令牌直接落到手机上：暗底、单一强调色、KPI 行、卡片列表。手机是<b>伴侣端</b> —— 勾选、捕获、查看、远程触发，不做段落级并发改写，所以行级 LWW 够用，不必上 CRDT。</p>
+    <div class="phones">
+      <div class="phwrap"><div class="phshell"><div class="phn">
+        <div class="phstat">9:41<div class="r">Wi-Fi ●●●</div></div>
+        <div class="phtop"><span class="t">今日</span><span class="pill"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4"><path d="m5 12 5 5L20 6"/></svg>已同步 9:41</span></div>
+        <div class="phbody">
+          <div class="phkpi">
+            <div class="k sel"><div class="en">TODAY</div><div class="num">3</div></div>
+            <div class="k"><div class="en">OVERDUE</div><div class="num" style="color:var(--red)">1</div></div>
+          </div>
+          <div class="phcard">
+            <div class="row" style="padding:9px 0;border-bottom:1px solid var(--line)"><span class="box"></span><span class="pri p2"></span><span class="rt">整理工作台数据模型</span><span class="meta late">逾期</span></div>
+            <div class="row" style="padding:9px 0;border-bottom:1px solid var(--line)"><span class="box"></span><span class="pri p1"></span><span class="rt">写周报草稿</span><span class="meta">18:00</span></div>
+            <div class="row" style="padding:9px 0"><span class="box on"><svg width="10" height="10" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.6" fill="none"><path d="m4 12 5 5L20 6"/></svg></span><span class="rt done">回复设计评审</span><span class="meta">9:10</span></div>
+          </div>
+          <div class="phcard" style="display:flex;gap:9px;align-items:center">
+            <span class="i i2" style="width:28px;height:28px;border-radius:9px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="13" r="8"/><path d="M12 9v4"/></svg></span>
+            <div style="flex:1"><div style="font-weight:700">需求评审</div><div class="meta">倒计时 · PC 端驱动</div></div>
+            <span class="meta" style="font-weight:750;color:var(--t1);font-size:13px">01:12</span>
+          </div>
+          <div class="phcard" style="display:flex;gap:9px;align-items:center">
+            <span class="i i4" style="width:28px;height:28px;border-radius:9px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H3z"/></svg></span>
+            <div style="flex:1"><div style="font-weight:700">速达</div><div class="meta">网页类可直接打开 · 桌面应用需确认</div></div>
+            <span class="meta">→</span>
+          </div>
+        </div>
+        <div class="phtab"><div class="on">今日</div><div>捕获</div><div>速达</div><div>设备</div></div>
+      </div></div><div class="phcap"><b>① 勾选即时回写 PC</b><br>WS 双向推送，1 秒内两端一致</div></div>
+
+      <div class="phwrap"><div class="phshell"><div class="phn">
+        <div class="phstat">9:41<div class="r">5G ●●●</div></div>
+        <div class="phtop"><span class="t">捕获</span><span class="pill warnc">离线 · 9:38</span></div>
+        <div class="phbody">
+          <div class="banner"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" style="flex:none;margin-top:1px"><path d="M12 8v5M12 16h.01"/><circle cx="12" cy="12" r="9"/></svg><span>连不上 <b>DESKTOP-7F2 · 192.168.1.24</b>。内容已存本机，回到同一 Wi-Fi 自动补交，<b>不会静默丢弃</b>。</span></div>
+          <div class="cap">刚想到：手机端只做追加和勾选，长文本编辑留在 PC，两台设备就不会互相覆盖。<div class="hint">存为 → 待办 / 笔记 / 便签</div></div>
+          <button class="solid" style="margin-top:9px;width:100%"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M4 12h14M13 6l6 6-6 6"/></svg>排队待发送 · 1 条</button>
+          <div class="phcard" style="margin-top:10px">
+            <div class="grphead" style="border:0;border-radius:0;background:transparent;padding:0 0 8px">最近捕获</div>
+            <div class="row" style="padding:8px 0;border-bottom:1px solid var(--line)"><span class="pri"></span><span class="rt" style="font-weight:500">「同步字段要 rev + updated_by」</span><span class="meta">9:12 ✓</span></div>
+            <div class="row" style="padding:8px 0"><span class="pri"></span><span class="rt" style="font-weight:500">「买猫粮」</span><span class="meta">昨天 ✓</span></div>
+          </div>
+        </div>
+        <div class="phtab"><div>今日</div><div class="on">捕获</div><div>速达</div><div>设备</div></div>
+      </div></div><div class="phcap"><b>② 断线诚实提示</b><br>本机排队 + 回网补交，不伪装"已同步"</div></div>
+
+      <div class="phwrap"><div class="phshell"><div class="phn">
+        <div class="phstat">9:41<div class="r">Wi-Fi ●●●</div></div>
+        <div class="phtop"><span class="t">连接电脑</span></div>
+        <div class="phbody">
+          <div class="phcard" style="text-align:center;padding:15px 12px">
+            <div style="font-weight:750;font-size:14px;margin-bottom:4px">配对这台手机</div>
+            <div class="meta" style="margin-bottom:11px">在电脑「设置 → 连接手机」生成二维码</div>
+            <div style="font:700 24px/1 ui-monospace,Consolas,monospace;letter-spacing:.16em;color:var(--accent)">4 8 2 <span style="color:var(--t3)">• • •</span></div>
+            <div class="meta" style="margin-top:8px">配对码 10 分钟内有效</div>
+          </div>
+          <div class="phcard">
+            <div class="grphead" style="border:0;border-radius:0;background:transparent;padding:0 0 8px">这台手机的权限</div>
+            <div class="row" style="padding:7px 0;border:0"><span class="pri" style="background:var(--accent)"></span><span class="rt" style="font-weight:500">读写待办、笔记、便签</span></div>
+            <div class="row" style="padding:7px 0;border:0"><span class="pri" style="background:var(--accent)"></span><span class="rt" style="font-weight:500">打开网页类速达</span></div>
+            <div class="row" style="padding:7px 0;border:0"><span class="pri p1"></span><span class="rt" style="font-weight:500">启动桌面应用（每次确认）</span></div>
+            <div class="row" style="padding:7px 0;border:0"><span class="pri p2"></span><span class="rt" style="font-weight:500;opacity:.55">不读取加密备注</span></div>
+          </div>
+          <div class="phcard" style="display:flex;gap:9px;align-items:center">
+            <span class="i i6" style="width:28px;height:28px;border-radius:9px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
+            <div style="flex:1"><div style="font-weight:700">https://anvil.local:8443</div><div class="meta">本机证书 · 数据不出家门</div></div>
+          </div>
+        </div>
+        <div class="phtab"><div>今日</div><div>捕获</div><div>速达</div><div class="on">设备</div></div>
+      </div></div><div class="phcap"><b>③ 扫码 + 6 位码配对</b><br>权限逐项明示，PC 端可单独吊销</div></div>
+    </div>
+  </section>
+
+  <!-- D3 LINK -->
+  <section class="wz-pane" data-pane="link">
+    <p class="wz-note">三条外部数据全部<b>只读</b>、<b>本地优先</b>：博客读你仓库里的 <code>src/content/*.json</code>（不碰网站代码），药箱读它 SQLite 的<b>副本</b>（不写回、不进它的 <code>medicine-sync/</code> 目录），坚果云只做备份。任何一条取不到，界面写"<b>最后成功于 X 分钟前</b>"并继续用缓存 —— 不转圈、不伪装已同步。</p>
+    <div class="wz-win"><div class="wz-shell">
+      <aside class="side">
+        <div class="logo"><span class="n">Anvil</span><span class="s">LOCAL FIRST</span></div>
+        <nav class="nav">
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="10" rx="2"/><rect x="14" y="3" width="7" height="6" rx="2"/><rect x="3" y="16" width="18" height="5" rx="2"/></svg>工作台</div>
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h10M4 12h10M4 18h6"/><path d="m17 15 2 2 3-4"/></svg>待办<span class="n">3</span></div>
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h11l3 3v15H5z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>笔记<span class="n">42</span></div>
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H3z"/><path d="M3 7V5h5l2 2"/></svg>速达</div>
+          <div class="grp">数据源</div>
+          <div class="it" aria-current="page"><span class="dotlive"></span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>联动</div>
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v11H4z"/><path d="M8 20h8M12 16v4"/></svg>博客<span class="n">6</span></div>
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.5 3.5 3.5 10.5a5 5 0 0 0 7 7l7-7a5 5 0 0 0-7-7z"/><path d="M7 7l10 10"/></svg>药箱<span class="n">2</span></div>
+          <div class="it"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 19h16"/></svg>备份</div>
+        </nav>
+        <div class="sidefoot">
+          <div class="scard">
+            <div class="h"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/></svg>数据位置</div>
+            <div class="mono">%LOCALAPPDATA%\dev.rewmington.anvil\app.db</div>
+            <div class="v" style="margin-top:5px">18.4 MB · <b>仅本机</b> + 每日快照</div>
+          </div>
+        </div>
+      </aside>
+      <div class="ctr">
+        <div class="topbar">
+          <div><h1>联动</h1><div class="crumb">三个只读数据源 · 全部本地优先 · 网站下掉不影响使用</div></div>
+          <div class="search"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>搜索项目、仓库、药品…<span class="kbd">Ctrl K</span></div>
+          <button class="primary"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5"/></svg>全部刷新</button>
+          <div class="wctl"><button><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button><button><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/></svg></button><button><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+        </div>
+        <div class="body">
+          <div class="kpis">
+            <div class="kpi sel g"><div class="lab"><span class="en">CLOCK</span><span class="cn">本地时钟</span></div><div class="num lnk-tick" id="liveClock" style="font-size:26px">--:--:--</div><div class="delta" id="liveDate">1 秒 tick · 驱动倒计时与逾期</div></div>
+            <div class="kpi b"><div class="lab"><span class="en">FEED</span><span class="cn">博客快照</span></div><div class="num">6<span>条</span></div><div class="delta">本地文件 · <span class="lnk-tick">2 分钟前</span></div></div>
+            <div class="kpi a"><div class="lab"><span class="en">MEDS</span><span class="cn">药箱库存</span></div><div class="num">2<span>项偏低</span></div><div class="delta">只读副本 · 今天 08:55</div></div>
+            <div class="kpi r"><div class="lab"><span class="en">BACKUP</span><span class="cn">坚果云</span></div><div class="num">18.4<span>MB</span></div><div class="delta">上次成功 <i>昨天 22:03</i></div></div>
+          </div>
+
+          <div class="lnk-grid">
+            <div class="w">
+              <div class="wh"><span class="i i2"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 5h16v11H4z"/><path d="M8 20h8M12 16v4"/></svg></span><span class="t">博客 · Rewmington</span><span class="r"><span class="lnk-pill">本地文件</span></span></div>
+              <div class="lnk-rows">
+                <div class="lnk-r"><span class="lnk-lang" style="background:#f472b6"></span><span class="nm">Rewmington Desk</span><span class="rgt"><span class="lnk-pill d">项目 1</span></span></div>
+                <div class="lnk-r"><span class="lnk-lang" style="background:#3178c6"></span><span class="nm">Rewmington-Blog</span><span class="rgt"><span class="meta">TypeScript</span><span class="meta">10-10</span></span></div>
+                <div class="lnk-r"><span class="lnk-lang" style="background:#0175C2"></span><span class="nm">medtrack</span><span class="rgt"><span class="meta">Dart</span><span class="meta">10-07</span></span></div>
+                <div class="lnk-r"><span class="lnk-lang" style="background:#3572A5"></span><span class="nm">SoundBeam</span><span class="rgt"><span class="meta">Python</span><span class="meta">★ 1</span><span class="meta">09-08</span></span></div>
+                <div class="lnk-r"><span class="lnk-lang" style="background:#3572A5"></span><span class="nm">Personal-Workspace</span><span class="rgt"><span class="meta">Python</span><span class="meta">09-05</span></span></div>
+                <div class="lnk-r"><span class="lnk-lang" style="background:#3178c6"></span><span class="nm">deskwhale-harness</span><span class="rgt"><span class="meta">TypeScript</span><span class="meta">★ 1</span><span class="meta">08-18</span></span></div>
+              </div>
+              <div class="empty" style="margin-top:11px"><span class="t">文章</span><span>· <code>notes.json</code> 当前 0 篇（9 篇在 git 历史里）</span><span class="a">恢复</span></div>
+            </div>
+
+            <div class="w">
+              <div class="wh"><span class="i i3"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M10.5 3.5 3.5 10.5a5 5 0 0 0 7 7l7-7a5 5 0 0 0-7-7z"/><path d="M7 7l10 10"/></svg></span><span class="t">药箱 · 只读</span><span class="r"><span class="demo">演示数据</span></span></div>
+              <div class="meter"><span style="width:74px">药 A（示例）</span><span class="tr"><span class="fl" style="width:42%"></span></span><span class="vv">4 天</span></div>
+              <div class="meter"><span style="width:74px">药 B（示例）</span><span class="tr"><span class="fl hot" style="width:12%"></span></span><span class="vv">1 天</span></div>
+              <div class="wh" style="margin:14px 0 10px"><span class="t" style="color:var(--t3)">今日服药</span><span class="r">3 个时段</span></div>
+              <div class="lnk-rows">
+                <div class="lnk-r"><span class="box on"><svg width="11" height="11" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.4" fill="none"><path d="m4 12 5 5L20 6"/></svg></span><span class="nm">08:15</span><span class="rgt"><span class="lnk-pill">已记录</span></span></div>
+                <div class="lnk-r"><span class="box on"><svg width="11" height="11" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.4" fill="none"><path d="m4 12 5 5L20 6"/></svg></span><span class="nm">13:00</span><span class="rgt"><span class="lnk-pill">已记录</span></span></div>
+                <div class="lnk-r"><span class="box"></span><span class="nm">19:30</span><span class="rgt"><span class="lnk-pill w">待记录</span></span></div>
+              </div>
+              <div class="empty" style="margin-top:11px"><span class="t">来源</span><span>· <code>medicine_tracker.db</code> 的只读副本</span><span class="a">不写回</span></div>
+            </div>
+          </div>
+
+          <div class="w" style="margin-top:11px">
+            <div class="wh"><span class="i i6"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 19h16"/></svg></span><span class="t">备份链路 · 坚果云 WebDAV</span><span class="r"><span class="lnk-pill">独立目录</span></span></div>
+            <div class="lnk-flow">
+              <div class="lnk-node on"><div class="t"><span class="dotlive"></span>本机 SQLite</div><div class="s">%LOCALAPPDATA%\dev.rewmington.anvil\app.db<br>唯一写入端</div></div>
+              <div class="lnk-arrow">→</div>
+              <div class="lnk-node"><div class="t">每日快照</div><div class="s">保留 14 份<br>gzip，单份约 3 MB</div></div>
+              <div class="lnk-arrow">→</div>
+              <div class="lnk-node"><div class="t">本机加密</div><div class="s">AES-GCM，密钥走<br>Windows 凭据管理器</div></div>
+              <div class="lnk-arrow">→</div>
+              <div class="lnk-node"><div class="t">PUT WebDAV</div><div class="s">dav.jianguoyun.com<br><b>/dav/workbench-backup/</b></div></div>
+              <div class="lnk-arrow">→</div>
+              <div class="lnk-node"><div class="t">换机恢复</div><div class="s">填邮箱+应用密码<br>选快照还原</div></div>
+            </div>
+            <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:11px">
+              <span class="lnk-pill r">不与 medicine-sync 共用目录</span>
+              <span class="lnk-pill d">应用密码由你在设置里填，不读别的程序的凭据文件</span>
+              <span class="lnk-pill d">同步失败只提示，不阻塞任何本地操作</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <aside class="detail">
+        <div class="dh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="color:var(--accent)"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg><span class="t">数据源详情</span></div>
+        <div class="db">
+          <div class="id">FEED · blog-content</div>
+          <div class="dt">博客内容快照</div>
+          <div style="margin-top:8px;display:flex;gap:6px;align-items:center"><span class="badge ok">只读</span><span class="badge wt">本地优先</span></div>
+          <div class="dd">读的是仓库里的 JSON，<b>不请求线上也能用</b>；<code>wmddd.online/content/*.json</code> 只在有网时用来判断本地是否落后。</div>
+          <dl class="dl">
+            <dt>本地路径</dt><dd class="mono" style="font-size:10.5px">…Rewmington-Blog-main\src\content</dd>
+            <dt>字段</dt><dd><span class="tag a">name</span><span class="tag">language</span><span class="tag">stars</span><span class="tag">pushedAt</span><span class="tag">+4</span></dd>
+            <dt>条目</dt><dd>仓库 5 · 项目 1 · 文章 0</dd>
+            <dt>最后成功</dt><dd>2 分钟前 · 本地文件</dd>
+            <dt>网站不可达</dt><dd style="color:var(--accent);font-weight:650">照常显示缓存</dd>
+          </dl>
+          <div class="actcard">
+            <div class="h"><span class="live"></span>降级规则</div>
+            <div class="feed"><span class="tm">L1</span><span>读本地仓库文件 —— <b>永远可用</b></span></div>
+            <div class="feed"><span class="tm">L2</span><span>有网时比对线上 JSON，落后才提示<b>「本地落后 3 条」</b></span></div>
+            <div class="feed"><span class="tm">L3</span><span>仓库被移动/删除 → 部件折叠成一行虚线条，<b>不报错弹窗</b></span></div>
+          </div>
+          <div class="actcard">
+            <div class="h"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" style="color:var(--amber)"><path d="M12 8v5M12 16h.01"/><circle cx="12" cy="12" r="9"/></svg>现在缺的东西</div>
+            <div class="feed"><span class="tm">!</span><span>文章清单是空的（<b>commit 8a033bd 清掉了 9 篇</b>），所以「文章」这块要等你恢复或重写才有数据</span></div>
+          </div>
+        </div>
+        <div class="dfoot">
+          <button class="solid">刷新此源</button>
+          <button class="ghost">打开目录</button>
+          <button class="iconbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></button>
+        </div>
+      </aside>
+    </div></div>
+
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;margin-top:12px">
+      <div class="w">
+        <div class="wh"><span class="i i1"><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.2" fill="none"><path d="m4 12 5 5L20 6"/></svg></span><span class="t">为什么不写回药箱</span></div>
+        <div style="color:var(--t2);font-size:12px;line-height:1.7">它的同步是<b style="color:var(--t1)">每台设备 PUT 一份全量快照 + 按 <code>updated_at</code> 新者胜</b>，且只在启动/手动时同步。工作台写它的库会被下一次合并覆盖；写它的 <code>medicine-sync/</code> 目录更糟 —— 那边 PROPFIND 只认 <code>device-*</code> 前缀，会把工作台当成一台设备无差别合并进药箱。<b style="color:var(--t1)">所以只读，且备份另建目录。</b></div>
+      </div>
+      <div class="w">
+        <div class="wh"><span class="i i4"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span><span class="t">凭据边界</span></div>
+        <div style="color:var(--t2);font-size:12px;line-height:1.7">药箱把坚果云应用密码<b style="color:var(--t1)">明文</b>放在 <code>shared_preferences.json</code> 里 —— 这个缺点我们不抄，也<b style="color:var(--t1)">不去偷读它的凭据文件</b>。工作台要你在设置里自己填一次，之后交给 Windows 凭据管理器，落盘的 <code>secret_note</code> 同样本机加密。</div>
+      </div>
+      <div class="w">
+        <div class="wh"><span class="i i5"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg></span><span class="t">实时时间怎么用</span></div>
+        <div style="color:var(--t2);font-size:12px;line-height:1.7">一个 1 秒 tick 同时驱动：<b style="color:var(--t1)">时钟部件、倒计时、"逾期 2 小时"这种相对时间、今日服药是否过期</b>。它也是<b style="color:var(--t1)">联动诚实</b>的基础 —— 所有"最后成功于 X 分钟前"都靠它算，不能靠网络回调时机。</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- VERDICT -->
+  <section class="wz-pane" data-pane="verdict">
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px">
+      <div class="w">
+        <div class="wh"><span class="i i1"><svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.2" fill="none"><path d="m4 12 5 5L20 6"/></svg></span><span class="t">借鉴（5 条，都是 x-hub 缺的）</span></div>
+        <div style="color:var(--t2);font-size:12.5px;line-height:1.75">
+          <div><b style="color:var(--t1)">① 常驻详情面板</b> —— x-hub 全靠弹窗，选中一条待办看不到全貌。右侧 302px 定宽面板 + <b style="color:var(--t1)">label-value 清单</b> + 底部 sticky 操作条，是这套界面最大的升级。</div>
+          <div style="margin-top:9px"><b style="color:var(--t1)">② KPI 数字行</b> —— 英文小写距标签（TODAY / OVERDUE）+ 32px 巨号数字 + 变化量。x-hub 的"概览卡"弱就弱在没有数字层级。</div>
+          <div style="margin-top:9px"><b style="color:var(--t1)">③ 选中卡翻亮</b> —— 参考图第一张卡是白的、其余是暗的。一个动作同时解决"当前在哪"和"视觉重心"，比 x-hub 靠描边强得多。</div>
+          <div style="margin-top:9px"><b style="color:var(--t1)">④ 文字侧栏 + 底部状态卡</b> —— x-hub 默认 56px 纯图标 + hover 气泡，读起来累。文字导航 + 计数徽标更快；底部换成<b style="color:var(--t1)">「手机连接」+「数据位置」两张卡</b>，把"数据在哪、谁连上了"常驻可见 —— 这正好是它的产品原则「隐私可感知」缺的落地。</div>
+          <div style="margin-top:9px"><b style="color:var(--t1)">⑤ 顶部居中搜索 + 快捷键提示常驻</b> —— 比 x-hub 把搜索藏成一个图标按钮更敢用。</div>
+        </div>
+      </div>
+      <div class="w">
+        <div class="wh"><span class="i i3"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M12 5v14M5 12h14" transform="rotate(45 12 12)"/></svg></span><span class="t">不借鉴（4 条，各有理由）</span></div>
+        <div style="color:var(--t2);font-size:12.5px;line-height:1.75">
+          <div><b style="color:var(--t1)">① 3D 卡片环</b> —— 参考图里它是"阅读队列"的可视化，炫但没有信息增量，而且实现成本极高（透视、拖拽、自动巡航）。工作台不做玩具。</div>
+          <div style="margin-top:9px"><b style="color:var(--t1)">② 每张卡挂照片模糊底</b> —— 参考图 KPI 卡背后是星云照片。x-hub 正是因为实时 <code>backdrop-filter</code> 把 GPU 吃到 26% 才退回"烘焙渐变"（它的 DESIGN.md §7）。我们沿用它的结论：常驻面用静态渐变，只有弹窗用真模糊。</div>
+          <div style="margin-top:9px"><b style="color:var(--t1)">③ 四栏并存的密度</b> —— 参考图自己标了「演示数据」。知识库有 96 篇书卡才撑得起那个密度，个人待办通常一屏 5 条。所以我把它的结构压缩了：KPI 行 + 一个主列表 + 详情面板，而不是三层可视化叠着放。</div>
+          <div style="margin-top:9px"><b style="color:var(--t1)">④ 绿色写死</b> —— 强调色做成令牌（<code>--accent</code>），保留 x-hub 的三轴主题（模式 × 预设 × 强调色）。这套 mockup 的绿色只是默认值。</div>
+        </div>
+      </div>
+      <div class="w" style="grid-column:1/-1">
+        <div class="wh"><span class="i i5"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><circle cx="12" cy="12" r="3.2"/></svg></span><span class="t">这套布局的代价，你要知道</span></div>
+        <div style="color:var(--t2);font-size:12.5px;line-height:1.75">
+          <div><b style="color:var(--t1)">三栏在 800px 最小窗口下会挤</b>。方案：内容区 &lt; 1080px 时详情面板从常驻改为右侧滑出覆盖层，&lt; 720px 时侧栏收成图标轨（退回 x-hub 那种形态）。这个断点行为要在 M0 就定，不能后补。</div>
+          <div style="margin-top:9px"><b style="color:var(--t1)">比 x-hub 更"仪表盘"，不是更"安静"</b>。参考图的气质是数据产品，x-hub 刻意克制。融合之后信息密度上去了、扫视更快了，但"打开什么都不想看"的松弛感会降一档。这是口味问题，不是对错 —— 所以我把它做成可切的方向，不是默认结论。</div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+  const root = document.getElementById('wz');
+  const tabs = [...root.querySelectorAll('.wz-tab')];
+  const panes = [...root.querySelectorAll('.wz-pane')];
+  const show = (k) => {
+    tabs.forEach(t => t.setAttribute('aria-selected', String(t.dataset.tab === k)));
+    panes.forEach(p => { if (p.dataset.pane === k) p.setAttribute('data-active',''); else p.removeAttribute('data-active'); });
+  };
+  tabs.forEach(t => t.addEventListener('click', () => show(t.dataset.tab)));
+  const btn = document.getElementById('wzTheme');
+  btn.addEventListener('click', () => {
+    const dark = root.dataset.theme === 'dark';
+    root.dataset.theme = dark ? 'light' : 'dark';
+    btn.textContent = dark ? '切换暗色' : '切换亮色';
+  });
+  show('home');
+})();
+</script>
