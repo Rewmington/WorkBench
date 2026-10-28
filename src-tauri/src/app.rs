@@ -88,6 +88,7 @@ pub fn run() {
             commands::system::device_id,
             commands::system::context_menu,
             commands::system::open_data_dir,
+            commands::system::open_url,
             commands::settings::settings_all,
             commands::settings::settings_get,
             commands::settings::settings_set,
@@ -117,6 +118,12 @@ pub fn run() {
             commands::launcher::zone_add,
             commands::launcher::zone_delete,
             commands::palette::palette_search,
+            commands::linked::linked_state,
+            commands::linked::linked_refresh_blog,
+            commands::linked::linked_refresh_medicine,
+            commands::linked::linked_check_online,
+            commands::linked::linked_restock_todo,
+            commands::linked::linked_set_blog_dir,
         ])
         // 托盘与右键菜单的点击都汇到这一个分发口。
         .on_menu_event(|app, event| menus::handle(app, event.id().as_ref()))

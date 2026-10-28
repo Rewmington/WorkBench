@@ -23,6 +23,13 @@ pub fn context_menu(window: tauri::Window, target: String) -> Result<(), Error> 
     crate::ui::context::popup(window, crate::ui::context::MenuKind::parse(&target))
 }
 
+/// 用系统默认程序打开 URL / 路径。走 Rust 侧 ShellExecute 而不是前端的 window.open：
+/// 后者在 webview 里会开出一个新的应用窗口，那是最露馅的「像网页」行为之一。
+#[tauri::command]
+pub fn open_url(target: String) -> Result<(), Error> {
+    crate::win32::launch::open_shell(&target)
+}
+
 /// 命令面板要能直达每一项能力（§2 原则 1），所以原生菜单里的动作也得有命令入口。
 #[tauri::command]
 pub fn open_data_dir(app: tauri::AppHandle) {

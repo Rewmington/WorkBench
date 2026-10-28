@@ -2,6 +2,7 @@ pub mod app;
 pub mod commands;
 pub mod db;
 pub mod error;
+pub mod linking;
 pub mod model;
 pub mod repos;
 pub mod secrets;

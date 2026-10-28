@@ -1,9 +1,11 @@
 import type {
   Api,
+  MedicineTodayPayload,
   PaletteHit,
   PathsView,
   Resource,
   SettingsView,
+  SnapshotView,
   Todo,
   TodoDraft,
   TodoPatch,
@@ -194,6 +196,9 @@ export const mockApi: Api = {
   },
   openDataDir: async () => {
     /* 同上：这条在浏览器里无事可做，原生下会开资源管理器 */
+  },
+  openUrl: async () => {
+    /* 同上 */
   },
 
   todosList: async (zone) => sortedInZone(zone).map((t) => ({ ...t })),
@@ -398,4 +403,101 @@ export const mockApi: Api = {
     }
     return hits.slice(0, 16)
   },
+
+  // ---- 外部联动：浏览器里读不到本机仓库，给一份与真实形状一致的夹具，只用于看版式 ----
+  linkedState: async () => ({
+    paths: {
+      blogRepo: String.raw`D:\ADevelop\Repositories\Mine\Rewmington-Blog-main`,
+      blogRepoExists: true,
+      medicineDb: String.raw`C:\Users\hp\AppData\Roaming\dev.mine\medicine_tracker\medicine_tracker.db`,
+      medicineDbExists: true,
+      onlineCheckEnabled: true,
+    },
+    blog: blogFixtures(),
+    medicine: medicineFixture(),
+  }),
+  linkedRefreshBlog: async () => blogFixtures(),
+  linkedRefreshMedicine: async () => medicineFixture(),
+  linkedCheckOnline: async () => blogFixtures(),
+  linkedRestockTodo: async (name, daysLeft) =>
+    mockApi.todosCreate({
+      title: `补买 ${name}（${daysLeft == null ? '库存待确认' : `剩余 ${daysLeft} 天`}）`,
+      zone: 'today',
+      priority: 1,
+      tags: ['跑腿'],
+    }),
+  linkedSetBlogDir: async (path) => ({
+    blogRepo: path || String.raw`D:\ADevelop\Repositories\Mine\Rewmington-Blog-main`,
+    blogRepoExists: true,
+    medicineDb: String.raw`C:\Users\hp\AppData\Roaming\dev.mine\medicine_tracker\medicine_tracker.db`,
+    medicineDbExists: true,
+    onlineCheckEnabled: true,
+  }),
+}
+
+function snap(kind: string, status: SnapshotView['status'], items: unknown[], detail = '', extraMeta: Record<string, unknown> = {}): SnapshotView {
+  const payload = { items, count: items.length, meta: extraMeta }
+  return {
+    source: 'blog',
+    kind,
+    fetchedAt: Date.now() - 5 * 60_000,
+    sig: `${kind}-fixture`,
+    status,
+    detail,
+    payloadJson: JSON.stringify(payload),
+  }
+}
+
+function blogFixtures(): SnapshotView[] {
+  return [
+    snap('projects', 'ok', [
+      { name: 'Rewmington Desk', description: '基于 Next.js 16 的个人工作台，毛玻璃 + Bento Grid', tags: ['Next.js'], url: 'https://example.dev', status: 'live' },
+    ]),
+    snap('repos', 'ok', [
+      { name: 'rewmington-blog', description: '个人站点', language: 'TypeScript', stars: 12, pushedAt: '2026-10-22', archived: false, url: 'https://github.com/x/y' },
+      { name: 'medicine', description: '药盒余量追踪', language: 'Dart', stars: 3, pushedAt: '2026-10-26', archived: false, url: 'https://github.com/x/m' },
+    ], '', { remoteFetchedAt: '2026-10-25T00:14:00Z' }),
+    snap('photos', 'ok', [{ id: 'p1', caption: '夜里的工作台', date: '2026-10-12', location: '杭州' }]),
+    snap('friends', 'ok', [{ name: '某友链', url: 'https://friend.dev' }]),
+    snap('profile', 'ok', [{ authorName: 'Rewmington', techStack: ['Vue', 'Rust'] }]),
+    snap('music', 'ok', []),
+    snap('notes', 'missing', [], 'notes 清单不在仓库里'),
+  ]
+}
+
+function medicineFixture(): SnapshotView {
+  const payload: MedicineTodayPayload = {
+    items: [
+      {
+        id: 'm1', name: '二甲双胍', unit: '片', remaining: 6, boxes: 0.2, dailyUse: 2,
+        daysLeft: 3, lowDays: 7, isLow: true, isOut: false,
+        slots: [
+          { minute: 450, label: '07:30', state: 'taken' },
+          { minute: 1260, label: '21:00', state: 'upcoming' },
+        ],
+        taken: 1, owed: 2, pending: 0, skipped: 0,
+      },
+      {
+        id: 'm2', name: '丁螺环酮', unit: '片', remaining: 30, boxes: 1, dailyUse: 2,
+        daysLeft: 15, lowDays: 7, isLow: false, isOut: false,
+        slots: [
+          { minute: 450, label: '07:30', state: 'taken' },
+          { minute: 840, label: '14:00', state: 'pending' },
+          { minute: 1260, label: '21:00', state: 'upcoming' },
+        ],
+        taken: 1, owed: 3, pending: 1, skipped: 0,
+      },
+    ],
+    count: 2,
+    meta: { todayTaken: 2, todayOwed: 5, lowCount: 1, nowMinutes: 900 },
+  }
+  return {
+    source: 'medicine',
+    kind: 'today',
+    fetchedAt: Date.now() - 2 * 60_000,
+    sig: 'medicine-fixture',
+    status: 'ok',
+    detail: '',
+    payloadJson: JSON.stringify(payload),
+  }
 }

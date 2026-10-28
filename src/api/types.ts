@@ -126,6 +126,67 @@ export type ThemeMode = 'auto' | 'dark' | 'light'
 export type ThemePreset = 'graphite' | 'moss' | 'ink'
 export type ThemeAccent = 'green' | 'blue' | 'amber'
 
+/** 外部联动的缓存快照。UI 只读这张表，对方升级或删掉都不伤本体（PLAN §5.2）。 */
+export interface SnapshotView {
+  source: string
+  kind: string
+  fetchedAt: number
+  sig: string
+  status: 'ok' | 'missing' | 'stale' | 'error'
+  detail: string
+  payloadJson: string
+}
+
+export interface SourcePaths {
+  blogRepo: string
+  blogRepoExists: boolean
+  medicineDb: string
+  medicineDbExists: boolean
+  onlineCheckEnabled: boolean
+}
+
+export interface LinkedState {
+  paths: SourcePaths
+  blog: SnapshotView[]
+  medicine: SnapshotView | null
+}
+
+export interface BlogPayload<T> {
+  items: T[]
+  count: number
+  meta: Record<string, unknown>
+}
+
+export interface SlotView {
+  minute: number
+  label: string
+  state: 'taken' | 'skipped' | 'pending' | 'upcoming'
+}
+
+export interface MedicineTodayItem {
+  id: string
+  name: string
+  unit: string
+  remaining: number
+  boxes: number
+  dailyUse: number
+  daysLeft: number | null
+  lowDays: number
+  isLow: boolean
+  isOut: boolean
+  slots: SlotView[]
+  taken: number
+  owed: number
+  pending: number
+  skipped: number
+}
+
+export interface MedicineTodayPayload {
+  items: MedicineTodayItem[]
+  count: number
+  meta: { todayTaken?: number; todayOwed?: number; lowCount?: number; nowMinutes?: number }
+}
+
 export interface Api {
   paths(): Promise<PathsView>
   deviceId(): Promise<string>
@@ -135,6 +196,8 @@ export interface Api {
   /** 弹 Win32 原生菜单；target 只说明点的是哪一类东西 */
   contextMenu(target: 'shell' | 'input'): Promise<void>
   openDataDir(): Promise<void>
+  /** 交给系统默认程序，不在 webview 里开新窗口 */
+  openUrl(url: string): Promise<void>
 
   todosList(zone: TodoZone): Promise<Todo[]>
   /** 跨分区的活动待办：日历与驾驶舱要的是「一天」，不是四个区各查一遍 */
@@ -168,4 +231,14 @@ export interface Api {
   zoneDelete(id: string): Promise<void>
 
   paletteSearch(query: string): Promise<PaletteHit[]>
+
+  /** 只读缓存，绝不碰外部文件或网络：首屏必须立刻画出来 */
+  linkedState(): Promise<LinkedState>
+  linkedRefreshBlog(): Promise<SnapshotView[]>
+  linkedRefreshMedicine(): Promise<SnapshotView | null>
+  /** 线上比对，慢的时候首包 8 秒 —— 只在后台跑，不进首屏 */
+  linkedCheckOnline(): Promise<SnapshotView[]>
+  /** 「补买 X」是用户点出来的，不是系统偷偷建的 */
+  linkedRestockTodo(name: string, daysLeft: number | null): Promise<Todo>
+  linkedSetBlogDir(path: string): Promise<SourcePaths>
 }

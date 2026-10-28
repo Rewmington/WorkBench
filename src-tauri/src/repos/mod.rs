@@ -1,3 +1,4 @@
+pub mod linked;
 pub mod resources;
 pub mod settings;
 pub mod tags;

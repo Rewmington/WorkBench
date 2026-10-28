@@ -11,29 +11,35 @@ import SideNav from './components/shell/SideNav.vue'
 import TitleBar from './components/shell/TitleBar.vue'
 import { startClock, stopClock } from './composables/useClock'
 import { useLayout } from './composables/useLayout'
+import { useLinked } from './composables/useLinked'
 import { VIEW_TITLES, useShell } from './composables/useShell'
 import { useTodos } from './composables/useTodos'
 import { usePalette } from './composables/usePalette'
 import { toggleMode, useTheme } from './composables/useTheme'
+import Blog from './views/Blog.vue'
 import Calendar from './views/Calendar.vue'
 import Launcher from './views/Launcher.vue'
+import Medicine from './views/Medicine.vue'
 import Todos from './views/Todos.vue'
 
 const shell = useShell()
 const palette = usePalette()
 const theme = useTheme()
 const todosModel = useTodos()
+const linked = useLinked()
 const root = useTemplateRef<HTMLDivElement>('root')
 const { cols } = useLayout(() => root.value)
 
 const title = computed(() => VIEW_TITLES[shell.view.value])
 const hint = ref<string | null>(null)
 let unlisten: (() => void) | null = null
+let linkedTimer = 0
 
 onMounted(async () => {
   startClock()
   await theme.load()
   await todosModel.refresh()
+  await linked.load()
 
   window.addEventListener('keydown', onGlobalKey)
 
@@ -43,6 +49,14 @@ onMounted(async () => {
     unlisten = () => stop()
     await getCurrentWindow().show()
   }
+
+  // 外部源在后台刷：站点首包 8 秒，把它放进渲染路径就是让界面转圈
+  void linked.refreshBlog()
+  void linked.refreshMedicine()
+  linkedTimer = window.setInterval(() => {
+    void linked.refreshMedicine()
+    void linked.refreshBlog()
+  }, 10 * 60_000)
 })
 
 // 侧栏徽章只从这一份派生：视图各算各的会出现「列表 3 条、徽章 5 条」这种最难查的对不上
@@ -50,10 +64,19 @@ watch(
   () => todosModel.undone.value.length,
   (undone) => shell.setCount('todos', undone),
 )
+watch(
+  () => linked.liveBlog.value.length,
+  (n) => shell.setCount('blog', n || null),
+)
+watch(
+  () => linked.medicine.value?.count ?? 0,
+  (n) => shell.setCount('medicine', n || null),
+)
 
 onBeforeUnmount(() => {
   unlisten?.()
   stopClock()
+  window.clearInterval(linkedTimer)
   window.removeEventListener('keydown', onGlobalKey)
 })
 
@@ -106,6 +129,8 @@ function showHint(text: string) {
         <Todos v-if="shell.view.value === 'todos'" />
         <Launcher v-else-if="shell.view.value === 'launcher'" />
         <Calendar v-else-if="shell.view.value === 'calendar'" />
+        <Blog v-else-if="shell.view.value === 'blog'" />
+        <Medicine v-else-if="shell.view.value === 'medicine'" />
         <div v-else class="y-empty">
           {{ runningInBrowser ? '浏览器预览（UI 验证用）· ' : '' }}「{{ title }}」要在后续里程碑接上；待办、速达、日历现在就能用，
           <button type="button" class="inline-link" @click="palette.show()">命令面板</button>也已经通了。

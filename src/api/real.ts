@@ -2,10 +2,13 @@ import { invoke } from '@tauri-apps/api/core'
 
 import type {
   Api,
+  LinkedState,
   PaletteHit,
   PathsView,
   Resource,
   SettingsView,
+  SnapshotView,
+  SourcePaths,
   Todo,
   Zone,
 } from './types'
@@ -19,6 +22,7 @@ export const realApi: Api = {
   settingsSet: (key, value) => invoke<void>('settings_set', { key, value }),
   contextMenu: (target) => invoke<void>('context_menu', { target }),
   openDataDir: () => invoke<void>('open_data_dir'),
+  openUrl: (url) => invoke<void>('open_url', { url }),
 
   todosList: (zone) => invoke<Todo[]>('todos_list', { zone }),
   todosAll: () => invoke<Todo[]>('todos_all'),
@@ -51,4 +55,12 @@ export const realApi: Api = {
   zoneDelete: (id) => invoke<void>('zone_delete', { id }),
 
   paletteSearch: (query) => invoke<PaletteHit[]>('palette_search', { query }),
+
+  linkedState: () => invoke<LinkedState>('linked_state'),
+  linkedRefreshBlog: () => invoke<SnapshotView[]>('linked_refresh_blog'),
+  linkedRefreshMedicine: () => invoke<SnapshotView | null>('linked_refresh_medicine'),
+  linkedCheckOnline: () => invoke<SnapshotView[]>('linked_check_online'),
+  linkedRestockTodo: (name, daysLeft) =>
+    invoke<Todo>('linked_restock_todo', { name, daysLeft }),
+  linkedSetBlogDir: (path) => invoke<SourcePaths>('linked_set_blog_dir', { path }),
 }
