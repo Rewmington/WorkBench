@@ -44,7 +44,7 @@ function cyclePriority() {
 <template>
   <div
     class="row"
-    :class="{ done: todo.doneAt, sel: false, over: !!overdue }"
+    :class="{ done: todo.completed, sel: false, over: !!overdue }"
     @click="emit('select')"
   >
     <span class="grip" title="拖动排序" @pointerdown="emit('dragStart', $event)">⠿</span>
@@ -52,11 +52,11 @@ function cyclePriority() {
     <button
       type="button"
       class="cb"
-      :aria-checked="!!todo.doneAt"
+      :aria-checked="!!todo.completed"
       role="checkbox"
       @click.stop="emit('toggle')"
     >
-      <span v-if="todo.doneAt" class="tick">✓</span>
+      <span v-if="todo.completed" class="tick">✓</span>
     </button>
 
     <button type="button" class="pri" :class="`p${todo.priority}`" :title="`优先级：${PRIORITY_LABEL[todo.priority]}，点一下换`" @click.stop="cyclePriority">

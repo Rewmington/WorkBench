@@ -35,8 +35,11 @@ export type Priority = 0 | 1 | 2 | 3
 export interface Todo extends Stamp {
   title: string
   note: string
+  /** **最后一次**完成于何时，取消勾选不清空。当前是不是完成态看 `completed`。 */
   doneAt: number | null
   doneDay: number | null
+  /** 当前勾选状态：来回切都改它。渲染勾选框、过滤未完成一律用它，不要用 doneAt。 */
+  completed: boolean
   dueAt: number | null
   remindAt: number | null
   priority: Priority

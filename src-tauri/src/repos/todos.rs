@@ -8,11 +8,13 @@ use crate::sync::lww::{touch, Stamp};
 use crate::sync::sortkey;
 use crate::time::Now;
 
-const COLS: &str = "id, rev, created_at, created_by, updated_at, updated_by, deleted_at, \
+/// `pub(crate)`：`dashboard::queue_groups` 复用同一份列与行映射，
+/// 保证「首屏分组卡」与「待办页列表」看到的是一模一样的行。
+pub(crate) const COLS: &str = "id, rev, created_at, created_by, updated_at, updated_by, deleted_at, \
      title, note, done_at, done_day, due_at, remind_at, priority, pinned, parent_id, \
-     sort_key, zone, created_day, created_hour";
+     sort_key, zone, created_day, created_hour, completed";
 
-fn map_row(r: &Row) -> rusqlite::Result<Todo> {
+pub(crate) fn map_row(r: &Row) -> rusqlite::Result<Todo> {
     Ok(Todo {
         stamp: Stamp {
             id: r.get("id")?,
@@ -36,11 +38,12 @@ fn map_row(r: &Row) -> rusqlite::Result<Todo> {
         zone: r.get("zone")?,
         created_day: r.get("created_day")?,
         created_hour: r.get("created_hour")?,
+        completed: r.get::<_, i64>("completed")? != 0,
         tags: Vec::new(),
     })
 }
 
-fn with_tags(conn: &Connection, rows: &mut [Todo]) -> Result<()> {
+pub(crate) fn with_tags(conn: &Connection, rows: &mut [Todo]) -> Result<()> {
     let ids: Vec<String> = rows.iter().map(|t| t.stamp.id.clone()).collect();
     let pairs = tags::tags_for_todos(conn, &ids)?;
     for row in rows.iter_mut() {
@@ -96,11 +99,33 @@ pub fn list_undone(conn: &Connection, zone: &str) -> Result<Vec<Todo>> {
     query_list(
         conn,
         &format!(
-            "SELECT {COLS} FROM todos WHERE zone = ?1 AND deleted_at IS NULL AND done_at IS NULL
+            "SELECT {COLS} FROM todos WHERE zone = ?1 AND deleted_at IS NULL AND completed = 0
              ORDER BY pinned DESC, sort_key ASC"
         ),
         zone,
     )
+}
+
+/// 今日焦点队列 —— 工作台 3D 卡片环的卡源（§8.8.1）。
+///
+/// 只取顶层：子待办跟着父项显示，进环会让同一个目标占两张卡。
+/// 逾期与「今天到期」都算焦点，所以环不会因为用户没整理 `today` 区而空转。
+pub fn focus(conn: &Connection, now: &dyn Now, limit: i64) -> Result<Vec<Todo>> {
+    let today_end = crate::time::days::day_end_ms(now.today());
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {COLS} FROM todos
+         WHERE deleted_at IS NULL AND completed = 0 AND parent_id IS NULL
+           AND ((due_at IS NOT NULL AND due_at <= ?3) OR zone = ?1)
+         ORDER BY pinned DESC, priority ASC, sort_key ASC LIMIT ?2"
+    ))?;
+    let rows = stmt.query_map(params![zones::TODAY, limit, today_end], map_row)?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    drop(stmt);
+    with_tags(conn, &mut out)?;
+    Ok(out)
 }
 
 pub fn get(conn: &Connection, id: &str) -> Result<Option<Todo>> {
@@ -151,8 +176,8 @@ fn insert(conn: &Connection, stamp: &Stamp, todo: &Todo) -> Result<()> {
     conn.execute(
         "INSERT INTO todos (id, rev, created_at, created_by, updated_at, updated_by, deleted_at,
                             title, note, done_at, done_day, due_at, remind_at, priority, pinned,
-                            parent_id, sort_key, zone, created_day, created_hour)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)",
+                            parent_id, sort_key, zone, created_day, created_hour, completed)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)",
         params![
             stamp.id,
             stamp.rev,
@@ -173,7 +198,8 @@ fn insert(conn: &Connection, stamp: &Stamp, todo: &Todo) -> Result<()> {
             todo.sort_key,
             todo.zone,
             todo.created_day,
-            todo.created_hour
+            todo.created_hour,
+            todo.completed as i64
         ],
     )?;
     Ok(())
@@ -204,6 +230,7 @@ pub fn create(conn: &Connection, now: &dyn Now, device: &str, draft: TodoDraft) 
         zone,
         created_day: Some(i64::from(now.day_of(ms))),
         created_hour: Some(i64::from(now.hour_of(ms))),
+        completed: false,
         tags: Vec::new(),
     };
     insert(conn, &stamp, &todo)?;
@@ -233,7 +260,7 @@ fn update_row(conn: &Connection, todo: &Todo) -> Result<()> {
     conn.execute(
         "UPDATE todos SET rev=?2, updated_at=?3, updated_by=?4, title=?5, note=?6, done_at=?7,
             done_day=?8, due_at=?9, remind_at=?10, priority=?11, pinned=?12, parent_id=?13,
-            sort_key=?14, zone=?15, deleted_at=?16
+            sort_key=?14, zone=?15, deleted_at=?16, completed=?17
          WHERE id=?1",
         params![
             todo.stamp.id,
@@ -251,7 +278,8 @@ fn update_row(conn: &Connection, todo: &Todo) -> Result<()> {
             todo.parent_id,
             todo.sort_key,
             todo.zone,
-            todo.stamp.deleted_at
+            todo.stamp.deleted_at,
+            todo.completed as i64
         ],
     )?;
     Ok(())
@@ -314,6 +342,9 @@ pub fn set_done(
     let mut todo = get(conn, id)?.ok_or_else(|| Error::msg("这条待办不存在或已被删除"))?;
     let ms = now.ms();
 
+    // `completed` 是当前状态，来回切都改它；`done_at` / `done_day` 只记**最后一次**
+    // 完成于何时且永不清空（PLAN §5.1）。两件事分列之后，取消勾选才真的能取消。
+    todo.completed = done;
     if done {
         todo.done_at = Some(ms);
         todo.done_day = Some(i64::from(now.day_of(ms)));

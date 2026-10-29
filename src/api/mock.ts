@@ -46,6 +46,9 @@ const uid = () => `mock-${(counter += 1).toString().padStart(4, '0')}`
 
 const now = () => Date.now()
 
+// `paths.deviceId` 是**文件路径**（原则 4 要让人看见它在哪）；同步列里的来源设备是 id 本身。
+const DEVICE_ID = 'pc-0196e4b3a1c27d80a9b0c1d2e3f40000'
+
 function dayInt(ms: number): number {
   const d = new Date(ms)
   return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate()
@@ -57,14 +60,16 @@ function makeTodo(part: Partial<Todo>): Todo {
     id: part.id ?? uid(),
     rev: part.rev ?? 1,
     createdAt: created,
-    createdBy: paths.deviceId,
+    createdBy: DEVICE_ID,
     updatedAt: part.updatedAt ?? created,
-    updatedBy: paths.deviceId,
+    updatedBy: DEVICE_ID,
     deletedAt: null,
     title: part.title ?? '',
     note: part.note ?? '',
     doneAt: part.doneAt ?? null,
     doneDay: part.doneDay ?? null,
+    // 种子数据里凡是带完成时间的就是「当前仍完成」；取消勾选的例子由 todosSetDone 演
+    completed: part.completed ?? part.doneAt != null,
     dueAt: part.dueAt ?? null,
     remindAt: part.remindAt ?? null,
     priority: part.priority ?? 2,
@@ -101,9 +106,9 @@ const seedResources = (): Resource[] => {
     id: part.id ?? uid(),
     rev: 1,
     createdAt: t - 5 * DAY,
-    createdBy: paths.deviceId,
+    createdBy: DEVICE_ID,
     updatedAt: t,
-    updatedBy: paths.deviceId,
+    updatedBy: DEVICE_ID,
     kind: 'app',
     name: '',
     target: '',
@@ -199,7 +204,7 @@ const byId = (id: string) => store.todos.find((t) => t.id === id && live(t))
 function touch(t: Todo) {
   t.rev += 1
   t.updatedAt = now()
-  t.updatedBy = paths.deviceId
+  t.updatedBy = DEVICE_ID
 }
 
 function sortedInZone(zone: TodoZone): Todo[] {
@@ -228,8 +233,8 @@ function descendantsOf(id: string): Todo[] {
 
 export const mockApi: Api = {
   paths: async () => paths,
-  deviceId: async () => paths.deviceId,
-  settingsAll: async (): Promise<SettingsView> => ({ values: store.settings, paths, deviceId: paths.deviceId }),
+  deviceId: async () => DEVICE_ID,
+  settingsAll: async (): Promise<SettingsView> => ({ values: store.settings, paths, deviceId: DEVICE_ID }),
   settingsGet: async (key) => store.settings[key] ?? null,
   settingsSet: async (key, value) => {
     store.settings[key] = value
@@ -247,7 +252,7 @@ export const mockApi: Api = {
 
   todosList: async (zone) => sortedInZone(zone).map((t) => ({ ...t })),
   todosAll: async () => store.todos.filter(live).map((t) => ({ ...t })),
-  todosListUndone: async (zone) => sortedInZone(zone).filter((t) => !t.doneAt).map((t) => ({ ...t })),
+  todosListUndone: async (zone) => sortedInZone(zone).filter((t) => !t.completed).map((t) => ({ ...t })),
   todosGet: async (id) => {
     const t = byId(id)
     return t ? { ...t } : null
@@ -288,11 +293,12 @@ export const mockApi: Api = {
     const t = byId(id)
     if (!t) throw new Error('这条待办不存在或已被删除')
     const ms = now()
+    t.completed = done
     if (done) {
       t.doneAt = ms
       t.doneDay = dayInt(ms)
     }
-    // 取消勾选不清 done_at / done_day：清空会让历史统计少一格（PLAN §5.1）
+    // 取消勾选只翻 completed：done_at / done_day 是「最后一次完成于何时」，不清空（§5.1）
     touch(t)
     save()
     return { ...t }
@@ -351,9 +357,9 @@ export const mockApi: Api = {
       id: uid(),
       rev: 1,
       createdAt: now(),
-      createdBy: paths.deviceId,
+      createdBy: DEVICE_ID,
       updatedAt: now(),
-      updatedBy: paths.deviceId,
+      updatedBy: DEVICE_ID,
       kind,
       name,
       target: path,
@@ -374,9 +380,9 @@ export const mockApi: Api = {
       id: uid(),
       rev: 1,
       createdAt: now(),
-      createdBy: paths.deviceId,
+      createdBy: DEVICE_ID,
       updatedAt: now(),
-      updatedBy: paths.deviceId,
+      updatedBy: DEVICE_ID,
       kind: 'web',
       name,
       target: url,

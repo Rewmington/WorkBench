@@ -33,7 +33,7 @@ function sameDay(a: number, b: number) {
   return startOfDay(a) === startOfDay(b)
 }
 
-const todos = computed<Todo[]>(() => all.value.filter((t) => t.dueAt && !t.doneAt))
+const todos = computed<Todo[]>(() => all.value.filter((t) => t.dueAt && !t.completed))
 
 onMounted(refresh)
 

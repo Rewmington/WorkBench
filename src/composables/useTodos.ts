@@ -36,7 +36,8 @@ export function useTodos() {
     }
   }
 
-  const undone = computed(() => all.value.filter((t) => !t.doneAt))
+  /** 未完成看 `completed`（当前状态），不是 `doneAt`（最后一次完成于何时，不清空）。 */
+  const undone = computed(() => all.value.filter((t) => !t.completed))
 
   const inZone = (zone: TodoZone) =>
     computed(() =>
@@ -57,7 +58,9 @@ export function useTodos() {
 
   const doneToday = computed(() => {
     const floor = startOfDay(now.value)
-    return all.value.filter((t) => t.doneAt != null && t.doneAt >= floor)
+    // 与 Rust 侧「今天完成 N 件」同口径：只看当前仍是完成态的，
+    // 否则取消勾选后这里会比 KPI 数字多一条，那种对不上最难查。
+    return all.value.filter((t) => t.completed && t.doneAt != null && t.doneAt >= floor)
   })
 
   const byId = (id: string) => all.value.find((t) => t.id === id) ?? null

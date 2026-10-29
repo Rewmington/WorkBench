@@ -72,7 +72,7 @@ async function add() {
 
 async function toggle(todo: Todo) {
   try {
-    await api.todosSetDone(todo.id, !todo.doneAt)
+    await api.todosSetDone(todo.id, !todo.completed)
     await reload()
   } catch (e) {
     error.value = String(e)
@@ -142,7 +142,7 @@ onMounted(async () => {
   <section class="y-view">
     <div class="bar">
       <Segmented v-model="zone" :options="ZONES" />
-      <span class="cnt">{{ rows.filter((t) => !t.doneAt).length }} 项未完成</span>
+      <span class="cnt">{{ rows.filter((t) => !t.completed).length }} 项未完成</span>
     </div>
 
     <div class="composer">

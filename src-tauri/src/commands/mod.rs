@@ -4,6 +4,7 @@
 //! 需要多语句原子性的命令走 `in_tx`，单条 UPDATE 的直接用 `&Connection`。
 
 pub mod backup;
+pub mod dashboard;
 pub mod launcher;
 pub mod linked;
 pub mod palette;

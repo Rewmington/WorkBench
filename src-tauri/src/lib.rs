@@ -9,6 +9,7 @@ pub mod repos;
 pub mod secrets;
 pub mod seed;
 pub mod state;
+pub mod suggest;
 pub mod sync;
 pub mod time;
 pub mod ui;

@@ -119,6 +119,8 @@ pub fn run() {
             commands::launcher::zone_add,
             commands::launcher::zone_delete,
             commands::palette::palette_search,
+            commands::dashboard::dash_summary,
+            commands::dashboard::dash_suggestions,
             commands::linked::linked_state,
             commands::linked::linked_refresh_blog,
             commands::linked::linked_refresh_medicine,

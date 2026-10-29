@@ -26,10 +26,13 @@ pub struct Todo {
 
     pub title: String,
     pub note: String,
-    /// 取消勾选时**不清空**，只递增 rev（PLAN §5.1）—— 清空会让历史统计少一格。
+    /// **最后一次**完成于何时，取消勾选不清空（PLAN §5.1）—— 清空会让历史统计少一格。
+    /// 当前是不是完成态请看 `completed`，别拿它当状态用（那样取消勾选就无效了）。
     pub done_at: Option<i64>,
     /// done_at 对应的本地自然日 yyyymmdd，统计按它分组（见 migrations 注释）
     pub done_day: Option<i64>,
+    /// 当前勾选状态。来回切都改它。
+    pub completed: bool,
     pub due_at: Option<i64>,
     pub remind_at: Option<i64>,
     pub priority: i64,
@@ -45,7 +48,7 @@ pub struct Todo {
 
 impl Todo {
     pub fn is_done(&self) -> bool {
-        self.done_at.is_some()
+        self.completed
     }
 }
 

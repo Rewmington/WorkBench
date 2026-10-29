@@ -169,7 +169,7 @@ fn tombstones_hide_rows_and_restore_brings_them_back() {
 }
 
 #[test]
-fn unchecking_keeps_done_at_and_only_bumps_rev() {
+fn unchecking_flips_the_state_but_never_forgets_when_it_was_done() {
     let conn = setup();
     let base = at(2026, 10, 28, 9, 0);
     let todo = create(&conn, base, A, "刷牙");
@@ -177,15 +177,25 @@ fn unchecking_keeps_done_at_and_only_bumps_rev() {
     let done = todos::set_done(&conn, &FixedNow(base + 60_000), A, &todo.stamp.id, true).unwrap();
     assert_eq!(done.done_at, Some(base + 60_000));
     assert_eq!(done.done_day, Some(20261028));
+    assert!(done.completed);
     assert_eq!(done.stamp.rev, 2);
 
     let undone =
         todos::set_done(&conn, &FixedNow(base + 120_000), B, &todo.stamp.id, false).unwrap();
-    // PLAN §5.1 点名的语义：取消勾选不清空完成时间，否则历史统计少一格
+    // 0002 拆列的动机：取消勾选必须真的把条目放回待办，
+    // 而 PLAN §5.1 要的「历史统计不少一格」由 done_at/done_day 承担 —— 两者不再互相抵消。
+    assert!(!undone.completed, "取消勾选必须生效（曾经只能完成、取消不了）");
     assert_eq!(undone.done_at, Some(base + 60_000));
     assert_eq!(undone.done_day, Some(20261028));
     assert_eq!(undone.stamp.rev, 3);
     assert_eq!(undone.stamp.updated_by, B);
+    assert!(
+        todos::list_undone(&conn, &undone.zone)
+            .unwrap()
+            .iter()
+            .any(|t| t.stamp.id == undone.stamp.id),
+        "它要重新出现在未完成列表里"
+    );
 
     let again = todos::set_done(&conn, &FixedNow(base + 180_000), A, &todo.stamp.id, true).unwrap();
     assert_eq!(
@@ -193,6 +203,7 @@ fn unchecking_keeps_done_at_and_only_bumps_rev() {
         Some(base + 180_000),
         "重新勾选要刷新完成时间"
     );
+    assert!(again.completed);
 }
 
 #[test]

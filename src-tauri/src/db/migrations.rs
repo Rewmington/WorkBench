@@ -9,10 +9,16 @@ struct Migration {
 
 /// 迁移按顺序追加，`PRAGMA user_version` 就是已应用的条数。
 /// 只加不改：已经在别人机器上跑过的编号不能改内容。
-const MIGRATIONS: &[Migration] = &[Migration {
-    name: "0001_init",
-    sql: include_str!("../../migrations/0001_init.sql"),
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        name: "0001_init",
+        sql: include_str!("../../migrations/0001_init.sql"),
+    },
+    Migration {
+        name: "0002_done_state",
+        sql: include_str!("../../migrations/0002_done_state.sql"),
+    },
+];
 
 pub fn migrate(conn: &mut Connection) -> Result<u32> {
     let current: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -45,10 +51,10 @@ mod tests {
     fn migrate_is_idempotent_and_counts_tables() {
         let mut conn = Connection::open_in_memory().unwrap();
         let applied = migrate(&mut conn).unwrap();
-        assert_eq!(applied, 1);
+        assert_eq!(applied, 2);
         // M0 验收：迁移可重复执行。
         migrate(&mut conn).unwrap();
-        assert_eq!(version(&conn).unwrap(), 1);
+        assert_eq!(version(&conn).unwrap(), 2);
 
         let n: i64 = conn
             .query_row(

@@ -47,7 +47,7 @@ const shortDevice = (id: string) => (id.length > 10 ? `${id.slice(0, 6)}…${id.
 
 async function toggleDone() {
   if (!todo.value) return
-  await api.todosSetDone(todo.value.id, !todo.value.doneAt)
+  await api.todosSetDone(todo.value.id, !todo.value.completed)
   await load()
 }
 
@@ -104,8 +104,11 @@ async function launchIt() {
         <dl class="y-dl">
           <dt>状态</dt>
           <dd>
-            <span class="y-chip" :class="todo.doneAt ? 'a' : ''">
-              {{ todo.doneAt ? `完成于 ${relTime(now, todo.doneAt)}` : '未完成' }}
+            <!-- 三态而不是两态：取消勾选后 doneAt 仍然留着，直说「上次完成于」比假装没发生过诚实 -->
+            <span class="y-chip" :class="todo.completed ? 'a' : ''">
+              <template v-if="todo.completed">完成于 {{ relTime(now, todo.doneAt!) }}</template>
+              <template v-else-if="todo.doneAt">未完成 · 上次完成于 {{ relTime(now, todo.doneAt) }}</template>
+              <template v-else>未完成</template>
             </span>
           </dd>
 
@@ -131,11 +134,11 @@ async function launchIt() {
             <button
               type="button"
               class="kcb"
-              :class="{ on: !!child.doneAt }"
-              :aria-label="child.doneAt ? '取消完成' : '标为完成'"
-              @click="api.todosSetDone(child.id, !child.doneAt).then(load)"
+              :class="{ on: child.completed }"
+              :aria-label="child.completed ? '取消完成' : '标为完成'"
+              @click="api.todosSetDone(child.id, !child.completed).then(load)"
             />
-            <span class="kt" :class="{ done: !!child.doneAt }">{{ child.title }}</span>
+            <span class="kt" :class="{ done: child.completed }">{{ child.title }}</span>
             <button type="button" class="kx" aria-label="删除子项" @click="removeChild(child)">×</button>
           </div>
         </div>
@@ -171,7 +174,7 @@ async function launchIt() {
         @keydown.enter.prevent="addChild"
       />
       <button v-if="todo" type="button" class="y-solid" @click="toggleDone">
-        {{ todo.doneAt ? '重新打开' : '标为完成' }}
+        {{ todo.completed ? '重新打开' : '标为完成' }}
       </button>
       <button v-if="resource" type="button" class="y-solid" @click="launchIt">启动</button>
     </footer>
