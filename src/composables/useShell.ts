@@ -108,6 +108,16 @@ export function useShell() {
     focus.value = at ?? null
   }
 
+  /**
+   * 侧栏条目对不对应当前页。
+   *
+   * 「进行」那一组里 倒计时 与 便签 指向同一个视图，只靠 `focus` 区分。
+   * 光比 `view` 会让两个条目同时亮 —— 看起来就像"点一个，两个部件一起打开了"。
+   */
+  function isCurrent(item: { view: ViewId; focus?: string }) {
+    return view.value === item.view && (!item.focus || focus.value === item.focus)
+  }
+
   function setCount(key: string, value: number | null) {
     counts.value = { ...counts.value, [key]: value }
   }
@@ -131,6 +141,7 @@ export function useShell() {
     composerTick,
     composerTarget,
     go,
+    isCurrent,
     setCount,
     select,
     requestComposer,

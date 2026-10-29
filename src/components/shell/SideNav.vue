@@ -8,7 +8,7 @@ import { useClock } from '../../composables/useClock'
 import { NAV, useShell } from '../../composables/useShell'
 import { relTime } from '../../lib/reltime'
 
-const { view, counts, go } = useShell()
+const { counts, go, isCurrent } = useShell()
 const backup = useBackup()
 const { now } = useClock()
 
@@ -52,7 +52,7 @@ onMounted(async () => {
           :key="item.key"
           type="button"
           class="it"
-          :aria-current="view === item.view ? 'page' : undefined"
+          :aria-current="isCurrent(item) ? 'page' : undefined"
           @click="go(item.view, item.focus)"
         >
           <component :is="item.icon" :size="15" />

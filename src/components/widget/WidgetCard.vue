@@ -1,25 +1,27 @@
 <script setup lang="ts">
 import { ChevronDown, EyeOff } from 'lucide-vue-next'
-import { ref } from 'vue'
 
 /**
  * 「进行」视图里部件的统一外壳：可折叠、可隐藏、可排序。
  *
  * 只给「显示/隐藏与排序」，不给自由拖拽调宽高 —— PLAN §4 明确划的边界：
  * 一旦开了自由布局，就得存坐标、处理重叠与断点回退，而个人工作台没人要这个。
+ *
+ * 折叠状态是**受控的**（`v-model:open`）而不是组件内部的 ref：侧栏的
+ * 「倒计时」「便签」两个入口指向同一页，点哪个就该只展开哪个 ——
+ * 状态留在外壳里，父组件就永远打不开这个结。
  */
-const props = withDefaults(
+withDefaults(
   defineProps<{
     title: string
     count?: number | string
     first?: boolean
     last?: boolean
-    defaultOpen?: boolean
   }>(),
-  { count: undefined, first: false, last: false, defaultOpen: true },
+  { count: undefined, first: false, last: false },
 )
 const emit = defineEmits<{ up: []; down: []; hide: [] }>()
-const open = ref(props.defaultOpen)
+const open = defineModel<boolean>('open', { default: true })
 </script>
 
 <template>

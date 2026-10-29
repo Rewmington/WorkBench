@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { NAV, useShell } from '../../composables/useShell'
 
-const { view, go } = useShell()
+const { go, isCurrent } = useShell()
 </script>
 
 <template>
@@ -20,7 +20,7 @@ const { view, go } = useShell()
         v-for="item in group.items"
         :key="item.key"
         class="it"
-        :class="{ on: view === item.view }"
+        :class="{ on: isCurrent(item) }"
         role="button"
         tabindex="0"
         :title="item.label"

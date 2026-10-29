@@ -7,6 +7,7 @@ import type { Countdown, Resource } from '../api/types'
 import CollapsedRow from '../components/ui/CollapsedRow.vue'
 import WidgetCard from '../components/widget/WidgetCard.vue'
 import { useClock } from '../composables/useClock'
+import { useShell } from '../composables/useShell'
 import { useWidgets } from '../composables/useWidgets'
 import { countdownLabel } from '../lib/reltime'
 
@@ -32,6 +33,27 @@ const DEFAULTS: WidgetKey[] = ['countdowns', 'stickies', 'pins', 'system']
 
 const order = ref<WidgetKey[]>([...DEFAULTS])
 const hidden = ref<WidgetKey[]>([])
+
+/**
+ * 哪个部件展开着。侧栏的「倒计时」「便签」是两个入口、同一页，
+ * 所以点谁就只展开谁 —— 不然这两个入口没有任何区别，看起来就是"一起打开了"。
+ */
+const shell = useShell()
+const openKey = ref<Record<WidgetKey, boolean>>({
+  countdowns: true,
+  stickies: true,
+  pins: true,
+  system: true,
+})
+
+watch(
+  () => shell.focus.value,
+  (f) => {
+    if (!f || !DEFAULTS.includes(f as WidgetKey)) return
+    for (const k of DEFAULTS) openKey.value[k] = k === f
+  },
+  { immediate: true },
+)
 
 const resources = ref<Resource[]>([])
 const pins = computed(() =>
@@ -175,6 +197,7 @@ onBeforeUnmount(() => {
       <!-- 倒计时 -->
       <WidgetCard
         v-if="k === 'countdowns' && visible('countdowns')"
+        v-model:open="openKey.countdowns"
         title="倒计时"
         :count="w.countdowns.value.length"
         :first="order[0] === 'countdowns'"
@@ -218,6 +241,7 @@ onBeforeUnmount(() => {
       <!-- 便签 -->
       <WidgetCard
         v-if="k === 'stickies' && visible('stickies')"
+        v-model:open="openKey.stickies"
         title="便签"
         :count="w.stickies.value.filter((s) => s.content.trim()).length"
         :first="order[0] === 'stickies'"
@@ -243,6 +267,7 @@ onBeforeUnmount(() => {
       <!-- 常用速达 -->
       <WidgetCard
         v-if="k === 'pins' && visible('pins')"
+        v-model:open="openKey.pins"
         title="常用速达"
         :count="pins.length"
         :first="order[0] === 'pins'"
@@ -264,6 +289,7 @@ onBeforeUnmount(() => {
       <!-- 系统资源 -->
       <WidgetCard
         v-if="k === 'system' && visible('system')"
+        v-model:open="openKey.system"
         title="系统资源"
         :first="order[0] === 'system'"
         :last="order[order.length - 1] === 'system'"
