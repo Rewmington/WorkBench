@@ -6,6 +6,7 @@ pub mod error;
 pub mod hotkeys;
 pub mod linking;
 pub mod model;
+pub mod net;
 pub mod notify;
 pub mod repos;
 pub mod secrets;

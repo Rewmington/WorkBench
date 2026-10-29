@@ -31,6 +31,14 @@ describe('relTime', () => {
     // 今天 15:00 减 20 小时 = 昨天 19:00
     expect(relTime(NOW, NOW - 20 * 3_600_000)).toBe('昨天 19:00')
   })
+
+  it('时间戳落在 now 前面也只说「刚刚」，不说「即将」', () => {
+    // 真机实测到的：Rust 写 fetched_at 的时钟比前端 1s tick 快几毫秒
+    expect(relTime(NOW, NOW + 400)).toBe('刚刚')
+    expect(relTime(NOW, NOW)).toBe('刚刚')
+    // 未来的读法归 dueLabel，它才该说「今天/明天/N 小时后」
+    expect(dueLabel(NOW, NOW + 3 * 3_600_000)).toBe('今天 18:00')
+  })
 })
 
 describe('逾期与到期', () => {

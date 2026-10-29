@@ -16,12 +16,9 @@ pub const BASE: &str = "https://wmddd.online/content/";
 pub const BUDGET: Duration = Duration::from_secs(12);
 
 fn agent() -> Agent {
-    Agent::config_builder()
-        .timeout_global(Some(BUDGET))
-        .timeout_connect(Some(Duration::from_secs(3)))
-        .user_agent("Anvil/0.1 (本机工作台，仅比对本地缓存是否落后)")
-        .build()
-        .into()
+    // 三条 https 路共用一份底座：TLS provider 配错时 ureq 是 panic 而不是返回错误，
+    // 而 panic 在 release 里等于整个应用消失（见 `crate::net`）。
+    crate::net::agent(BUDGET, Duration::from_secs(3), "Anvil/0.1 (本机工作台，仅比对本地缓存是否落后)")
 }
 
 /// 拉一个清单并归一化成与本地读取同样的形状，这样两边 sig 才可直接比。

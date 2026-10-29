@@ -27,14 +27,12 @@ pub const MAX_DOCS: usize = 8;
 const MAX_BYTES: u64 = 8 * 1024 * 1024;
 
 fn agent() -> Agent {
-    Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(30)))
-        .timeout_connect(Some(Duration::from_secs(5)))
-        .user_agent("Anvil/0.1 (read-only medicine link)")
-        // PROPFIND 不在标准方法表里，没这个开关 ureq 会直接拒掉请求行。
-        .allow_non_standard_methods(true)
-        .build()
-        .into()
+    // 与备份那条共用一份底座（TLS provider 配错会在发请求前 panic）。
+    crate::net::agent(
+        Duration::from_secs(30),
+        Duration::from_secs(5),
+        "Anvil/0.1 (read-only medicine link)",
+    )
 }
 
 /// 一份云端文档：文件名 + 字节。

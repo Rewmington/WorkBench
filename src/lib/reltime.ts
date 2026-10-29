@@ -56,10 +56,16 @@ export function countdownLabel(msLeft: number): string {
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
 }
 
-/** 「4 分钟前 / 3 天前 / 10月21日」—— 越远越具体，不写「很久以前」 */
+/**
+ * 「4 分钟前 / 3 天前 / 10月21日」—— 越远越具体，不写「很久以前」。
+ *
+ * 只服务**过去**的时间戳（12 个调用点全是「完成于 / 上次成功于 / 读取于」这一类）。
+ * Rust 写库的时钟与前端 1 秒一次的 tick 之间最多差一个 tick，于是"刚读完"的
+ * `fetchedAt` 会落在 now 前面几毫秒 —— 不夹这一下就会念出「读取于 即将」。
+ * 未来的读法另有 `dueLabel` / `dayWordLabel`，它们才该说「3 小时后」。
+ */
 export function relTime(now: number, ts: number): string {
-  const diff = now - ts
-  if (diff < 0) return futureLabel(now, ts)
+  const diff = now - Math.min(ts, now)
   if (diff < MINUTE) return '刚刚'
   if (diff < HOUR) return `${Math.floor(diff / MINUTE)} 分钟前`
   if (diff < DAY && dayInt(now) === dayInt(ts)) return `${Math.floor(diff / HOUR)} 小时前`
@@ -72,14 +78,6 @@ export function relTime(now: number, ts: number): string {
   return sameYear
     ? `${d.getMonth() + 1}月${d.getDate()}日`
     : `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`
-}
-
-function futureLabel(now: number, ts: number): string {
-  const diff = ts - now
-  if (diff < MINUTE) return '即将'
-  if (diff < HOUR) return `${Math.floor(diff / MINUTE)} 分钟后`
-  if (diff < DAY && dayInt(now) === dayInt(ts)) return `${Math.floor(diff / HOUR)} 小时后`
-  return dayWordLabel(now, ts)
 }
 
 /**

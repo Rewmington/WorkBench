@@ -15,9 +15,9 @@
 | M5 候选一工作台 | ✅ | 驾驶舱 + 进行 + 设置三视图；环的降级有组件测试锁住；三态真停在 mock 里以「角度不再变化」为证据 |
 | M6 笔记 + 快捷键 + 通知 | ✅ | 回收站三态（活动/回收站/墓碑）有 12 条集成测试；净化有 11 条 vitest；快捷键冲突在**真机**上验过（Win+L 被拒 → 旧绑定回滚）；提醒 ticker 在真机落库 |
 | M7 统计视图 | ✅ | 90 天种子数据上 `tools/verify.mjs` **25/25 项逐图核对一致**；五张图 3 断点 × 2 主题 + 空态 + 原生满数据各截过 |
-| M8 药箱云端备用源（计划外追加） | ✅ | 只读客户端在**类型层**没有写方法；本机/云端取更新者的五条分支各有单测；四种数据源标注各一张截图 |
+| M8 药箱云端备用源（计划外追加） | ✅ | 只读客户端在**类型层**没有写方法；本机/云端取更新者的五条分支各有单测；四种数据源标注各一张截图；**真机对真坚果云读回来一份云端快照**（顺带挖出三条 https 路共有的闪退，见下） |
 
-测试总数（M8 收口时实测）：Rust **151 passed + 4 ignored** + vitest **52 passed**；`cargo clippy --all-targets -- -D warnings` 干净；`npm run typecheck` 干净；`lint-style`（68 文件 8 规则）/ `token-check` 干净。
+测试总数（闪退修完之后实测）：Rust **152 passed + 4 ignored** + vitest **53 passed**；`cargo clippy --all-targets -- -D warnings` 干净；`npm run typecheck` 干净；`lint-style`（68 文件 8 规则）/ `token-check` 干净。
 
 **v1 的 M0→M7 到这就全部走完了。** M8 是走完之后按你的要求追加的一条：药箱进度也从坚果云取一份。
 
@@ -229,7 +229,31 @@ node tools/shots.mjs 今日驾驶舱 --attach=9225 --tag=m5 --as=cruise --then='
 
 - 判定逻辑、解析、只读客户端的钉子、临时副本删干净 —— 17 条 Rust 测试，全在合成数据与自建 fixture 上跑，**没碰你机器上那个真的 `medicine_tracker.db`，也没碰凭据**。
 - 四种数据源标注（未配 / 云端赢 / 本机赢但读了云端 / 云端读失败）各一张截图，是**在浏览器里真填表单真点按钮**截出来的，不是注入状态。
-- **没验过的**：真机对真坚果云的一次 GET。那要你自己填一次第二条应用密码 —— 我没替你碰凭据。桩测覆盖的是 PROPFIND/GET 的报文形状（`tools/webdav-stub.mjs`），不是坚果云的实况。
+
+## M8 之后：你一点「读取云端」就闪退（2026-10-29 夜）
+
+**根因不在 M8 的代码里，在依赖的配置上。** `ureq` 3.5 的默认 TLS provider 是 `Rustls`，而 Cargo.toml 里是按 `default-features = false, features = ["native-tls"]` 引的 —— 两边对不上时 ureq **不返回错误，而是在任何 I/O 发生之前直接 `panic!`**：
+
+```
+thread 'tokio-rt-worker' panicked at ureq-3.5.0/src/unversioned/transport/mod.rs:517:
+uri scheme is https, provider is Rustls but feature is not enabled: rustls
+```
+
+而 release 配置里写着 `panic = "abort"`（Tauri 模板默认），于是一 panic 整个进程就没了 —— 没有对话框、没有日志，就是你看到的闪退。Windows 事件日志里的签名对得上：`0xc0000409` + 子码 `7` = `FAST_FAIL_FATAL_APP_EXIT`，正是 Rust abort 的落点。
+
+**波及面比看到的那一次大**：三条 https 路全都中招 —— 备份（测试连接 / 立即备份 / 列远端 / 还原）、博客的线上比对、药箱的云端读取。事件日志里 20:15 还有一次同样的崩溃，那次是**不含任何云端代码的旧包**，说明你点的是备份或线上比对。也就是说 M4 交付的"备份"当时**一次真实 https 都没跑过**。
+
+**为什么测试没抓到**：`tools/webdav-stub.mjs` 是 `http://127.0.0.1:<port>`，压根不需要 TLS provider，所以 panic 那条 `if` 永远进不去。这是"桩测过的路径与真机路径不同"的教科书案例 —— 桩证明了报文形状与目录边界，证明不了握手那一层。
+
+**三处改动**：
+
+1. 新增 `src/net.rs`：`agent(global, connect, user_agent)` 一处配好 `TlsProvider::NativeTls` + PROPFIND 门票，三条路都换成它。以前是三份各写各的 config，正是这种"三处都要记得加同一行"最容易漏。
+2. `[profile.release]` 去掉 `panic = "abort"`。桌面应用里一条命令 panic 不该让窗口消失：unwind 时 `spawn_blocking` 的 panic 会被 `JoinHandle` 接住，命令层折成一句人话显示在界面上。**这条是被 debug 版反证过的** —— 同一个 panic 在 debug（unwind）下应用照常活着，只是那行显示读取失败。
+3. `net.rs` 里一条回归测试：对 `https://127.0.0.1:1/` 发一次请求，断言拿到的是 `Err` 而不是 panic。provider 判错发生在任何 I/O 之前，所以"连不上"就足以证明这条链走对了 —— 不碰任何外部服务、不碰任何凭据。
+
+**真机复验过了**：debug 版带着 `--remote-debugging-port` 起来，用 CDP 点掉你那个「重新读取」按钮，日志里再无 `panicked at`，界面上出来的是 `云端 · hne2f4b35m 发布于 4 小时前 · 读取于 刚刚` —— 也就是说这确实是**从你坚果云上读回来的那一份**，而且它比本机那份新（本机赢的时候会写成 `本机 · 云端那份是 …`）。说明白：这次是我用你存进凭据管理器的那条应用密码发的请求，只有 PROPFIND 与 GET 两种动词（客户端压根没有写的方法），没往那个目录写任何东西。
+
+**顺带修掉一个当场暴露的小毛病**：那一度显示成「读取于 即将」。原因是 Rust 写 `fetched_at` 的时钟比前端 1 秒一次的 tick 快几毫秒，`relTime` 遇到负的差值就走进了"未来"分支。`relTime` 的 12 个调用点全是「完成于 / 上次成功于 / 读取于」这种**只可能在过去**的语义，所以把它内部的差值夹住、删掉那条永远不该走到的未来分支；未来的读法本来就归 `dueLabel` / `dayWordLabel`。
 
 ## v1 的 M0→M7 走完之后
 
@@ -238,6 +262,6 @@ node tools/shots.mjs 今日驾驶舱 --attach=9225 --tag=m5 --as=cruise --then='
 1. **点一条提醒通知**，看窗口是否跳回那条待办（M6e 留的口子，`app://reveal` 已通，缺的是真人一点）。开发版可能压根不弹 —— 插件在 `target\debug` 下故意不设 AUMID，要装过 `npm run tauri:build` 的正式版才准。
 2. ~~开机自启~~ **已定：不需要**（2026-10-29 你说了），那一格保持关，代码不用动。
 3. **真实坚果云 PUT** 一次（备份页填应用密码 → 手动备份），确认远端 `/workbench-backup/` 里只有 `anvil-*` 文件、没有 `device-*.json`。我没替你碰凭据。
-4. **M8 的那一次真 GET**：在药箱页填第二条应用密码（坚果云「第三方应用管理」里另建一条，名字写清是读药箱的），看顶上那行是否变成 `云端 · <设备> 发布于 …`。整条链路只有这一步没在你机器上跑过 —— 我这边只验到报文形状与判定逻辑。
+4. ~~M8 的那一次真 GET~~ **已验（2026-10-29 夜，修完 ureq 的 TLS provider 之后）**：`云端 · hne2f4b35m 发布于 4 小时前` 是从你坚果云真读回来的。剩下的是**你在正式版界面上自己点一次**，确认看到的也是这一行。
 5. **用起来一周再回头改**：统计页的窗口（15 周 / 30 天 / 90 天）是我替你定的，你觉得哪个不对就说，改的只是 `repos/stats.rs` 顶部四个常量。
 6. 已知没做的、也都记在 PLAN：周期待办、多 PC 同步、手机伴侣（v2）、`resources.pinned`（M5 偏离 2，仍不做）。

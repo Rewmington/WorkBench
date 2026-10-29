@@ -25,15 +25,13 @@ fn verb(name: &str) -> Method {
 }
 
 fn agent() -> Agent {
-    Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(60)))
-        .timeout_connect(Some(Duration::from_secs(5)))
-        .user_agent("Anvil/0.1 (personal workbench backup)")
-        // WebDAV 的动词不在 HTTP 标准方法表里：ureq 默认会在写请求行之前
-        // 把它们判成「not valid for HTTP version」。这个开关就是 PROPFIND 的门票。
-        .allow_non_standard_methods(true)
-        .build()
-        .into()
+    // TLS 与 PROPFIND 的门票都在 `crate::net::agent` 里配：三处 https 共用一份，
+    // 少一处就会在发请求前 panic（见那个模块的注释）。
+    crate::net::agent(
+        Duration::from_secs(60),
+        Duration::from_secs(5),
+        "Anvil/0.1 (personal workbench backup)",
+    )
 }
 
 /// 「请求没发出去」与「服务器回了非 2xx」必须分开：后者对 MKCOL/DELETE

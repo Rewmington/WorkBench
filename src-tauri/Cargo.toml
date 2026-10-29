@@ -74,4 +74,6 @@ codegen-units = 1
 lto = "fat"
 opt-level = "s"
 strip = "symbols"
-panic = "abort"
+# 故意不写 panic = "abort"。桌面应用里一条命令 panic 不该让整个窗口消失：
+# unwind 时 spawn_blocking 的 panic 会被 JoinHandle 接住，命令层折成一句人话显示在界面上。
+# （2026-10-29 那次闪退就是这么来的：ureq 的 TLS provider 配错 → panic → abort → 进程直接没了。）
