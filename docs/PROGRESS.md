@@ -283,6 +283,15 @@ vite 那时候已经被我关掉 → ERR_CONNECTION_REFUSED。
 实测抠掉 14283 个背景像素、反预乘 377 个边缘像素，改后所有尺寸四角 A=0（24px 托盘图因面积平均剩 A=5~7，等于看不见）。
 `tools/mkicon.mjs --write` 出透明版源图与 `tray.png`，其余尺寸交给 `npx tauri icon design/refs/anvil-app-icon-transparent.png`。
 
+**第一次以为修好了，其实没有**：`.ico` 换了，重新 `npm run tauri:build` 出来的 exe 里嵌的**还是旧图标**。
+从 exe 抽出来量一下就露馅了（`[System.Drawing.Icon]::ExtractAssociatedIcon(exe)` → 四角 A=255 纯白）。
+原因是 tauri-build 把图标编进 Windows 资源、tauri-macros 把 128x128.png 当默认窗口图标嵌进去，
+**两边都没对 `icons/` 声明 `rerun-if-changed`** —— 图标变了而 build script 是新鲜的，cargo 就不重跑它。
+修法是在 `src-tauri/build.rs` 里自己声明 `cargo:rerun-if-changed=icons`；改完重编，抽出来量就是 A=0。
+
+**教训：图标这类"编译期嵌进产物"的资源，验的时候必须验产物，不能只验源文件。**
+我第一轮只量了 `icons/*.png` 与 `icon.ico` 的四角，那证明的是生成器没问题，证明不了 exe 里是新的。
+
 **装过的话要重装一次新包**；如果重装后任务栏还是旧样子，那是 Windows 的图标缓存，
 `ie4uinit.exe -show` 或注销一次就刷过来。
 
