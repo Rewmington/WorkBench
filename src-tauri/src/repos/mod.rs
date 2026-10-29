@@ -1,6 +1,8 @@
 pub mod countdowns;
 pub mod dashboard;
 pub mod linked;
+pub mod note_folders;
+pub mod notes;
 pub mod resources;
 pub mod settings;
 pub mod stickies;

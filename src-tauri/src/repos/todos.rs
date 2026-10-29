@@ -293,6 +293,7 @@ pub fn update(
     patch: TodoPatch,
 ) -> Result<Todo> {
     let mut todo = get(conn, id)?.ok_or_else(|| Error::msg("这条待办不存在或已被删除"))?;
+    let mut reset_reminded = false;
 
     if let Some(title) = patch.title {
         let title = title.trim().to_owned();
@@ -315,6 +316,8 @@ pub fn update(
     }
     if let Some(remind_at) = patch.remind_at {
         todo.remind_at = remind_at;
+        // 重设提醒就是想再被提醒一次：留着「已弹过」的标记，新提醒永远不会响。
+        reset_reminded = true;
     }
     if let Some(pinned) = patch.pinned {
         todo.pinned = pinned;
@@ -325,6 +328,12 @@ pub fn update(
 
     touch(&mut todo.stamp, now.ms(), device);
     update_row(conn, &todo)?;
+    if reset_reminded {
+        conn.execute(
+            "UPDATE todos SET reminded_at = NULL WHERE id = ?1",
+            params![id],
+        )?;
+    }
     Ok(todo)
 }
 
@@ -489,5 +498,49 @@ pub fn search(conn: &Connection, query: &str, limit: i64) -> Result<Vec<Todo>> {
         out.push(row?);
     }
     with_tags(conn, &mut out)?;
+    Ok(out)
+}
+
+/// 一条到点、还没弹过的提醒。
+#[derive(Debug, Clone)]
+pub struct Reminder {
+    pub id: String,
+    pub title: String,
+    pub due_at: Option<i64>,
+}
+
+/// 取出到点等着弹的提醒，**并且当场盖章**。
+///
+/// 查和写必须一次做完：分成「先查、弹完再写」的话，两轮之间那一行还是「未弹过」，
+/// 同一条提醒会被重复弹。反过来，盖章之后就算通知没发出去也不补投 ——
+/// 少响一次比同一件事刷屏更容易被原谅。
+pub fn take_due_reminders(
+    conn: &Connection,
+    now: &dyn Now,
+    device: &str,
+    limit: i64,
+) -> Result<Vec<Reminder>> {
+    let ms = now.ms();
+    let mut stmt = conn.prepare(
+        "SELECT id, title, due_at FROM todos
+         WHERE deleted_at IS NULL AND completed = 0
+           AND remind_at IS NOT NULL AND remind_at <= ?1 AND reminded_at IS NULL
+         ORDER BY remind_at ASC LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![ms, limit], |r| {
+        Ok(Reminder {
+            id: r.get(0)?,
+            title: r.get(1)?,
+            due_at: r.get(2)?,
+        })
+    })?;
+    let out = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    for item in &out {
+        conn.execute(
+            "UPDATE todos SET reminded_at = ?2, rev = rev + 1, updated_at = ?2, updated_by = ?3
+             WHERE id = ?1",
+            params![item.id, ms, device],
+        )?;
+    }
     Ok(out)
 }

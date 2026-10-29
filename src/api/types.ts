@@ -315,6 +315,56 @@ export interface SysLoad {
   memAvail: number
 }
 
+// ---- M6 笔记 ----
+
+export interface Note extends Stamp {
+  title: string
+  /** 正文 Markdown 就是真相源，预览是派生物 —— 后端不存 HTML */
+  bodyMd: string
+  folderId: string | null
+  pinned: boolean
+  /** 回收站时间戳。与 `deletedAt`（同步墓碑）是两件事：进回收站的还能还原。 */
+  trashedAt: number | null
+  createdDay: number | null
+  tags: string[]
+}
+
+export interface NoteDraft {
+  title: string
+  bodyMd?: string
+  folderId?: string | null
+  tags?: string[]
+}
+
+/** `folderId: null` 是「挪到无文件夹那一层」，不传这个键才是「不动它」。 */
+export interface NotePatch {
+  title?: string
+  bodyMd?: string
+  folderId?: string | null
+  pinned?: boolean
+}
+
+export interface NoteFolder extends Stamp {
+  name: string
+  parentId: string | null
+  sort: number
+  /** 直属笔记数，由后端一次算好：让前端自己数等于逼它把全部笔记拉一遍 */
+  noteCount: number
+}
+
+/**
+ * 一条全局快捷键的当前状态。
+ *
+ * `registered` 是「此刻真的挂上了吗」，不是「设置里写了什么」——
+ * 被别的程序抢走时注册会失败，界面必须能说清楚，而不是假装按了有反应。
+ */
+export interface HotkeyItem {
+  action: string
+  label: string
+  combo: string
+  registered: boolean
+}
+
 export interface Api {
   paths(): Promise<PathsView>
   deviceId(): Promise<string>
@@ -403,4 +453,30 @@ export interface Api {
 
   /** 第一次调用拿不到 CPU 差值 → cpuPercent 为 null，界面那一格先空着 */
   sysLoad(): Promise<SysLoad>
+
+  /** folderId 传 null = 不过滤（看全部），不是「只看没有文件夹的」 */
+  notesList(folderId: string | null): Promise<Note[]>
+  notesTrashed(): Promise<Note[]>
+  notesGet(id: string): Promise<Note | null>
+  notesCreate(draft: NoteDraft): Promise<Note>
+  notesUpdate(id: string, patch: NotePatch): Promise<Note>
+  notesSetTags(id: string, tags: string[]): Promise<void>
+  /** 进回收站：正文与标签都留着 */
+  notesTrash(id: string): Promise<Note>
+  notesRestore(id: string): Promise<Note>
+  /** 彻底删除 = 打墓碑。这一步之后只能靠快照找回 */
+  notesPurge(id: string): Promise<void>
+  foldersList(): Promise<NoteFolder[]>
+  folderAdd(name: string, parentId: string | null): Promise<NoteFolder>
+  folderRename(id: string, name: string): Promise<NoteFolder>
+  folderMove(id: string, parentId: string | null): Promise<NoteFolder>
+  /** 返回被挪走的笔记数：0 也要报，界面据此区分「空目录已删除」与「N 篇已挪到上一层」 */
+  folderDelete(id: string): Promise<number>
+
+  hotkeysList(): Promise<HotkeyItem[]>
+  /** 换绑。注册失败时 Rust 侧已回滚，这里抛错、前端只显示那句话 */
+  hotkeysSet(action: string, combo: string): Promise<HotkeyItem>
+  hotkeysReset(action: string): Promise<HotkeyItem>
+  autostartGet(): Promise<boolean>
+  autostartSet(enabled: boolean): Promise<boolean>
 }

@@ -41,18 +41,44 @@ pub fn ensure_tag(conn: &Connection, now: &dyn Now, device: &str, name: &str) ->
     Ok(stamp.id)
 }
 
+/// 挂标签的两类东西。表名不能参数化，所以用枚举映射成固定字面量 ——
+/// 取值只来自这个枚举，永远不是用户输入，拼接是安全的。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Owner {
+    Todo,
+    Note,
+}
+
+impl Owner {
+    fn link_table(self) -> &'static str {
+        match self {
+            Owner::Todo => "todo_tag_links",
+            Owner::Note => "note_tag_links",
+        }
+    }
+
+    fn owner_column(self) -> &'static str {
+        match self {
+            Owner::Todo => "todo_id",
+            Owner::Note => "note_id",
+        }
+    }
+}
+
 /// 整组替换：前端每次提交当前应该挂的全部标签，这里算差集。
 /// 比「逐个 add/remove」少一轮往返，也不会出现两个操作交错留下的脏链接。
 ///
 /// 收 `&Connection`（不是 `&mut`）：rusqlite 的 `Transaction` 只 Deref 不 DerefMut，
 /// 所以事务由调用方持有 —— 命令层 `guard.transaction()` 之后把 `&tx` 传进来。
-pub fn set_todo_tags(
+pub fn set_tags(
     conn: &Connection,
     now: &dyn Now,
     device: &str,
-    todo_id: &str,
+    owner: Owner,
+    owner_id: &str,
     names: &[String],
 ) -> Result<()> {
+    let (link, col) = (owner.link_table(), owner.owner_column());
     let wanted: Vec<String> = {
         let mut ids = Vec::new();
         for name in names {
@@ -66,58 +92,76 @@ pub fn set_todo_tags(
     };
 
     let current: Vec<String> = {
-        let mut stmt = conn.prepare(
-            "SELECT tag_id FROM todo_tag_links WHERE todo_id = ?1 AND deleted_at IS NULL",
-        )?;
-        let rows = stmt.query_map(params![todo_id], |r| r.get::<_, String>(0))?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT tag_id FROM {link} WHERE {col} = ?1 AND deleted_at IS NULL"
+        ))?;
+        let rows = stmt.query_map(params![owner_id], |r| r.get::<_, String>(0))?;
         rows.collect::<rusqlite::Result<Vec<_>>>()?
     };
 
     for tag_id in current.iter().filter(|t| !wanted.contains(t)) {
         conn.execute(
-            "UPDATE todo_tag_links SET deleted_at = ?3, rev = rev + 1, updated_at = ?3, updated_by = ?4
-             WHERE todo_id = ?1 AND tag_id = ?2 AND deleted_at IS NULL",
-            params![todo_id, tag_id, now.ms(), device],
+            &format!(
+                "UPDATE {link} SET deleted_at = ?3, rev = rev + 1, updated_at = ?3, updated_by = ?4
+                 WHERE {col} = ?1 AND tag_id = ?2 AND deleted_at IS NULL"
+            ),
+            params![owner_id, tag_id, now.ms(), device],
         )?;
     }
 
     for tag_id in wanted.iter().filter(|t| !current.contains(t)) {
         conn.execute(
-            "INSERT INTO todo_tag_links (todo_id, tag_id, rev, created_at, created_by, updated_at, updated_by)
-             VALUES (?1, ?2, 1, ?3, ?4, ?3, ?4)
-             ON CONFLICT(todo_id, tag_id) DO UPDATE SET
-               deleted_at = NULL, rev = todo_tag_links.rev + 1,
-               updated_at = excluded.updated_at, updated_by = excluded.updated_by",
-            params![todo_id, tag_id, now.ms(), device],
+            &format!(
+                "INSERT INTO {link} ({col}, tag_id, rev, created_at, created_by, updated_at, updated_by)
+                 VALUES (?1, ?2, 1, ?3, ?4, ?3, ?4)
+                 ON CONFLICT({col}, tag_id) DO UPDATE SET
+                   deleted_at = NULL, rev = {link}.rev + 1,
+                   updated_at = excluded.updated_at, updated_by = excluded.updated_by"
+            ),
+            params![owner_id, tag_id, now.ms(), device],
         )?;
     }
 
     Ok(())
 }
 
-/// 一次取多条待办的标签，避免前端 N+1。
-pub fn tags_for_todos(conn: &Connection, todo_ids: &[String]) -> Result<Vec<(String, String)>> {
-    if todo_ids.is_empty() {
+/// 一次取多条记录的标签，避免前端 N+1。
+pub fn tags_for(conn: &Connection, owner: Owner, ids: &[String]) -> Result<Vec<(String, String)>> {
+    if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let placeholders = todo_ids
+    let (link, col) = (owner.link_table(), owner.owner_column());
+    let placeholders = ids
         .iter()
         .enumerate()
         .map(|(i, _)| format!("?{}", i + 1))
         .collect::<Vec<_>>()
         .join(",");
     let sql = format!(
-        "SELECT l.todo_id, t.name FROM todo_tag_links l
+        "SELECT l.{col}, t.name FROM {link} l
          JOIN tags t ON t.id = l.tag_id
-         WHERE l.deleted_at IS NULL AND t.deleted_at IS NULL AND l.todo_id IN ({placeholders})"
+         WHERE l.deleted_at IS NULL AND t.deleted_at IS NULL AND l.{col} IN ({placeholders})"
     );
     let mut stmt = conn.prepare(&sql)?;
-    let args: Vec<&dyn rusqlite::ToSql> =
-        todo_ids.iter().map(|v| v as &dyn rusqlite::ToSql).collect();
+    let args: Vec<&dyn rusqlite::ToSql> = ids.iter().map(|v| v as &dyn rusqlite::ToSql).collect();
     let rows = stmt.query_map(args.as_slice(), |r| Ok((r.get(0)?, r.get(1)?)))?;
     let mut out = Vec::new();
     for row in rows {
         out.push(row?);
     }
     Ok(out)
+}
+
+pub fn set_todo_tags(
+    conn: &Connection,
+    now: &dyn Now,
+    device: &str,
+    todo_id: &str,
+    names: &[String],
+) -> Result<()> {
+    set_tags(conn, now, device, Owner::Todo, todo_id, names)
+}
+
+pub fn tags_for_todos(conn: &Connection, todo_ids: &[String]) -> Result<Vec<(String, String)>> {
+    tags_for(conn, Owner::Todo, todo_ids)
 }

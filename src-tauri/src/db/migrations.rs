@@ -22,6 +22,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "0003_countdown_pause",
         sql: include_str!("../../migrations/0003_countdown_pause.sql"),
     },
+    Migration {
+        name: "0004_remind_fired",
+        sql: include_str!("../../migrations/0004_remind_fired.sql"),
+    },
 ];
 
 pub fn migrate(conn: &mut Connection) -> Result<u32> {
@@ -54,11 +58,13 @@ mod tests {
     #[test]
     fn migrate_is_idempotent_and_counts_tables() {
         let mut conn = Connection::open_in_memory().unwrap();
-        let applied = migrate(&mut conn).unwrap();
-        assert_eq!(applied, 3);
-        // M0 验收：迁移可重复执行。
+        // 用 len() 而不是写死的数字：往后加一条迁移不该来改这条测试。
+        // 真正在验的是第二行 —— 重复执行会重跑 ALTER TABLE，一重跑就 panic。
+        let total = MIGRATIONS.len() as u32;
         migrate(&mut conn).unwrap();
-        assert_eq!(version(&conn).unwrap(), 3);
+        assert_eq!(version(&conn).unwrap(), total);
+        migrate(&mut conn).unwrap();
+        assert_eq!(version(&conn).unwrap(), total);
 
         let n: i64 = conn
             .query_row(

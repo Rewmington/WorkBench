@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
-use tauri::{Window, WindowEvent};
+use tauri::{Manager, Window, WindowEvent};
 
 use crate::commands;
 use crate::db;
@@ -79,7 +79,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(crate::hotkeys::on_event).build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -132,6 +132,25 @@ pub fn run() {
             commands::widgets::countdown_reset,
             commands::widgets::countdown_delete,
             commands::widgets::sys_load,
+            commands::notes::notes_list,
+            commands::notes::notes_trashed,
+            commands::notes::notes_get,
+            commands::notes::notes_create,
+            commands::notes::notes_update,
+            commands::notes::notes_set_tags,
+            commands::notes::notes_trash,
+            commands::notes::notes_restore,
+            commands::notes::notes_purge,
+            commands::notes::folders_list,
+            commands::notes::folder_add,
+            commands::notes::folder_rename,
+            commands::notes::folder_move,
+            commands::notes::folder_delete,
+            commands::hotkeys::hotkeys_list,
+            commands::hotkeys::hotkeys_set,
+            commands::hotkeys::hotkeys_reset,
+            commands::hotkeys::autostart_get,
+            commands::hotkeys::autostart_set,
             commands::linked::linked_state,
             commands::linked::linked_refresh_blog,
             commands::linked::linked_refresh_medicine,
@@ -151,7 +170,15 @@ pub fn run() {
         .on_menu_event(|app, event| menus::handle(app, event.id().as_ref()))
         .setup(|app| {
             tray::build(app)?;
+            {
+                let handle = app.handle().clone();
+                let state = app.state::<AppState>();
+                let conn = state.lock();
+                crate::hotkeys::register_at_startup(&handle, &conn);
+            }
             crate::backup::schedule::spawn(app.handle().clone());
+            crate::notify::register(app.handle());
+            crate::notify::spawn(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window: &Window, event: &WindowEvent| match event {

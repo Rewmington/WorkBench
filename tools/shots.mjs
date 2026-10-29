@@ -169,7 +169,8 @@ async function main() {
       if (!raw) {
         const nav = await cdp.eval(clickNav(view))
         if (nav !== 'ok') throw new Error(nav)
-        await cdp.until(`!!document.querySelector('h2')`, 5000)
+        // 每个视图的根都是 section.y-view；等 h2 会漏掉「待办」这类没有 h2 的视图
+        await cdp.until(`!!document.querySelector('.y-view')`, 5000)
       }
       // --then 用来演「点一下才出现」的状态：内联确认、未配凭据、选中详情
       if (extra) {

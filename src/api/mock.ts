@@ -6,7 +6,10 @@ import type {
   Countdown,
   CountdownMode,
   DashSummary,
+  HotkeyItem,
   MedicineTodayPayload,
+  Note,
+  NoteFolder,
   PaletteHit,
   PathsView,
   QueueGroup,
@@ -23,6 +26,7 @@ import type {
   TodoZone,
   Zone,
 } from './types'
+import { DEFAULT_COMBO, sameCombo } from '../lib/combo'
 
 /**
  * 只在浏览器里跑（`npm run dev` + `?mock=1`）时用的实现。
@@ -179,6 +183,8 @@ interface Store {
   backup: BackupSeed
   stickies: Sticky[]
   countdowns: Countdown[]
+  notes: Note[]
+  folders: NoteFolder[]
 }
 
 /** 备份在浏览器里只演「状态机」：配没配凭据、流水、远端清单。加解密链路归 cargo test。 */
@@ -213,10 +219,128 @@ function abackupName(d: Date, tag: string): string {
   return `anvil-${d.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')}-${tag}.abackup`
 }
 
+function seedNotes(): Pick<Store, 'notes' | 'folders'> {
+  const t = now()
+  const folders: NoteFolder[] = [
+    {
+      id: 'f-work', rev: 1, createdAt: t - 20 * DAY, createdBy: DEVICE_ID, updatedAt: t - 20 * DAY,
+      updatedBy: DEVICE_ID, deletedAt: null, name: '工程', parentId: null, sort: GAP, noteCount: 2,
+    },
+    {
+      id: 'f-life', rev: 1, createdAt: t - 18 * DAY, createdBy: DEVICE_ID, updatedAt: t - 18 * DAY,
+      updatedBy: DEVICE_ID, deletedAt: null, name: '生活', parentId: null, sort: GAP * 2, noteCount: 1,
+    },
+    {
+      id: 'f-anvil', rev: 1, createdAt: t - 17 * DAY, createdBy: DEVICE_ID, updatedAt: t - 17 * DAY,
+      updatedBy: DEVICE_ID, deletedAt: null, name: 'Anvil', parentId: 'f-work', sort: GAP, noteCount: 1,
+    },
+  ]
+  const make = (part: Partial<Note> & { id: string; title: string; bodyMd: string }): Note => ({
+    rev: 1,
+    createdAt: t - 3 * DAY,
+    createdBy: DEVICE_ID,
+    updatedAt: t - 2 * HOUR,
+    updatedBy: DEVICE_ID,
+    deletedAt: null,
+    folderId: null,
+    pinned: false,
+    trashedAt: null,
+    createdDay: dayInt(t - 3 * DAY),
+    tags: [],
+    ...part,
+  })
+  const notes: Note[] = [
+    make({
+      id: 'n-1',
+      title: '候选一的实施要点',
+      folderId: 'f-anvil',
+      pinned: true,
+      tags: ['设计', 'v1'],
+      updatedAt: t - 30 * 60_000,
+      bodyMd: [
+        '## 卡片环的三条降级',
+        '',
+        '- 面数 < 5 → 横向 scroll-snap 列表',
+        '- 0 面 → 折叠成一行虚线条',
+        '- 失焦 / 最小化 / 降低动效 → `cancelAnimationFrame`',
+        '',
+        '> 动画只碰 `transform`。环与其卡上不许出现滤镜与模糊类属性，也不许给阴影加过渡',
+        '> —— 那正是参考项目把 GPU 吃到 26% 的来源。',
+        '',
+        '```ts',
+        'const live = faces >= 5 && visible && focused && !reduced',
+        '```',
+        '',
+        '| 情形 | 该不该转 |',
+        '| ---- | -------- |',
+        '| 前台 | 转 |',
+        '| 收进托盘 | 不转 |',
+      ].join('\n'),
+    }),
+    make({
+      id: 'n-2',
+      title: '同步字段的取舍',
+      folderId: 'f-work',
+      tags: ['数据层'],
+      updatedAt: t - 5 * HOUR,
+      bodyMd: [
+        '两台设备、编辑面基本不相交，**行级 LWW 够了**，不引 CRDT。',
+        '',
+        '1. `rev` 每次写入 +1',
+        '2. 平票比 `updated_by` 字典序',
+        '3. 手机只做追加与勾选，不做段落级并发改写',
+        '',
+        '链接测试：[官网](https://wmddd.online) 与一个不该放的 [坑](javascript:alert(1))。',
+      ].join('\n'),
+    }),
+    make({
+      id: 'n-3',
+      title: '猫粮清单',
+      folderId: 'f-life',
+      updatedAt: t - 8 * HOUR,
+      bodyMd: '- [x] 问店家有没有冻干\n- [ ] 大袋趁活动囤两包\n',
+    }),
+    make({
+      id: 'n-4',
+      title: '写废的一稿',
+      updatedAt: t - 9 * DAY,
+      trashedAt: t - 2 * DAY,
+      bodyMd: '正文留着，还原后一字不差。\n',
+    }),
+    make({
+      id: 'n-5',
+      title: '没有文件夹的散记',
+      updatedAt: t - 26 * HOUR,
+      bodyMd: '顶层笔记。左侧选「全部」时能看到它，选某个文件夹时不该出现。\n',
+    }),
+  ]
+  return { notes, folders }
+}
+
 const KEY = 'anvil.mock.store.v2'
 
 /** `?mock=1&empty=1`：把种子数据清空，用来验 §9 M5 那条「空/满两态都不出现死白」。 */
 const EMPTY = new URLSearchParams(location.search).has('empty')
+
+/**
+ * `?mock=1&hotkey=Ctrl+Alt+C`：把唤起键的初始绑定换成指定值。
+ * 用来演「存着但没挂上」那一格 —— 它的真实来源是换机或恢复快照后撞上别人，
+ * 界面上没有任何操作能造出这个状态，所以只能从种子数据进来。
+ */
+const SEEDED_HOTKEY = new URLSearchParams(location.search).get('hotkey')
+
+const HOTKEY_ACTION = 'show'
+const SETTINGS_HOTKEYS = 'hotkeys'
+const SETTINGS_AUTOSTART = 'autostart'
+
+/**
+ * 演「这个组合键已经被别的程序拿走了」。
+ *
+ * 真实名单只有内核知道（Windows 没有查询归属的 API），所以浏览器里只能挑几个
+ * 确实常被占用的组合来演示那条失败分支 —— 它的价值是让「未挂上」这一格能被看见，
+ * 不是假装还原了本机实况。
+ */
+const MOCK_TAKEN = ['Ctrl+Alt+C', 'Alt+Shift+Q', 'Ctrl+Shift+Space']
 
 function seedStickies(): Sticky[] {
   const t = now()
@@ -267,17 +391,18 @@ function seedCountdowns(): Countdown[] {
 
 function freshStore(): Store {
   if (EMPTY) {
-    return { todos: [], resources: [], zones: [], secrets: {}, settings: {}, backup: { email: null, hasPass: false, log: [], remote: [] }, stickies: [], countdowns: [] }
+    return { todos: [], resources: [], zones: [], secrets: {}, settings: {}, backup: { email: null, hasPass: false, log: [], remote: [] }, stickies: [], countdowns: [], notes: [], folders: [] }
   }
   return {
     todos: seedTodos(),
     resources: seedResources(),
     zones: seedZones(),
     secrets: {},
-    settings: {},
+    settings: SEEDED_HOTKEY ? { [SETTINGS_HOTKEYS]: { [HOTKEY_ACTION]: SEEDED_HOTKEY } } : {},
     backup: freshBackup(),
     stickies: seedStickies(),
     countdowns: seedCountdowns(),
+    ...seedNotes(),
   }
 }
 
@@ -333,6 +458,18 @@ function needCountdown(id: string): Countdown {
   const c = store.countdowns.find((v) => v.id === id)
   if (!c) throw new Error('这个倒计时不存在或已被删除')
   return c
+}
+
+function needNote(id: string): Note {
+  const n = store.notes.find((v) => v.id === id && v.deletedAt === null)
+  if (!n) throw new Error('这条笔记不存在或已被彻底删除')
+  return n
+}
+
+function needFolder(id: string): NoteFolder {
+  const f = store.folders.find((v) => v.id === id && v.deletedAt === null)
+  if (!f) throw new Error('这个文件夹不存在或已被删除')
+  return f
 }
 
 /**
@@ -398,6 +535,28 @@ function descendantsOf(id: string): Todo[] {
     }
   }
   return out
+}
+
+function comboOf(): string {
+  const raw = store.settings[SETTINGS_HOTKEYS]
+  const map = raw && typeof raw === 'object' ? (raw as Record<string, string>) : {}
+  return map[HOTKEY_ACTION] || DEFAULT_COMBO
+}
+
+function mockHotkey(action: string, combo: string): HotkeyItem {
+  return {
+    action,
+    label: '唤起窗口',
+    combo,
+    registered: !MOCK_TAKEN.some((t) => sameCombo(t, combo)),
+  }
+}
+
+function assertCombo(combo: string): string {
+  const next = combo.trim()
+  // 与 Rust 侧同一条规则：至少一个修饰键 + 一个主键，主键在最后
+  if (next.split('+').filter(Boolean).length < 2) throw new Error(`组合键格式不认识：${next}`)
+  return next
 }
 
 export const mockApi: Api = {
@@ -936,6 +1095,180 @@ export const mockApi: Api = {
       memTotal: total,
       memAvail: Math.round(total * (0.38 + Math.random() * 0.12)),
     }
+  },
+
+  // ---- M6 笔记 ----
+  notesList: async (folderId) => {
+    const live = store.notes.filter((n) => n.deletedAt === null && n.trashedAt === null)
+    const picked = folderId == null ? live : live.filter((n) => n.folderId === folderId)
+    return picked
+      .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt)
+      .map((n) => ({ ...n }))
+  },
+  notesTrashed: async () =>
+    store.notes
+      .filter((n) => n.deletedAt === null && n.trashedAt !== null)
+      .sort((a, b) => (b.trashedAt ?? 0) - (a.trashedAt ?? 0))
+      .map((n) => ({ ...n })),
+  notesGet: async (id) => {
+    const n = store.notes.find((v) => v.id === id && v.deletedAt === null)
+    return n ? { ...n } : null
+  },
+  notesCreate: async (draft) => {
+    const title = draft.title.trim()
+    if (!title) throw new Error('笔记标题不能为空')
+    const t = now()
+    const created: Note = {
+      id: uid(),
+      rev: 1,
+      createdAt: t,
+      createdBy: DEVICE_ID,
+      updatedAt: t,
+      updatedBy: DEVICE_ID,
+      deletedAt: null,
+      title,
+      bodyMd: draft.bodyMd ?? '',
+      folderId: draft.folderId ?? null,
+      pinned: false,
+      trashedAt: null,
+      createdDay: dayInt(t),
+      tags: [...new Set((draft.tags ?? []).map((s) => s.trim()).filter(Boolean))],
+    }
+    store.notes.push(created)
+    save()
+    return { ...created }
+  },
+  notesUpdate: async (id, patch) => {
+    const n = needNote(id)
+    if (patch.title !== undefined) {
+      const title = patch.title.trim()
+      if (!title) throw new Error('笔记标题不能为空')
+      n.title = title
+    }
+    if (patch.bodyMd !== undefined) n.bodyMd = patch.bodyMd
+    if (patch.folderId !== undefined) n.folderId = patch.folderId
+    if (patch.pinned !== undefined) n.pinned = patch.pinned
+    touch(n)
+    save()
+    return { ...n }
+  },
+  notesSetTags: async (id, tags) => {
+    const n = needNote(id)
+    n.tags = [...new Set(tags.map((s) => s.trim()).filter(Boolean))]
+    touch(n)
+    save()
+  },
+  notesTrash: async (id) => {
+    const n = needNote(id)
+    n.trashedAt = now()
+    touch(n)
+    save()
+    return { ...n }
+  },
+  notesRestore: async (id) => {
+    const n = needNote(id)
+    if (n.trashedAt !== null) {
+      n.trashedAt = null
+      touch(n)
+      save()
+    }
+    return { ...n }
+  },
+  notesPurge: async (id) => {
+    const n = needNote(id)
+    // 与 Rust 一致：打墓碑而不是物理删除，v2 同步要靠它传播这次删除
+    n.deletedAt = now()
+    touch(n)
+    save()
+  },
+  foldersList: async () => {
+    const live = store.notes.filter((n) => n.deletedAt === null && n.trashedAt === null)
+    return store.folders
+      .filter((f) => f.deletedAt === null)
+      .sort((a, b) => a.sort - b.sort)
+      .map((f) => ({ ...f, noteCount: live.filter((n) => n.folderId === f.id).length }))
+  },
+  folderAdd: async (name, parentId) => {
+    const trimmed = name.trim()
+    if (!trimmed) throw new Error('文件夹名不能为空')
+    const t = now()
+    const created: NoteFolder = {
+      id: uid(),
+      rev: 1,
+      createdAt: t,
+      createdBy: DEVICE_ID,
+      updatedAt: t,
+      updatedBy: DEVICE_ID,
+      deletedAt: null,
+      name: trimmed,
+      parentId,
+      sort: (store.folders.at(-1)?.sort ?? 0) + GAP,
+      noteCount: 0,
+    }
+    store.folders.push(created)
+    save()
+    return { ...created }
+  },
+  folderRename: async (id, name) => {
+    const f = needFolder(id)
+    const trimmed = name.trim()
+    if (!trimmed) throw new Error('文件夹名不能为空')
+    f.name = trimmed
+    touch(f)
+    save()
+    return { ...f }
+  },
+  folderMove: async (id, parentId) => {
+    const f = needFolder(id)
+    if (parentId !== null) {
+      if (parentId === id) throw new Error('不能把文件夹挪进它自己或它的子目录里')
+      // 挪进自己的后代会造出环，树一渲染就死循环
+      let cursor: string | null = parentId
+      while (cursor) {
+        if (cursor === id) throw new Error('不能把文件夹挪进它自己或它的子目录里')
+        cursor = store.folders.find((v) => v.id === cursor)?.parentId ?? null
+      }
+    }
+    f.parentId = parentId
+    touch(f)
+    save()
+    return { ...f }
+  },
+  folderDelete: async (id) => {
+    const f = needFolder(id)
+    const inside = store.notes.filter((n) => n.deletedAt === null && n.folderId === id)
+    for (const n of inside) n.folderId = null
+    for (const child of store.folders.filter((v) => v.deletedAt === null && v.parentId === id)) {
+      child.parentId = f.parentId
+    }
+    f.deletedAt = now()
+    touch(f)
+    save()
+    return inside.length
+  },
+
+  hotkeysList: async () => [mockHotkey(HOTKEY_ACTION, comboOf())],
+  hotkeysSet: async (action, combo) => {
+    const next = assertCombo(combo)
+    if (action !== HOTKEY_ACTION) throw new Error(`不认识的快捷键动作：${action}`)
+    const item = mockHotkey(action, next)
+    // 真实侧失败时 Rust 会回滚旧绑定，这里同样不落盘：留着旧值才是对的
+    if (!item.registered) throw new Error(`「${next}」已被其他程序占用`)
+    store.settings[SETTINGS_HOTKEYS] = { [action]: next }
+    save()
+    return item
+  },
+  hotkeysReset: async (action) => {
+    if (action !== HOTKEY_ACTION) throw new Error(`不认识的快捷键动作：${action}`)
+    store.settings[SETTINGS_HOTKEYS] = { [action]: DEFAULT_COMBO }
+    save()
+    return mockHotkey(action, DEFAULT_COMBO)
+  },
+  autostartGet: async () => store.settings[SETTINGS_AUTOSTART] === true,
+  autostartSet: async (enabled) => {
+    store.settings[SETTINGS_AUTOSTART] = enabled
+    save()
+    return enabled
   },
 }
 

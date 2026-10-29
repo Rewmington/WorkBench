@@ -19,7 +19,8 @@ import { countdownLabel } from '../lib/reltime'
 const { now } = useClock()
 const w = useWidgets()
 
-const ORDER_KEY = 'ui.progressWidgets'
+/** 键名沿用 settings.rs 里已定义的 `ui.widgetOrder`，不再另起一个同义键。 */
+const ORDER_KEY = 'ui.widgetOrder'
 type WidgetKey = 'countdowns' | 'stickies' | 'pins' | 'system'
 const LABELS: Record<WidgetKey, string> = {
   countdowns: '倒计时',

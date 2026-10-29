@@ -1,15 +1,25 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { Bell, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 
 import { dueLabel } from '../../lib/reltime'
 
 /**
  * 自绘日历弹层，不用原生 <input type=date>：原生控件不吃设计令牌，
  * 切主题时会出现一个跟整屏无关的白盒子（§8.5「不受令牌控制的就是债」）。
+ *
+ * 提醒存的是**绝对时刻**（`remind_at`），但界面按「相对截止多久」给。
+ * 换日期时按老偏移重算，否则改了截止日，提醒会留在上个星期的同一天。
  */
-const props = defineProps<{ modelValue: number | null; now: number }>()
-const emit = defineEmits<{ 'update:modelValue': [number | null] }>()
+const props = defineProps<{
+  modelValue: number | null
+  remindAt: number | null
+  now: number
+}>()
+const emit = defineEmits<{
+  'update:modelValue': [number | null]
+  'update:remindAt': [number | null]
+}>()
 
 const open = ref(false)
 const view = ref(new Date(props.modelValue ?? props.now))
@@ -18,6 +28,14 @@ const hour = ref(props.modelValue ? new Date(props.modelValue).getHours() : 18)
 
 const WEEK = ['一', '二', '三', '四', '五', '六', '日']
 const dayMs = 86_400_000
+const HOUR_MS = 3_600_000
+
+const REMINDERS: { label: string; ms: number | null }[] = [
+  { label: '不提醒', ms: null },
+  { label: '到点', ms: 0 },
+  { label: '提前1小时', ms: HOUR_MS },
+  { label: '提前1天', ms: dayMs },
+]
 
 const cells = computed(() => {
   const first = new Date(view.value.getFullYear(), view.value.getMonth(), 1)
@@ -39,17 +57,36 @@ const cells = computed(() => {
 const monthLabel = computed(() => `${view.value.getFullYear()} 年 ${view.value.getMonth() + 1} 月`)
 const label = computed(() => (props.modelValue ? dueLabel(props.now, props.modelValue) : '设截止'))
 
+/** 当前提醒相对截止的提前量；认不出来的偏移算「自定义」，不高亮任何一档。 */
+const remindOffset = computed(() =>
+  props.modelValue != null && props.remindAt != null ? props.modelValue - props.remindAt : null,
+)
+const remindLabel = computed(() => {
+  if (props.remindAt == null || props.modelValue == null) return null
+  const hit = REMINDERS.find((r) => r.ms === remindOffset.value)
+  return hit ? hit.label : '自定义'
+})
+
 function shift(delta: number) {
   view.value = new Date(view.value.getFullYear(), view.value.getMonth() + delta, 1)
 }
 
 function pick(time: number) {
   emit('update:modelValue', time)
+  if (props.modelValue != null && props.remindAt != null) {
+    emit('update:remindAt', time - (props.modelValue - props.remindAt))
+  }
   open.value = false
+}
+
+function setRemind(ms: number | null) {
+  if (ms === null || props.modelValue == null) emit('update:remindAt', null)
+  else emit('update:remindAt', props.modelValue - ms)
 }
 
 function clear() {
   emit('update:modelValue', null)
+  emit('update:remindAt', null)
   open.value = false
 }
 </script>
@@ -59,6 +96,7 @@ function clear() {
     <button type="button" class="due" :class="{ set: modelValue != null }" @click="open = !open">
       <CalendarDays :size="12" />
       {{ label }}
+      <Bell v-if="remindAt != null" :size="11" class="bell" :title="`提醒：${remindLabel ?? '已设'}`" />
     </button>
 
     <div v-if="open" class="pop" @mouseleave="open = false">
@@ -96,6 +134,21 @@ function clear() {
         </div>
         <button v-if="modelValue != null" type="button" class="clr" @click="clear">清除</button>
       </div>
+
+      <div v-if="modelValue != null" class="rem">
+        <span class="rl">提醒</span>
+        <div class="hrs">
+          <button
+            v-for="o in REMINDERS"
+            :key="o.label"
+            type="button"
+            :class="{ on: o.ms === remindOffset }"
+            @click="setRemind(o.ms)"
+          >
+            {{ o.label }}
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -123,7 +176,8 @@ function clear() {
 .pop {
   position: absolute;
   top: calc(100% + 6px);
-  left: 0;
+  /* 靠右展开：这颗按钮永远长在行的最右端，往右开就会被窗口切掉一半 */
+  right: 0;
   z-index: 50;
   width: 246px;
   padding: 10px;
@@ -195,9 +249,25 @@ function clear() {
   padding-top: 8px;
   border-top: 1px solid var(--line);
 }
+.rem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  margin-top: 7px;
+}
+.rl {
+  font-size: 10.5px;
+  color: var(--t3);
+  flex: none;
+}
+.bell {
+  color: var(--blue);
+}
 .hrs {
   display: flex;
   gap: 4px;
+  flex-wrap: wrap;
 }
 .hrs button {
   font-size: 10.5px;

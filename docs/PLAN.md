@@ -27,7 +27,7 @@
 | 桌面壳 | Tauri 2 | 体积小、Rust 后端可直接做局域网服务与进程启动 |
 | 前端 | Vue 3 `<script setup>` + TypeScript + Vite | 与 x-hub 同栈，源码可作参考 |
 | 样式 | 设计令牌 CSS 变量（自绘，不引 UI 库） | 参考 x-hub `src/style.css` 的令牌体系。**2026-10-28 实施时去掉「少量 Tailwind 4」**：Tailwind 4 的 preflight 会重置 font-family / border-color / margin，正撞 §8.6 的 13px 基线与 §8.5「外观不受设计令牌控制的元素就是债」，两套系统并存只会互相盖。全部手写令牌 CSS。 |
-| 复杂输入 | ~~reka-ui 无头（DatePicker / TimeField / NumberField）~~ **v1 实际未采用**（2026-10-29 记） | 原意是避免原生日期控件破坏主题。实测：日期输入只需要「日 + 相对快捷项」，自绘弹层 `src/components/todo/DueEditor.vue` 约 120 行就够了，引无头库反而带来一套要与之对齐的焦点/浮层语义。**依赖已装未用**（`reka-ui@2.11.0` 在 `package.json`，`src/` 零 import）—— M6 笔记若要 TimeField/NumberField 就用起来，否则连同 `marked`/`dompurify` 一起按需清（那两个是 M6 Markdown 预览的依赖，M6 收口时要么用上要么删）。 |
+| 复杂输入 | ~~reka-ui 无头（DatePicker / TimeField / NumberField）~~ **v1 实际未采用**（2026-10-29 记） | 原意是避免原生日期控件破坏主题。实测：日期输入只需要「日 + 相对快捷项」，自绘弹层 `src/components/todo/DueEditor.vue` 约 120 行就够了，引无头库反而带来一套要与之对齐的焦点/浮层语义。**M6 收口时清了**（2026-10-29）：笔记没有用 TimeField/NumberField（提醒只做「相对截止」四档，弹层里一排胶囊按钮，不需要数字输入控件），`reka-ui` 已卸；`marked` + `dompurify` 留在用——`src/lib/markdown.ts` 是笔记预览与博客正文的唯一渲染口。 |
 | 存储 | SQLite（rusqlite，WAL） | 单文件、可备份、易做变更查询 |
 | 图标 | lucide | 与 x-hub 一致，线性风格 |
 | 命令面板 | 自绘（不引库） | 这是产品的脸，必须完全可控 |

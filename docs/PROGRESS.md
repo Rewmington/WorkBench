@@ -13,10 +13,10 @@
 | M3 外部联动 | ✅ | 博客 6 类 ok + `notes` 诚实报 missing；药箱只读副本；三种破坏各一张截图零弹窗 |
 | M4 备份与恢复 | ✅ | 77 Rust 测试 + 桩 e2e；备份页 3 断点 × 2 主题 + 三态截图；原生实测命令面板跑通 `backup.now` |
 | M5 候选一工作台 | ✅ | 驾驶舱 + 进行 + 设置三视图；环的降级有组件测试锁住；三态真停在 mock 里以「角度不再变化」为证据 |
-| M6 笔记 + 快捷键 | ⬜ **下一步** | — |
-| M7 统计 | ⬜ 未开始 | — |
+| M6 笔记 + 快捷键 + 通知 | ✅ | 回收站三态（活动/回收站/墓碑）有 12 条集成测试；净化有 11 条 vitest；快捷键冲突在**真机**上验过（Win+L 被拒 → 旧绑定回滚）；提醒 ticker 在真机落库 |
+| M7 统计 | ⬜ **下一步** | — |
 
-测试总数（本轮实测）：Rust **108 passed + 4 ignored** + vitest **25 passed**；`cargo clippy --all-targets -- -D warnings` 干净；`npm run typecheck` 干净；`lint-style`（54 文件 8 规则）/ `token-check` 干净；`node tools/m4-check.mjs` 仍全绿（M5 的两次迁移没破坏它）。
+测试总数（M6 收口时实测）：Rust **126 passed + 4 ignored** + vitest **47 passed**；`cargo clippy --all-targets -- -D warnings` 干净；`npm run typecheck` 与 `npm run build` 干净；`lint-style`（61 文件 8 规则）/ `token-check` 干净；`node tools/m4-check.mjs` 仍全绿。
 
 **仍未做、也不该由我做的**：真实 PUT 到坚果云（要你在备份页填一次应用密码后自己点）；改系统时间的原生对照（要提权，以 `reltime.ts` / `FixedNow` 单测为主证据）。
 
@@ -45,11 +45,34 @@
 1. **卡片环的降级门槛从「< 3 面」提到「< 5 面」**（§8.8.1）。理由：`backface-visibility: hidden` 下同时只有 |角度| < 90° 的面可见，3 面时相邻卡差 120° → **永远只有一张卡看得见**，4 面时邻居正好 90° 侧对镜头看不见。我拿 `--url` 截了候选一的基准图对比，参考图自己是 6 面。门槛写在 `FocusRing.MIN_FACES`，`ring.spec.ts` 逐档钉住 0 / 1–4 / 5+ 三种形态。
 2. **「速达钉选」实现成「常用速达」**（按 `use_count` 取前 4）。`resources` 表没有 pinned 列，§5.2 也没规划它；为一个小部件单开一次迁移不值，而"最常用的四个"是这个位置真正要回答的问题。要真钉选，M6 顺手加列即可。
 
+## M6 交付了什么
+
+**M6a 笔记数据层**：`model/note.rs` + `repos/notes.rs` + `repos/note_folders.rs` + `commands/notes.rs`（14 条命令）。三态分得很清楚：活动（`deleted_at IS NULL AND trashed_at IS NULL`）/ 回收站（`trashed_at IS NOT NULL`）/ 彻底删除（打墓碑，永不物理 DELETE，正文与标签都留着）。`folder_delete` 不删内容——直属笔记挪到无文件夹层、子文件夹上提一级，返回被挪走的条数。`folder_move` 拒绝挪进自己的后代（会造出环，树一渲染就死循环）。`repos/tags.rs` 泛化成 `Owner::{Todo,Note}`，笔记与待办共用一张 `tags` 表。
+
+**M6b Markdown**：`src/lib/markdown.ts` 用 `marked` + `dompurify`，白名单**显式列出**（不给 `class`、不给 `style`、不给 data-*），`SAFE_URI` 只放 https/mailto/ftp/相对路径，`afterSanitizeAttributes` 再兜一层并强制 `rel="noopener noreferrer"`、给 `<input>` 补 `disabled`。`blocked` 计数从**净化前**的 HTML 数起——DOMPurify 会在钩子跑之前就把 `javascript:` href 抹掉，净化后再数永远是 0。
+
+**M6c 笔记界面**：`views/Notes.vue`（文件夹树 / 列表 / 双栏编辑器）+ `composables/useNotes.ts`，600ms 防抖只写真正改了的标题与正文。
+
+**M6d 全局快捷键 + 开机自启**：`src-tauri/src/hotkeys.rs`（注册、改绑、失败回滚）+ `commands/hotkeys.rs`（`hotkeys_list` / `set` / `reset` / `autostart_get` / `autostart_set`）+ `src/lib/combo.ts`（捕获→序列化→显示，11 条单测）+ `useHotkeys.ts` + 设置页那一格。判据只有一条：**注册失败就是被占用**（Windows 没有查询组合键归属的 API），失败时 Rust 侧先把旧绑定挂回去，前端只负责说那句话。
+
+**M6e 提醒走系统通知中心**（§8.6 第 12 条，顺带把 0001 里一直没人读的 `remind_at` 接上）：迁移 `0004` 加 `reminded_at`；`todos::take_due_reminders` 查和盖章一次做完；`src/notify.rs` 一条 30 秒线程，一次最多 5 条；`DueEditor` 的弹层里加了「不提醒 / 到点 / 提前1小时 / 提前1天」四档，存绝对时刻但按相对截止显示，换日期时按老偏移重算。点击回跳用 `action_type_id` 把 todo id 原样带回来（插件在 Windows 上会把整份通知数据回传给 `on_action`），不拿标题反查——标题会重复，id 不会。
+
+## 本轮抓出来修掉的缺陷
+
+8. **全局快捷键按了没反应**：`on_event` 里拿 `shortcut.to_string()` 与设置里存的串比。前者是 `shift+alt+KeyA`，后者是 `Alt+Shift+A`，**永远不相等** —— 注册成功、`registered: true`、界面全绿，只有真按一下才暴露。改成比解析后的 `HotKey`（它 `Eq` 且 id 由 mods+key 算出），顺手删掉整个 `same_combo`。这条是 M6d 原生验证里唯一一次「浏览器演不出来的 bug」。
+9. **`todos_create` 返回的 stamp 是平铺的**：`made.stamp.id` 直接抛错，而 Tauri 的 rejection 值 `JSON.stringify` 出来是 `{}` —— 排查时看不到原因。改成读 `made.id`，并把错误先用 `String(e)` 打出来。
+10. **`DueEditor` 弹层被窗口右边缘切掉**：按钮长在行最右端，弹层却往右开。改 `right: 0` 靠右展开，并在截图脚本里加视口内断言（`r.left>=0 && r.right<=innerWidth`）——只查子元素溢出查不出这种问题。
+11. **待办行把同一个时间说两遍**：`DueEditor` 的按钮标签是 `dueLabel(...)`，旁边 `.due-txt` 又是 `dueLabel(...)`。删掉后者（逾期时仍显示 `.over-txt`，那是另一份信息），顺带删掉随之失效的 computed、import 和 CSS。
+12. **`shots.mjs` 导航后等 `h2`**：`待办` 视图的 `.bar` 里没有 `h2`，于是每次截图都超时失败。改成等 `.y-view`（每个视图的根）。
+
 ## 验证边界（不含糊）
 
 - **环的三态真停**：`降低动效` 与 `页面隐藏` 两态在浏览器 mock 里以「900ms 内 `.y-ring` 的 transform 不再变化 + `data-live=false`」为证据 —— 走的是与原生完全相同的 `live` computed 与 `cancelAnimationFrame` 路径。
 - **原生侧只验到降级形态**：你机器上的真实库里焦点卡是 0–4 张，环不画，所以"原生巡航/失焦真停"这一条**没有原生截图为证**。要补的话：`npm run tauri:dev -- -- --seed 90` 造 90 天数据（`--seed` 只在 debug 构建生效），再用 `shots.mjs --attach=9222` 跑同一个探针。我没有擅自往你的真实库里种数据。
 - 原生实测到的：驾驶舱在真窗口里渲染正常（`shots/m5-dash-window-native-degraded.png`，含 §8.8.6 的"有选中时主按钮降为 card-2 底 + accent 文字"生效）、详情面板字段按 §8.8.3 出全（rev / 最后写入设备 / 创建来源）。
+- **M6d 快捷键是原生实打实的**：`Alt+Shift+A` 在真机 `registered: true`；拿 `Super+L` 试改绑 → 返回「Super+L」已被其他程序占用 → 再查仍是 `Alt+Shift+A` 且 `registered: true`（回滚生效）；把窗口最小化后用 `keybd_event` 发一次真按键（`tools/sendcombo.ps1`，走系统输入队列，只有这条路能进 `RegisterHotKey`），窗口取消最小化并在第一次采样就成了前台窗口。**开机自启只读了状态（false），没替你打开** —— 它写的是 `HKCU\...\Run`，指向哪条 exe 由当前构建决定。
+- **M6e 只验到"会响一次"，没验到"看得见"**：scratch 库（`LOCALAPPDATA` 指到 `src-tauri/target/scratch`，不碰你的真库）里 4 条测试待办的 `reminded_at` 全部各落一次、无重复。但**截图时你正全屏打游戏**，Windows 在全屏下把 toast 直接收进通知中心，所以"toast 真的弹出来了"没有图像证据；那张误拍到你游戏画面的截图已当场删掉（`shots/` 本来也不入库）。**点击回跳 `app://reveal` 需要人点一下通知**，这条留给你。
+- 「未挂上」那一格（存了绑定但注册失败）在浏览器里是靠 `?mock=1&hotkey=Ctrl%2BAlt%2BC` 造出来的 —— 界面上没有任何操作能进入这个状态（改绑失败会回滚），它的真实来源是换机或恢复快照后撞上别人，所以从种子数据进来。这是**给夹具**，不是注入 DOM 状态：应用仍走完整的 `hotkeysList → registered:false → 界面` 链路。
 
 ## 复现验证的命令
 
@@ -72,6 +95,30 @@ node tools/shots.mjs 今日驾驶舱 --as=x --tag=m5 --attach=9222 --then='<asyn
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/capture.ps1 -Out shots/x.png
 ```
 
+M6 的快捷键三态 + 原生按键（`sendcombo.ps1` 走 `keybd_event`，是唯一能进 `RegisterHotKey` 的路径）：
+
+```bash
+node tools/shots.mjs 设置 --as=hotkey-clash --tag=m6 --widths=1400,760 --modes=dark,light \
+  --then='(async()=>{const b=document.querySelector(".combo");b.click();await new Promise(r=>setTimeout(r,150));document.body.dispatchEvent(new KeyboardEvent("keydown",{code:"KeyC",ctrlKey:true,altKey:true,bubbles:true}));await new Promise(r=>setTimeout(r,500));return "chip="+b.textContent.trim();})()'
+node tools/shots.mjs 设置 --as=hotkey-idle --tag=m6 --url="http://localhost:1420/?mock=1&hotkey=Ctrl%2BAlt%2BC"
+# ↑ 「未挂上」只能从种子数据进（改绑失败会回滚），%2B 是 + 的转义
+
+# 换绑 → 真机冲突 → 回滚，以及按一下快捷键真能唤回窗口
+WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9223 --remote-allow-origins=*" npm run tauri:dev
+node tools/shots.mjs 设置 --attach=9223 --tag=m6d --then='<invoke hotkeys_set Super+L 的 async js>'
+node tools/shots.mjs 设置 --attach=9223 --tag=m6d --then='(async()=>{const i=window.__TAURI_INTERNALS__.invoke;await i("plugin:window|minimize",{label:"main"});return "min="+await i("plugin:window|is_minimized",{label:"main"});})()'
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/sendcombo.ps1 -Keys 'ALT,SHIFT,A'
+```
+
+M6e 的提醒**别在真库上验**：起一个 scratch 实例（先停掉原实例，单实例锁按 identifier 建）
+
+```bash
+LOCALAPPDATA='D:\ADevelop\Repositories\Mine\workbench\src-tauri\target\scratch' \
+  WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9223 --remote-allow-origins=*" npm run tauri:dev
+node tools/dbq.mjs "SELECT count(*) c FROM todos WHERE title LIKE 'M6e %' AND reminded_at IS NOT NULL" \
+  'D:\ADevelop\Repositories\Mine\workbench\src-tauri\target\scratch\dev.rewmington.anvil\app.db'
+```
+
 ## 本轮新踩到 / 新定下的事实（别重复调查）
 
 - **`--remote-allow-origins=*` 不能省**：只给 `--remote-debugging-port` 时非浏览器客户端的 WS 握手会**静默挂住**，不报错不返回。已给 `shots.mjs` 的连接加 6s 超时。
@@ -80,11 +127,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/capture.ps1 -Out shots
 - **`todos::create` 的 zone 兜底是 `inbox`**：定了截止但没选分区的条目，会同时被算进 TODAY 和 INBOX。两个 KPI 各答各的问题，不互斥（`kpi_counts_use_local_day_boundaries` 把这条钉住了）。
 - 上一轮的事实仍有效：ureq 要 `allow_non_standard_methods`、roxmltree 要 `descendants()`、`Nonce::from`、KDF 参数要夹上限、WebDAV 桩鉴权用 base64 不是 latin1。
 - 集成测试夹具在 `src-tauri/tests/common/mod.rs`（`MS = 1_793_170_800_000` = 2026-10-28T15:00+08:00）；`tests/dashboard.rs` 与 `tests/widgets.rs` 用同一个 MS 但各自建库，互不依赖。
+- **组合键的文法**（`global_hotkey::parse_hotkey`）：按 `+` 切、修饰键必须在前、**只能有一个主键且在最后**，所以 `+` 永远当不了主键（想绑加号只能绑物理 `=` 键，即 `Ctrl+Shift+Equal`）。token 大小写不敏感，`KeyA`/`A`、`Digit3`/`3`、`Escape`/`Esc` 都认 —— `src/lib/combo.ts` 因此发裸字母/数字 + W3C `code` 名，`code` 与 `Code` 枚举同名不是巧合。
+- **通知插件在 Windows 上的三件事**：① 没有监听者时压根不追踪点击，所以 setup 里必须先 `notification().on_action(...)` 再发；② `target\debug` / `target\release` 下**故意不设 AUMID**（未安装的应用不该声明 AppUserModelID），③ 点击只在 toast 还在屏幕上时上报，进了通知中心就没有；全屏应用在前台时 toast 被系统直接收走。
+- **要一个干净的实例做有写入的验证**：`state.rs` 直接读 `LOCALAPPDATA`，所以 `LOCALAPPDATA=<repo>\src-tauri\target\scratch npm run tauri:dev` 就能起一个用独立库的 anvil，不碰真库。单实例锁按 identifier 建，**必须先停掉原来那个实例**。
+- **迁移条数别写死在测试里**：`migrate_is_idempotent_and_counts_tables` 现在断言 `user_version == MIGRATIONS.len()`；真正在验的是第二次 `migrate()` 不 panic（重复跑 `ALTER TABLE` 必然炸）。
+- 上一轮的事实仍有效：ureq 要 `allow_non_standard_methods`、roxmltree 要 `descendants()`、`Nonce::from`、KDF 参数要夹上限、WebDAV 桩鉴权用 base64 不是 latin1。
 
-## 下一轮：M6 的第一批事
+## M6 收尾时对上一轮清单的处理
 
-1. `views/Notes.vue`：Markdown 源码 + 预览双栏（左 textarea 即真相源），文件夹树 + 标签 + 回收站（`trashed_at`，恢复/彻底删除走原生 confirm）。
-2. `repos/notes.rs` + `note_folders`，走 M1 的同步列与 `FixedNow` 纪律。
-3. **`marked` + `dompurify` 现在还是零 import** —— M6 必须用上（博客正文与笔记都是不可信输入），vitest 要覆盖 `<script>` / `javascript:` / `onerror` 三种注入用例；M6 收口时这两个依赖要么在用要么删掉。同理 `reka-ui`（PLAN §3 已记"实际未采用"）。
-4. 快捷键自定义：组合键序列化后 `global-shortcut.register`，**注册失败即冲突** → 内联提示"该快捷键已被其他程序占用"并保留原绑定；开机自启开关进设置页。
-5. 顺带把「速达钉选」的真 pinned 列补上（M5 偏离 2 的收尾）。
+- 第 1–4 条都已交付（笔记 / 数据层 / Markdown 净化 / 快捷键与自启），另补了 §8.6 第 12 条的**系统通知**（上一轮没列，但 PLAN 把它定在 M6）。
+- 第 3 条的依赖债清了：`marked` 与 `dompurify` 现在真在用（`src/lib/markdown.ts`），`reka-ui` 确认零 import，已从 `package.json` 卸掉。
+- **第 5 条没做，往后推**：`resources.pinned` 这一列还是没加。它不属于 M6 的任何验收判据，而"常用速达"目前没被抱怨过 —— 留给真正要钉选的那天，别为对称感提前建列。
+
+## 下一轮：M7 统计视图
+
+1. `tools/fixtures/seed-90d.json` + 一个 debug-only 的灌入路径（`--seed 90` 已经在了，要确认它能造出**跨 90 天、含逾期与取消勾选**的形状，不然图都是平的）。
+2. 5 张手写 SVG：完成量折线 / 星期×小时热力 / 分区占比 / 逾期分布 / 标签词频（§7）。全部走 `--accent` 一族，不引图表库。
+3. `tools/verify.mjs`：每张图的聚合 SQL 用 `dbq.mjs` 独立跑一遍，与前端算出来的点数逐个对，差异 > 0 就报出来 —— 「图与列表不一致」是这类视图最常见的死法。
+4. 数据不足时按 §8.8 出空态，不画一根贴地的线假装是趋势。
+5. 复现验证的截图口径沿用 M5/M6：`node tools/shots.mjs 统计 --as=stats --tag=m7`（3 断点 × 2 主题）+ `--url="...&empty=1"` 的空态。

@@ -22,6 +22,7 @@ import Calendar from './views/Calendar.vue'
 import Dashboard from './views/Dashboard.vue'
 import Launcher from './views/Launcher.vue'
 import Medicine from './views/Medicine.vue'
+import Notes from './views/Notes.vue'
 import Progress from './views/Progress.vue'
 import Settings from './views/Settings.vue'
 import Todos from './views/Todos.vue'
@@ -49,8 +50,13 @@ onMounted(async () => {
 
   if (!usingMock) {
     const { listen } = await import('@tauri-apps/api/event')
-    const stop = await listen<string>('app://hint', (e) => showHint(e.payload))
-    unlisten = () => stop()
+    const stopHint = await listen<string>('app://hint', (e) => showHint(e.payload))
+    // 通知中心那条提醒点进来：切到待办、选中这一条，而不是只把窗口唤到前台
+    const stopReveal = await listen<string>('app://reveal', (e) => revealTodo(e.payload))
+    unlisten = () => {
+      stopHint()
+      stopReveal()
+    }
     await getCurrentWindow().show()
   }
 
@@ -91,9 +97,14 @@ function onGlobalKey(event: KeyboardEvent) {
   }
 }
 
+/** 提醒通知点进来的落点：视图切过去、这条被选中，详情面板直接是它。 */
+function revealTodo(id: string) {
+  shell.go('todos', id)
+  shell.select({ kind: 'todo', id })
+}
+
 let hintTimer = 0
-function showHint(text: string) {
-  hint.value = text
+function showHint(text: string) {  hint.value = text
   window.clearTimeout(hintTimer)
   hintTimer = window.setTimeout(() => (hint.value = null), 6000)
 }
@@ -132,6 +143,7 @@ function showHint(text: string) {
 
         <Dashboard v-if="shell.view.value === 'dashboard'" />
         <Progress v-else-if="shell.view.value === 'progress'" />
+        <Notes v-else-if="shell.view.value === 'notes'" />
         <Settings v-else-if="shell.view.value === 'settings'" />
         <Todos v-else-if="shell.view.value === 'todos'" />
         <Launcher v-else-if="shell.view.value === 'launcher'" />

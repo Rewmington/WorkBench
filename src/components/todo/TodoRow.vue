@@ -3,13 +3,13 @@ import { ChevronDown, Pin } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 
 import type { Priority, Todo } from '../../api/types'
-import { dueLabel, overdueLabel } from '../../lib/reltime'
+import { overdueLabel } from '../../lib/reltime'
 import DueEditor from './DueEditor.vue'
 
 const props = defineProps<{ todo: Todo; now: number; childCount: number }>()
 const emit = defineEmits<{
   toggle: []
-  patch: [Partial<Pick<Todo, 'title' | 'note' | 'priority' | 'dueAt' | 'pinned'>>]
+  patch: [Partial<Pick<Todo, 'title' | 'note' | 'priority' | 'dueAt' | 'remindAt' | 'pinned'>>]
   remove: []
   select: []
   dragStart: [PointerEvent]
@@ -21,7 +21,6 @@ const draft = ref('')
 const PRIORITY_LABEL: Record<Priority, string> = { 0: '紧急', 1: '高', 2: '普通', 3: '低' }
 
 const overdue = computed(() => overdueLabel(props.now, props.todo.dueAt))
-const due = computed(() => dueLabel(props.now, props.todo.dueAt))
 
 function startEdit() {
   draft.value = props.todo.title
@@ -84,11 +83,12 @@ function cyclePriority() {
     <div class="meta" @click.stop>
       <DueEditor
         :model-value="todo.dueAt"
+        :remind-at="todo.remindAt"
         :now="now"
         @update:model-value="(v) => emit('patch', { dueAt: v })"
+        @update:remind-at="(v) => emit('patch', { remindAt: v })"
       />
       <span v-if="overdue" class="over-txt">{{ overdue }}</span>
-      <span v-else-if="todo.dueAt" class="due-txt">{{ due }}</span>
       <button
         type="button"
         class="pin"
@@ -222,11 +222,6 @@ function cyclePriority() {
   align-items: center;
   gap: 6px;
   flex: none;
-}
-.due-txt {
-  font-size: 10.5px;
-  color: var(--t3);
-  font-variant-numeric: tabular-nums;
 }
 /* 逾期不只变红：文字本身换了说法与位置（状态不只靠颜色，§2 原则 3） */
 .over-txt {

@@ -5,8 +5,10 @@
 
 pub mod backup;
 pub mod dashboard;
+pub mod hotkeys;
 pub mod launcher;
 pub mod linked;
+pub mod notes;
 pub mod palette;
 pub mod settings;
 pub mod system;
