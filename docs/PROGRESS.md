@@ -255,6 +255,37 @@ uri scheme is https, provider is Rustls but feature is not enabled: rustls
 
 **顺带修掉一个当场暴露的小毛病**：那一度显示成「读取于 即将」。原因是 Rust 写 `fetched_at` 的时钟比前端 1 秒一次的 tick 快几毫秒，`relTime` 遇到负的差值就走进了"未来"分支。`relTime` 的 12 个调用点全是「完成于 / 上次成功于 / 读取于」这种**只可能在过去**的语义，所以把它内部的差值夹住、删掉那条永远不该走到的未来分支；未来的读法本来就归 `dueLabel` / `dayWordLabel`。
 
+## 你截图指出的两处：打开是 Edge 错误页 + 图标四角是白的
+
+### 「localhost 拒绝连接」是我自己造成的，而且是个会反复踩的坑
+
+修完 panic 之后我为了跑那条回归测试执行了一次 `cargo test --release`。它把
+`target\release\anvil.exe` **重新编译了一遍**，而这次编译没有 tauri CLI 的环境 ——
+tauri 的 `build.rs` 里写着 `let dev = !custom_protocol`（`custom-protocol` 是靠命令行
+feature 传的），所以产物变成 `cfg(dev)` 版本，`cfg(dev)` 下窗口 URL 取 `devUrl`
+（`tauri-2.12.5/src/manager/mod.rs:346`），也就是 `http://localhost:1420`。
+vite 那时候已经被我关掉 → ERR_CONNECTION_REFUSED。
+
+**规则：`npm run tauri:build` 之后不许再跑任何 `cargo build|test --release`**，
+否则同一个路径上会留下一个"看起来是正式包、其实连 devUrl"的 exe。要跑 release 测试就跑完再重新 build。
+
+验证方式（不看你的数据）：在 1420 上放一个只记连接的探针，再启动新包 —— 九个采样秒内**没有任何连接**，
+说明它走的是内嵌资源；同时窗口句柄非零，而窗口只有在前端 `App.vue` 跑到
+`await getCurrentWindow().show()` 之后才会可见，所以"渲染出来了"这两条一起被证明了。
+
+### 图标四角是白的：源图就是白底
+
+`design/refs/anvil-app-icon.png` 是"深色圆角块画在白底上"，四角 A=255 纯白 ——
+`tauri icon` 只做缩放与打包，忠实地把白角带到 ico 和所有尺寸里，于是任务栏与托盘上是四个白点。
+
+新增 `tools/mkicon.mjs`（本项目不引图像依赖，PNG 编解码是手写的）：从四条边同时漫填找**与外圈连通**的近白像素
+→ 抠成 A=0；再对紧邻背景的那一圈抗锯齿像素按覆盖度**反预乘**，否则深色块外沿会留一圈灰白光晕。
+实测抠掉 14283 个背景像素、反预乘 377 个边缘像素，改后所有尺寸四角 A=0（24px 托盘图因面积平均剩 A=5~7，等于看不见）。
+`tools/mkicon.mjs --write` 出透明版源图与 `tray.png`，其余尺寸交给 `npx tauri icon design/refs/anvil-app-icon-transparent.png`。
+
+**装过的话要重装一次新包**；如果重装后任务栏还是旧样子，那是 Windows 的图标缓存，
+`ie4uinit.exe -show` 或注销一次就刷过来。
+
 ## v1 的 M0→M7 走完之后
 
 **代码侧没有待办了。** 剩下的都是只有你能做或只有真环境能答的：
