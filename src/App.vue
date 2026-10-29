@@ -100,7 +100,7 @@ function onGlobalKey(event: KeyboardEvent) {
 
 /** 提醒通知点进来的落点：视图切过去、这条被选中，详情面板直接是它。 */
 function revealTodo(id: string) {
-  shell.go('todos', id)
+  shell.go('todos')
   shell.select({ kind: 'todo', id })
 }
 

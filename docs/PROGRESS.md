@@ -198,12 +198,15 @@ node tools/shots.mjs 今日驾驶舱 --attach=9225 --tag=m5 --as=cruise --then='
 
 ## M7 之后：你反馈的「倒计时和便签一起打开」
 
-不是设计，是两个缺陷叠在一起：
+我先按"两个入口指向同一页"修了一版（侧栏点亮判定加 `focus` 区分 + 折叠状态提成受控的 `v-model:open`，点便签就只开便签）。你看完说"这不就是同一页展开不同抽屉吗，直接把侧边改成进行中吧" —— 对，那是更好的解，所以那一版**回退了**：
 
-1. **侧栏点亮判定太粗** —— `SideNav` / `IconRail` 用 `view === item.view` 判当前项，而「进行」这一组的 倒计时 与 便签 `view` 都是 `progress`，只靠 `focus` 区分。于是进这一页时**两条一起亮**。改成 `useShell().isCurrent(item)`：`view` 对得上、且（该项有 `focus` 时）`focus` 也对得上。
-2. **`focus` 是个死字段** —— `go(item.view, item.focus)` 一直有写 `shell.focus`，但 `Progress.vue` 从来没读它；而 `WidgetCard` 的展开状态是组件内部的 `ref(true)`。结果：点哪个入口都一样，四个部件全展开，看起来就是"点一个、两个一起开"。把折叠状态提成受控的 `v-model:open`，`Progress.vue` 按 `shell.focus` 决定展开谁（点 便签 就只开 便签），其余保持收成一行、还能自己点开。
+- 侧栏「进行」分组（倒计时 / 便签两条）合成一条 **「进行中」**，挂到第一组末尾；v1 导航从 12 项变 11 项，PLAN §8.7 就地记了这条改动与理由。
+- 顺带清掉因此变成死代码的东西：`NavItem.focus` 字段、`useShell` 的 `focus` 状态与 `isCurrent()`、`WidgetCard` 的受控 `open`（回到组件内部 ref）、`Progress.vue` 里那条 `focus → 展开` 的 watch。`go('todos', id)` 的第二个参数也去掉了 —— 它一直在写 `shell.focus`，但没有任何地方读它，回跳实际靠的是 `select({kind:'todo', id})`。
+- 命令面板跟着受益：原来有「转到 倒计时」「转到 便签」两条一模一样的动作，现在只剩一条。
+- `useShell.spec.ts` 加了一条**结构性**断言：没有任何两个导航条目指向同一个视图。这是这次的教训，值得被测试挡住而不是靠 review 眼神。
+- 页内标题原来写「进行」，与顶栏大标题重复（同一个毛病在设置页也犯过），改成「部件 · 正在跑的都能折叠与排序」。
 
-原生没验（纯前端逻辑），证据是 `shots/fix-prog-stickies-1400-dark.png` 与 `shots/fix-prog-countdown-1400-dark.png` —— 各自只亮一条侧栏项、只展开一个部件。
+证据：`shots/fix-nav-merged-1400-dark.png` 与 `shots/fix-nav-merged-760-dark.png` —— 侧栏只有一条「进行中」且只它亮，四个部件都展开、各自可折叠。
 
 **顺带记一句你已决定的**：开机自启你不需要，所以那一格保持关；它默认就是关的，代码不用动。
 

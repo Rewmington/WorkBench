@@ -27,7 +27,7 @@ export function useActions(): Action[] {
       label: `去 ${item.label}`,
       hint: group.title ? `${group.title} · ${item.view}` : item.view,
       group: '跳转',
-      run: () => shell.go(item.view, item.focus),
+      run: () => shell.go(item.view),
     })),
   )
 

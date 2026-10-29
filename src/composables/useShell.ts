@@ -8,7 +8,6 @@ import {
   ListChecks,
   Pill,
   Settings as SettingsIcon,
-  StickyNote,
   Timer,
   UploadCloud,
   Zap,
@@ -22,14 +21,15 @@ export interface NavItem {
   label: string
   icon: Component
   view: ViewId
-  /** 同一视图内的落点（例如「进行」视图里的倒计时部件） */
-  focus?: string
 }
 
 /**
- * 侧栏条目由功能清单决定，不由风格决定（PLAN §8.7，v1 共 12 项）。
+ * 侧栏条目由功能清单决定，不由风格决定（PLAN §8.7，v1 共 11 项）。
  * 参考图里的智能分析/知识图谱/吸收与沉淀/扫描记录一条都不放 —— 没有对应功能，
  * 硬凑只会做出「点进去是空页」的导航。
+ *
+ * 「进行中」原来占两条（倒计时 + 便签），指向同一个视图、只是展开不同的抽屉 ——
+ * 两个入口做同一件事，还会让侧栏同时亮两条。2026-10-29 合成一条。
  */
 export const NAV: { title?: string; items: NavItem[] }[] = [
   {
@@ -38,13 +38,7 @@ export const NAV: { title?: string; items: NavItem[] }[] = [
       { key: 'todos', label: '待办', icon: ListChecks, view: 'todos' },
       { key: 'launcher', label: '速达', icon: Zap, view: 'launcher' },
       { key: 'notes', label: '笔记', icon: BookOpen, view: 'notes' },
-    ],
-  },
-  {
-    title: '进行',
-    items: [
-      { key: 'countdowns', label: '倒计时', icon: Timer, view: 'progress', focus: 'countdowns' },
-      { key: 'stickies', label: '便签', icon: StickyNote, view: 'progress', focus: 'stickies' },
+      { key: 'progress', label: '进行中', icon: Timer, view: 'progress' },
     ],
   },
   {
@@ -75,7 +69,7 @@ export const VIEW_TITLES: Record<ViewId, string> = {
   todos: '待办',
   launcher: '速达',
   notes: '笔记',
-  progress: '进行',
+  progress: '进行中',
   stats: '统计',
   calendar: '日历',
   blog: '博客',
@@ -85,7 +79,6 @@ export const VIEW_TITLES: Record<ViewId, string> = {
 }
 
 const view = ref<ViewId>('dashboard')
-const focus = ref<string | null>(null)
 /** 还没有对应数据时保持 null —— 宁可无徽章，不显示假计数（§2 原则 5） */
 const counts = ref<Record<string, number | null>>({})
 
@@ -103,19 +96,8 @@ const composerTick = ref(0)
 const composerTarget = ref<'todo' | 'resource' | 'note'>('todo')
 
 export function useShell() {
-  function go(next: ViewId, at?: string) {
+  function go(next: ViewId) {
     view.value = next
-    focus.value = at ?? null
-  }
-
-  /**
-   * 侧栏条目对不对应当前页。
-   *
-   * 「进行」那一组里 倒计时 与 便签 指向同一个视图，只靠 `focus` 区分。
-   * 光比 `view` 会让两个条目同时亮 —— 看起来就像"点一个，两个部件一起打开了"。
-   */
-  function isCurrent(item: { view: ViewId; focus?: string }) {
-    return view.value === item.view && (!item.focus || focus.value === item.focus)
   }
 
   function setCount(key: string, value: number | null) {
@@ -134,14 +116,12 @@ export function useShell() {
 
   return {
     view,
-    focus,
     counts,
     selection,
     detailOpen,
     composerTick,
     composerTarget,
     go,
-    isCurrent,
     setCount,
     select,
     requestComposer,
