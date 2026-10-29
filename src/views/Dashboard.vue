@@ -222,6 +222,16 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 0;
+  /* 与其他视图同一套基线。少了这三行，驾驶舱是六个视图里唯一不 stretch 的：
+     数据少时时间轴下面露出一大片填不掉的死白，数据多时又没地方滚。 */
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+}
+/* 时间轴钉在最下面一排：有余量时把空白顶到它上面去，而不是留在它下面。
+   内容多到溢出时自由空间为 0，这条自动退化成普通文档流，不会挤掉滚动。 */
+.y-dash > :last-child {
+  margin-top: auto;
 }
 /* KPI 行：内容自适应换行，不给它留「凑满四格」的空位 */
 .y-kpis {
