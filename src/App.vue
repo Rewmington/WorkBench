@@ -25,6 +25,7 @@ import Medicine from './views/Medicine.vue'
 import Notes from './views/Notes.vue'
 import Progress from './views/Progress.vue'
 import Settings from './views/Settings.vue'
+import Stats from './views/Stats.vue'
 import Todos from './views/Todos.vue'
 
 const shell = useShell()
@@ -144,6 +145,7 @@ function showHint(text: string) {  hint.value = text
         <Dashboard v-if="shell.view.value === 'dashboard'" />
         <Progress v-else-if="shell.view.value === 'progress'" />
         <Notes v-else-if="shell.view.value === 'notes'" />
+        <Stats v-else-if="shell.view.value === 'stats'" />
         <Settings v-else-if="shell.view.value === 'settings'" />
         <Todos v-else-if="shell.view.value === 'todos'" />
         <Launcher v-else-if="shell.view.value === 'launcher'" />

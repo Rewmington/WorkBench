@@ -11,6 +11,7 @@ pub mod linked;
 pub mod notes;
 pub mod palette;
 pub mod settings;
+pub mod stats;
 pub mod system;
 pub mod todos;
 pub mod widgets;

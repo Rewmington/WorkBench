@@ -14,9 +14,11 @@
 | M4 备份与恢复 | ✅ | 77 Rust 测试 + 桩 e2e；备份页 3 断点 × 2 主题 + 三态截图；原生实测命令面板跑通 `backup.now` |
 | M5 候选一工作台 | ✅ | 驾驶舱 + 进行 + 设置三视图；环的降级有组件测试锁住；三态真停在 mock 里以「角度不再变化」为证据 |
 | M6 笔记 + 快捷键 + 通知 | ✅ | 回收站三态（活动/回收站/墓碑）有 12 条集成测试；净化有 11 条 vitest；快捷键冲突在**真机**上验过（Win+L 被拒 → 旧绑定回滚）；提醒 ticker 在真机落库 |
-| M7 统计 | ⬜ **下一步** | — |
+| M7 统计视图 | ✅ | 90 天种子数据上 `tools/verify.mjs` **25/25 项逐图核对一致**；五张图 3 断点 × 2 主题 + 空态 + 原生满数据各截过 |
 
-测试总数（M6 收口时实测）：Rust **126 passed + 4 ignored** + vitest **47 passed**；`cargo clippy --all-targets -- -D warnings` 干净；`npm run typecheck` 与 `npm run build` 干净；`lint-style`（61 文件 8 规则）/ `token-check` 干净；`node tools/m4-check.mjs` 仍全绿。
+测试总数（M7 收口时实测）：Rust **136 passed + 4 ignored** + vitest **47 passed**；`cargo clippy --all-targets -- -D warnings` 干净；`npm run typecheck` 与 `npm run build` 干净；`lint-style`（68 文件 8 规则）/ `token-check` 干净；`node tools/m4-check.mjs` 仍全绿；`node tools/verify.mjs` 在 90 天种子数据上 25/25 一致。
+
+**v1 的 M0→M7 到这就全部走完了。**
 
 **仍未做、也不该由我做的**：真实 PUT 到坚果云（要你在备份页填一次应用密码后自己点）；改系统时间的原生对照（要提权，以 `reltime.ts` / `FixedNow` 单测为主证据）。
 
@@ -30,7 +32,7 @@
 
 **新工具 `tools/shots.mjs`**：CDP 驱动本机 headless Edge 按**真视口**截图（§8.4 的断点读视口，改容器宽度是假验收）。`--attach=<port>` 直连原生 anvil.exe 的 WebView2 驱动真窗口；`--url` + `--raw` 用来截 `design/` 基准图做并排比对。M6/M7 的断点核对继续复用它。
 
-## 本轮抓出来修掉的缺陷
+## M5 抓出来修掉的缺陷
 
 1. **`useTheme` 的 watcher 只 persist 不 apply** —— 在设置里切模式/预设/强调色/降低动效，**要到重启才生效**，界面还不报任何错。这条是我自己差点漏掉的：之前所有亮色截图都是 `--then` 里直接 `documentElement.dataset.mode='light'` 拍出来的，注入属性恰好把"切了不生效"这个洞盖住了。现在 `shots.mjs` 改成点顶栏那个真开关，并等 `data-mode` 真的变了才继续。
 2. **勾选框只能完成、取消不了**（M1 遗留，见 M5a 提交）：`done_at` 一个列同时当"当前状态"和"最后完成时间"用，两个语义互相抵消。迁移 `0002` 加 `completed` 拆开；统计口径统一只看 `completed = 1`。PLAN §5.1 就地记了这次修正。
@@ -57,7 +59,7 @@
 
 **M6e 提醒走系统通知中心**（§8.6 第 12 条，顺带把 0001 里一直没人读的 `remind_at` 接上）：迁移 `0004` 加 `reminded_at`；`todos::take_due_reminders` 查和盖章一次做完；`src/notify.rs` 一条 30 秒线程，一次最多 5 条；`DueEditor` 的弹层里加了「不提醒 / 到点 / 提前1小时 / 提前1天」四档，存绝对时刻但按相对截止显示，换日期时按老偏移重算。点击回跳用 `action_type_id` 把 todo id 原样带回来（插件在 Windows 上会把整份通知数据回传给 `on_action`），不拿标题反查——标题会重复，id 不会。
 
-## 本轮抓出来修掉的缺陷
+## M6 抓出来修掉的缺陷
 
 8. **全局快捷键按了没反应**：`on_event` 里拿 `shortcut.to_string()` 与设置里存的串比。前者是 `shift+alt+KeyA`，后者是 `Alt+Shift+A`，**永远不相等** —— 注册成功、`registered: true`、界面全绿，只有真按一下才暴露。改成比解析后的 `HotKey`（它 `Eq` 且 id 由 mods+key 算出），顺手删掉整个 `same_combo`。这条是 M6d 原生验证里唯一一次「浏览器演不出来的 bug」。
 9. **`todos_create` 返回的 stamp 是平铺的**：`made.stamp.id` 直接抛错，而 Tauri 的 rejection 值 `JSON.stringify` 出来是 `{}` —— 排查时看不到原因。改成读 `made.id`，并把错误先用 `String(e)` 打出来。
@@ -65,14 +67,35 @@
 11. **待办行把同一个时间说两遍**：`DueEditor` 的按钮标签是 `dueLabel(...)`，旁边 `.due-txt` 又是 `dueLabel(...)`。删掉后者（逾期时仍显示 `.over-txt`，那是另一份信息），顺带删掉随之失效的 computed、import 和 CSS。
 12. **`shots.mjs` 导航后等 `h2`**：`待办` 视图的 `.bar` 里没有 `h2`，于是每次截图都超时失败。改成等 `.y-view`（每个视图的根）。
 
+## M7 交付了什么
+
+**M7a 聚合**：`repos/stats.rs` 一次算完五张图要的数 —— 热力图（15 周 × 7 天、周一对齐、**空白天也占一格**）、每日柱（按时 / 补做 / 无截止三档）、今日环、标签横条（近 90 天前 8 + 「无标签」单独一档）、建待办时段直方图（24 根 + 门槛）。今日环直接调 `dashboard::open_today` / `done_on`，跨度用 `dashboard::history_days` —— 同一条 SQL，于是「统计页的环」与「驾驶舱的 TODAY / DONE 两张卡」不可能对不上。新增 `commands/stats.rs::stats_report`。
+
+**M7b 视图**：`views/Stats.vue` + `components/stats/` 五个组件，全部按 §7 指定的机制手写（CSS grid 色块 / flex 高度 / 一个 `stroke-dasharray` 的 SVG 圆环 / div 宽度），没引任何图表库，颜色只用现有令牌（`color-mix` 调档，**没往 `:root` 加新令牌**，`token-check` 因此仍然过）。点热力图或某根柱 → 右栏详情面板切到那天明细（§8.8.5 的复用，不另做弹窗）。
+
+**M7c 核对**：`tools/verify.mjs` —— 把统计页的每个数字用一条**写法不同**的查询独立复算（逐日参数化 count 代替 GROUP BY、JS `Date` 折本地日代替 chrono、`LEFT JOIN … IS NULL` 代替 `NOT EXISTS`、`todos_all` 列表代替聚合命令），25 项在 90 天种子数据上全过。CDP 客户端抽成 `tools/cdp.mjs` 给 `shots.mjs` 与 `verify.mjs` 共用。
+
+## M7 抓出来修掉的缺陷
+
+13. **90 天种子全是「未完成」**（M5 遗留，本轮才暴露）：`seed.rs` 的历史行 INSERT 里写了 `done_at` / `done_day` 却**没写 `completed`**。0002 把"当前状态"和"最后完成时间"拆成两列之后，这条 INSERT 就种出一堆 `done_at` 有值但 `completed = 0` 的行 —— 统计页会画出一张全空的图，而看起来像是统计写错了。修完之后种子给出 153 条完成、75 个活跃日。
+14. **时段直方图把墓碑也算进去**：`hour_bars` 漏了 `deleted_at IS NULL`，与本页其余四张图口径不一致（一张算"现在库里的东西"、另一张偷偷算上删掉的）。补上并加了一条测试钉住。
+15. **`verify.mjs` 差点写成自证**：第一版在拿完 CDP 结果之后就 `db.close()`，后面所有对照都跑在已关的连接上；同时"独立算法"如果照抄 `stats.rs` 的 GROUP BY，25/25 全过也什么都证明不了。两处都改了。
+
+## 对 PLAN 的第三处偏离
+
+**§9 的验收写「5 张手写 SVG 图」，实际只有一张是 SVG。** §7 逐图指定了机制（热力图 = CSS grid 上色块、柱状图 = flex + 高度、圆环 = `stroke-dasharray`、横条 = div 宽度），M7 照 §7 做 —— 手写、不引库、全部吃设计令牌这三条意图都满足，且 §7 才是细节规格。圆环那张确实是唯一需要 SVG 的。
+
 ## 验证边界（不含糊）
 
 - **环的三态真停**：`降低动效` 与 `页面隐藏` 两态在浏览器 mock 里以「900ms 内 `.y-ring` 的 transform 不再变化 + `data-live=false`」为证据 —— 走的是与原生完全相同的 `live` computed 与 `cancelAnimationFrame` 路径。
-- **原生侧只验到降级形态**：你机器上的真实库里焦点卡是 0–4 张，环不画，所以"原生巡航/失焦真停"这一条**没有原生截图为证**。要补的话：`npm run tauri:dev -- -- --seed 90` 造 90 天数据（`--seed` 只在 debug 构建生效），再用 `shots.mjs --attach=9222` 跑同一个探针。我没有擅自往你的真实库里种数据。
+- **M5 留的那个口子已经在 M7 期间补掉了**（2026-10-29，scratch + `ANVIL_SEED=90` + 3 条补焦点卡 → 焦点卡 7 张，环终于画出来了）：原生实测到「巡航中」（900ms 内 transform 从 -12.2° 走到 -24.7°）、**最小化后真停**（1.2s 内冻在 -331.967°）、**收进托盘后真停**（1.4s 内冻在 -2446.88°）、**设置里开降低动效后真停**，且重新 show + set_focus 之后又恢复巡航。截图 `shots/m5-ring-native-full-native-real.png`。
+  **仍未被原生证明的只剩"另一个应用抢走焦点"这一种**：Windows 的前台锁让后台进程 `SetForegroundWindow` 直接失败（实测 `nowForeground=False`），所以 `windowFocused` 这条只能靠 `plugin:window|hide`/`minimize` 间接覆盖，或者你手动点一下别的窗口。
 - 原生实测到的：驾驶舱在真窗口里渲染正常（`shots/m5-dash-window-native-degraded.png`，含 §8.8.6 的"有选中时主按钮降为 card-2 底 + accent 文字"生效）、详情面板字段按 §8.8.3 出全（rev / 最后写入设备 / 创建来源）。
 - **M6d 快捷键是原生实打实的**：`Alt+Shift+A` 在真机 `registered: true`；拿 `Super+L` 试改绑 → 返回「Super+L」已被其他程序占用 → 再查仍是 `Alt+Shift+A` 且 `registered: true`（回滚生效）；把窗口最小化后用 `keybd_event` 发一次真按键（`tools/sendcombo.ps1`，走系统输入队列，只有这条路能进 `RegisterHotKey`），窗口取消最小化并在第一次采样就成了前台窗口。**开机自启只读了状态（false），没替你打开** —— 它写的是 `HKCU\...\Run`，指向哪条 exe 由当前构建决定。
 - **M6e 只验到"会响一次"，没验到"看得见"**：scratch 库（`LOCALAPPDATA` 指到 `src-tauri/target/scratch`，不碰你的真库）里 4 条测试待办的 `reminded_at` 全部各落一次、无重复。但**截图时你正全屏打游戏**，Windows 在全屏下把 toast 直接收进通知中心，所以"toast 真的弹出来了"没有图像证据；那张误拍到你游戏画面的截图已当场删掉（`shots/` 本来也不入库）。**点击回跳 `app://reveal` 需要人点一下通知**，这条留给你。
 - 「未挂上」那一格（存了绑定但注册失败）在浏览器里是靠 `?mock=1&hotkey=Ctrl%2BAlt%2BC` 造出来的 —— 界面上没有任何操作能进入这个状态（改绑失败会回滚），它的真实来源是换机或恢复快照后撞上别人，所以从种子数据进来。这是**给夹具**，不是注入 DOM 状态：应用仍走完整的 `hotkeysList → registered:false → 界面` 链路。
+- **M7 的数是全对上了，图好不好看仍要你一眼**：`verify.mjs` 证明的是"屏幕上的每个数字都能被另一条独立查询复算出来"，证明不了"这五张图放在一起是你想看的"。种子数据下的原生截图在 `shots/m7-seed90-native-real.png`（侧栏底部那行路径显示的是 `target\scratch`，正好自证 §2 原则 4 与"没碰你真库"）。
+- **图表本身没写前端单测**，这是刻意的：五个组件里唯一算得出的纯逻辑是色阶分桶与日期折算，而日期折算的真口径在 Rust（`days` 模块有 12 条单测），跨月/跨年的形状已由 `heatmap_is_a_monday_aligned_grid...` 与 `bars_split...by_calendar_day_not_by_millisecond` 钉住。给 CSS 布局写测试只会锁死实现而验不出问题。
 
 ## 复现验证的命令
 
@@ -119,14 +142,42 @@ node tools/dbq.mjs "SELECT count(*) c FROM todos WHERE title LIKE 'M6e %' AND re
   'D:\ADevelop\Repositories\Mine\workbench\src-tauri\target\scratch\dev.rewmington.anvil\app.db'
 ```
 
+```bash
+LOCALAPPDATA='D:\ADevelop\Repositories\Mine\workbench\src-tauri\target\scratch' \
+ANVIL_SEED=90 \
+WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9224 --remote-allow-origins=*" \
+  npm run tauri:dev
+# 起来之后（另开一个 shell）：
+node tools/verify.mjs --attach=9224 \
+  --db='D:\ADevelop\Repositories\Mine\workbench\src-tauri\target\scratch\dev.rewmington.anvil\app.db'
+node tools/shots.mjs 统计 --attach=9224 --tag=m7 --as=seed90
+rm -rf src-tauri/target/scratch   # 用完就删，别让它冒充真库
+```
+`--seed` 走 `ANVIL_SEED` 环境变量比走 argv 稳（`tauri dev` 会把它自己的参数插在 `cargo run` 那串前面）。
+
+环的三态在原生上重跑一遍（焦点卡要 ≥ 5 才画环，种子只给 4 张，所以先补三条）：
+
+```bash
+node tools/shots.mjs 今日驾驶舱 --attach=9225 --tag=m5 --as=arm --then='(async()=>{const i=window.__TAURI_INTERNALS__.invoke;const t=Date.now();for(let k=0;k<3;k++)await i("todos_create",{draft:{title:"补焦点卡 "+(k+1),dueAt:t+k*60000,zone:"today"}});return "ok";})()'
+# 换视图再换回来，逼 Dashboard 重新 mount（attach 模式不重新导航，内存里还是旧 summary）
+node tools/shots.mjs 今日驾驶舱 --attach=9225 --tag=m5 --as=cruise --then='(async()=>{const r=document.querySelector(".y-ring");const a=r.style.transform;await new Promise(x=>setTimeout(x,900));return "cruising="+(a!==r.style.transform);})()'
+# 三态：minimize / hide / 设置里勾降低动效，各自读两次 transform 是否相等
+```
+
 ## 本轮新踩到 / 新定下的事实（别重复调查）
 
 - **`--remote-allow-origins=*` 不能省**：只给 `--remote-debugging-port` 时非浏览器客户端的 WS 握手会**静默挂住**，不报错不返回。已给 `shots.mjs` 的连接加 6s 超时。
 - **`capture.ps1` 报 `window rect came back empty` = 窗口被最小化了**（位置 `-32000,-32000`、尺寸 215×26），不是渲染坏了。后台启动的 dev 实例容易被系统最小化；用 IPC 还原：`__TAURI_INTERNALS__.invoke('plugin:window|unminimize'|'show'|'set_focus'|'maximize', {label:'main'})`。
 - **jsdom 没有 `matchMedia`**，而 `useTheme` 在模块加载期就订阅 `prefers-color-scheme` → 任何 import 到它的组件测试都在 import 阶段炸。已加 `src/test/setup.ts` 桩 + `vite.config.ts` 的 `setupFiles`。
 - **`todos::create` 的 zone 兜底是 `inbox`**：定了截止但没选分区的条目，会同时被算进 TODAY 和 INBOX。两个 KPI 各答各的问题，不互斥（`kpi_counts_use_local_day_boundaries` 把这条钉住了）。
-- 上一轮的事实仍有效：ureq 要 `allow_non_standard_methods`、roxmltree 要 `descendants()`、`Nonce::from`、KDF 参数要夹上限、WebDAV 桩鉴权用 base64 不是 latin1。
+- **孤儿 vite 会连着咬住两件事**：杀掉 `npm run tauri:dev` 的后台任务不等于杀掉它的子进程 —— `anvil.exe` 与 `vite` 都可能活着，前者占着单实例锁与 scratch 库文件（`rm` 报 `Device or resource busy`），后者占着 1420 让下一次 `tauri:dev` 的 `beforeDevCommand` 直接失败。收尾顺序：`Stop-Process -Name anvil` → 查 `netstat | grep :1420` → 再删目录。
+- **`todos_create` 返回的 `Stamp` 是平铺的**（`#[serde(flatten)]`）：读 `made.id` 不是 `made.stamp.id`；写错时 Tauri 的 rejection 值 `JSON.stringify` 出来是 `{}`，所以排查第一步是 `String(e)` 而不是打印对象。
+- **统计口径必须处处同一条 `deleted_at IS NULL`**：五张图里漏一张，就会出现"标签条说 153 项、时段直方图的总数比它大"这种自己跟自己打架。`verify.mjs` 的 25 项里有几项专门在数这件事。
+- **验原生环巡航要先让焦点卡 ≥ 5**：`todos::focus` 只取「未完成 · 无父项 · 逾期或在 today 区」前 8 条，`ANVIL_SEED=90` 的种子只给 4 条（`live` 那 6 条里有 2 条没设截止也不在 today 区），所以环不画。补三条 `dueAt=now` 的待办就到 7 张。**`--attach` 模式不重新导航，所以建完数据要切一次视图再切回来**才会重新 mount 拿到新 summary。
+- **`data-live` 挂在 `.y-ringbox` 上而不是 `.y-ring` 上**，而且只在 `live` 变化或 mount 时写 —— 首次 mount 前属性可能压根不存在，探针读它会拿到 `undefined`。要判巡航与否，直接读 `.y-ring` 的 `style.transform` 两次是否相等最可靠。
+- **后台进程抢不到前台**：`SetForegroundWindow` 从非前台进程调用会被 Windows 的前台锁挡掉（返回成功但焦点没变，实测 `nowForeground=False`），所以"别的窗口抢焦点"这一态没法自动化。`plugin:window|hide`（收进托盘）可以，而且它本来就是 §8.8.1 列的三态之一。
 - 集成测试夹具在 `src-tauri/tests/common/mod.rs`（`MS = 1_793_170_800_000` = 2026-10-28T15:00+08:00）；`tests/dashboard.rs` 与 `tests/widgets.rs` 用同一个 MS 但各自建库，互不依赖。
+- 上一轮的事实仍有效：ureq 要 `allow_non_standard_methods`、roxmltree 要 `descendants()`、`Nonce::from`、KDF 参数要夹上限、WebDAV 桩鉴权用 base64 不是 latin1。
 - **组合键的文法**（`global_hotkey::parse_hotkey`）：按 `+` 切、修饰键必须在前、**只能有一个主键且在最后**，所以 `+` 永远当不了主键（想绑加号只能绑物理 `=` 键，即 `Ctrl+Shift+Equal`）。token 大小写不敏感，`KeyA`/`A`、`Digit3`/`3`、`Escape`/`Esc` 都认 —— `src/lib/combo.ts` 因此发裸字母/数字 + W3C `code` 名，`code` 与 `Code` 枚举同名不是巧合。
 - **通知插件在 Windows 上的三件事**：① 没有监听者时压根不追踪点击，所以 setup 里必须先 `notification().on_action(...)` 再发；② `target\debug` / `target\release` 下**故意不设 AUMID**（未安装的应用不该声明 AppUserModelID），③ 点击只在 toast 还在屏幕上时上报，进了通知中心就没有；全屏应用在前台时 toast 被系统直接收走。
 - **要一个干净的实例做有写入的验证**：`state.rs` 直接读 `LOCALAPPDATA`，所以 `LOCALAPPDATA=<repo>\src-tauri\target\scratch npm run tauri:dev` 就能起一个用独立库的 anvil，不碰真库。单实例锁按 identifier 建，**必须先停掉原来那个实例**。
@@ -139,10 +190,18 @@ node tools/dbq.mjs "SELECT count(*) c FROM todos WHERE title LIKE 'M6e %' AND re
 - 第 3 条的依赖债清了：`marked` 与 `dompurify` 现在真在用（`src/lib/markdown.ts`），`reka-ui` 确认零 import，已从 `package.json` 卸掉。
 - **第 5 条没做，往后推**：`resources.pinned` 这一列还是没加。它不属于 M6 的任何验收判据，而"常用速达"目前没被抱怨过 —— 留给真正要钉选的那天，别为对称感提前建列。
 
-## 下一轮：M7 统计视图
+## M7 收口时对上一轮清单的处理
 
-1. `tools/fixtures/seed-90d.json` + 一个 debug-only 的灌入路径（`--seed 90` 已经在了，要确认它能造出**跨 90 天、含逾期与取消勾选**的形状，不然图都是平的）。
-2. 5 张手写 SVG：完成量折线 / 星期×小时热力 / 分区占比 / 逾期分布 / 标签词频（§7）。全部走 `--accent` 一族，不引图表库。
-3. `tools/verify.mjs`：每张图的聚合 SQL 用 `dbq.mjs` 独立跑一遍，与前端算出来的点数逐个对，差异 > 0 就报出来 —— 「图与列表不一致」是这类视图最常见的死法。
-4. 数据不足时按 §8.8 出空态，不画一根贴地的线假装是趋势。
-5. 复现验证的截图口径沿用 M5/M6：`node tools/shots.mjs 统计 --as=stats --tag=m7`（3 断点 × 2 主题）+ `--url="...&empty=1"` 的空态。
+- 第 1 条改道：没做 `tools/fixtures/seed-90d.json`，直接用已有的 `ANVIL_SEED=90`（它本来就造得出跨 90 天、含补做与周末稀疏的形状）—— 但**它当时是坏的**（缺陷 13），所以这条从"已经有了"变成"先修好它"。
+- 第 2 条按 §7 的逐图机制做，不是五张 SVG（偏离写在上面）。图的种类也按 §7 的表来，而不是上一轮我凭印象列的那五张：完成量折线 §7 明确判**不做**（日粒度噪声大），所以画的是热力图 / 每日柱 / 今日环 / 标签横条 / 时段直方图。
+- 第 3–5 条都做了：`tools/verify.mjs` 25 项对照、空态与门槛、3 断点 × 2 主题 + `&empty=1` 的截图。
+
+## v1 的 M0→M7 走完之后
+
+**代码侧没有待办了。** 剩下的都是只有你能做或只有真环境能答的：
+
+1. **点一条提醒通知**，看窗口是否跳回那条待办（M6e 留的口子，`app://reveal` 已通，缺的是真人一点）。
+2. **开机自启**要不要打开 —— 它写 `HKCU\...\Run`，指向哪条 exe 由当前构建决定，所以建议装上正式版之后再开。
+3. **真实坚果云 PUT** 一次（备份页填应用密码 → 手动备份），确认远端 `/workbench-backup/` 里只有 `anvil-*` 文件、没有 `device-*.json`。我没替你碰凭据。
+4. **用起来一周再回头改**：统计页的窗口（15 周 / 30 天 / 90 天）是我替你定的，你觉得哪个不对就说，改的只是 `repos/stats.rs` 顶部四个常量。
+5. 已知没做的、也都记在 PLAN：周期待办、多 PC 同步、手机伴侣（v2）、`resources.pinned`（M5 偏离 2，仍不做）。

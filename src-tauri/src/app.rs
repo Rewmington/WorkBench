@@ -121,6 +121,7 @@ pub fn run() {
             commands::palette::palette_search,
             commands::dashboard::dash_summary,
             commands::dashboard::dash_suggestions,
+            commands::stats::stats_report,
             commands::widgets::stickies_list,
             commands::widgets::sticky_save,
             commands::widgets::sticky_clear,

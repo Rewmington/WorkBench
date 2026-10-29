@@ -6,5 +6,6 @@ pub mod notes;
 pub mod resources;
 pub mod settings;
 pub mod stickies;
+pub mod stats;
 pub mod tags;
 pub mod todos;

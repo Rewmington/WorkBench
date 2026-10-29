@@ -101,9 +101,19 @@ pub fn month_last_day(day: i32) -> i32 {
     prev_day(ny * 10000 + nm as i32 * 100 + 1)
 }
 
+/// 该日的星期，**1 = 周一 … 7 = 周日**（与界面里 `['一','二','三','四','五','六','日']`
+/// 同一约定）。热力图按 7 行铺，行号就是它。
+pub fn weekday(day: i32) -> i32 {
+    let (y, m, d) = split_day(day);
+    Local
+        .with_ymd_and_hms(y, m, d, 12, 0, 0)
+        .latest()
+        .map(|t| t.weekday().number_from_monday() as i32)
+        .unwrap_or(1)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DaySpan {
-    pub from: i32,
+pub struct DaySpan {    pub from: i32,
     pub to: i32,
 }
 

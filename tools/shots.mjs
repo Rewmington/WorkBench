@@ -10,6 +10,8 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
+import { openCdp, pollPage, sleep } from './cdp.mjs'
+
 const ROOT = resolve(import.meta.dirname, '..')
 const EDGE = join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Microsoft', 'Edge', 'Application', 'msedge.exe')
 const PORT = 9337
@@ -40,10 +42,6 @@ const mlist = (opt('modes', 'dark,light') || '').split(',').filter(Boolean)
 
 const profile = join(tmpdir(), 'anvil-shots-profile')
 
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms))
-}
-
 let edge = null
 
 async function launch() {
@@ -63,58 +61,7 @@ async function launch() {
     console.error(`edge 起不来：${e.message}`)
     process.exit(1)
   })
-  for (let i = 0; i < 60; i++) {
-    try {
-      const r = await fetch(`http://127.0.0.1:${PORT}/json/list`)
-      const list = await r.json()
-      const page = list.find((t) => t.type === 'page')
-      if (page) return page.webSocketDebuggerUrl
-    } catch {
-      /* 端口还没监听 */
-    }
-    await sleep(250)
-  }
-  throw new Error('9337 上没等到 DevTools')
-}
-
-class Cdp {
-  constructor(ws) {
-    this.ws = ws
-    this.n = 0
-    this.pending = new Map()
-    this.events = []
-    ws.onmessage = (ev) => {
-      const msg = JSON.parse(ev.data)
-      if (msg.id != null && this.pending.has(msg.id)) {
-        const { ok, bad } = this.pending.get(msg.id)
-        this.pending.delete(msg.id)
-        msg.error ? bad(new Error(msg.error.message)) : ok(msg.result)
-      } else if (msg.method) {
-        this.events.push(msg)
-      }
-    }
-  }
-  send(method, params = {}) {
-    const id = ++this.n
-    return new Promise((ok, bad) => {
-      this.pending.set(id, { ok, bad })
-      this.ws.send(JSON.stringify({ id, method, params }))
-    })
-  }
-  async eval(expression, awaitPromise = false) {
-    const r = await this.send('Runtime.evaluate', { expression, awaitPromise, returnByValue: true })
-    if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? '页面脚本报错')
-    return r.result.value
-  }
-  /** 轮询到条件为真，替掉拍脑袋的固定 timeout：mock 是异步灌数据的 */
-  async until(expression, timeout = 8000) {
-    const t0 = Date.now()
-    while (Date.now() - t0 < timeout) {
-      if (await this.eval(`(function(){return (${expression})})()`)) return true
-      await sleep(60)
-    }
-    throw new Error(`等不到 ${expression}`)
-  }
+  return pollPage(PORT, { tries: 60 })
 }
 
 /** 点侧栏进视图。窄档侧栏收成图标轨，所以两种都要认。 */
@@ -128,27 +75,15 @@ function clickNav(v) {
   })()`
 }
 
-async function attachUrl() {
-  const r = await fetch(`http://127.0.0.1:${attach}/json/list`)
-  const list = await r.json()
-  const page = list.find((t) => t.type === 'page' && t.url.includes(':1420'))
-  if (!page) throw new Error(`${attach} 上没有 localhost:1420 的页面（原生 anvil 起了吗？）`)
-  return page.webSocketDebuggerUrl
-}
-
 async function main() {
   mkdirSync(join(ROOT, 'shots'), { recursive: true })
-  const wsUrl = attach ? await attachUrl() : await launch()
-  const ws = new WebSocket(wsUrl)
-  await new Promise((ok, bad) => {
-    ws.onopen = ok
-    ws.onerror = () => bad(new Error('ws 连不上'))
-    // WebView2 没开 --remote-allow-origins 时握手会静默挂住，不定时就会把整个工具吊死
-    setTimeout(() => bad(new Error(attach ? `ws 握手超时：原生要带 --remote-allow-origins=*` : 'ws 握手超时')), 6000)
-  })
-  const cdp = new Cdp(ws)
-  await cdp.send('Page.enable')
-  await cdp.send('Runtime.enable')
+  const wsUrl = attach
+    ? await pollPage(Number(attach), { urlIncludes: ':1420', tries: 8 })
+    : await launch()
+  const cdp = await openCdp(
+    wsUrl,
+    attach ? 'ws 握手超时：原生要带 --remote-allow-origins=*' : 'ws 握手超时',
+  )
 
   // 附身模式只拍真实窗口：不改视口、不重新导航、不覆盖主题，否则证据是摆出来的
   const plan = attach ? [[0, '']] : wlist.flatMap((w) => mlist.map((m) => [w, m]))
@@ -218,7 +153,7 @@ async function main() {
     console.error(`\n${fails.length} 张没截成`)
     process.exit(1)
   }
-  ws.close()
+  cdp.close()
 }
 
 main()

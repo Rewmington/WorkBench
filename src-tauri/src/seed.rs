@@ -4,7 +4,6 @@
 //! 而 M5 的验收要看「满数据不出现死白」。两者都需要**可复现**的数据 —— 用随机数但
 //! 固定种子，这样两次截图能逐像素对比。
 
-use chrono::Datelike;
 use rusqlite::Connection;
 use uuid::Uuid;
 
@@ -75,10 +74,10 @@ pub fn populate(
     let tx = conn.transaction()?;
 
     for offset in 0..days_back {
-        let day = shift_day(today, -offset);
+        let day = days::shift(today, -i64::from(offset));
         let day_start = days::day_start_ms(day);
         // 密度故意不均：周末少、周中多，个别天完全空 —— 热力图要能看出断点
-        let weekday = weekday_of(day);
+        let weekday = days::weekday(day);
         let base: i32 = if weekday >= 5 { 1 } else { 3 };
         let count = base.saturating_sub(rng.below(2) as i32);
 
@@ -88,18 +87,21 @@ pub fn populate(
                 day_start + i64::from(created_hour) * 3_600_000 + i64::from(i) * 60_000;
             // 约三成是「补做」：截止时间在前一天，完成时间在今天
             let late = rng.below(10) < 3;
-            let due_day = if late { shift_day(day, -1) } else { day };
+            let due_day = if late { days::shift(day, -1) } else { day };
             let due_at = days::day_start_ms(due_day) + 18 * 3_600_000;
             let done_at = created_at + rng.below(3 * 3600) as i64 * 1000;
 
             let title = TITLES[(rng.below(TITLES.len() as u64)) as usize].to_owned();
             let id = Uuid::now_v7().simple().to_string();
             let stamp = Stamp::new(id.clone(), created_at, device);
+            // `completed = 1` 必须显式写：0002 之后 done_at 只是"最后完成于何时"，
+            // 不再等于当前状态。漏了它，90 天种子会全部变成未完成的待办，
+            // 而统计页会画出一张全空的图 —— 看起来像统计写错了，其实是种子写错了。
             tx.execute(
                 "INSERT INTO todos (id, rev, created_at, created_by, updated_at, updated_by,
                                     title, note, done_at, done_day, due_at, priority, pinned,
-                                    sort_key, zone, created_day, created_hour)
-                 VALUES (?1,1,?2,?3,?4,?3,?5,'',?6,?7,?8,?9,0,?10,'today',?11,?12)",
+                                    sort_key, zone, created_day, created_hour, completed)
+                 VALUES (?1,1,?2,?3,?4,?3,?5,'',?6,?7,?8,?9,0,?10,'today',?11,?12,1)",
                 rusqlite::params![
                     stamp.id,
                     stamp.created_at,
@@ -197,28 +199,4 @@ pub fn populate(
         device,
     )?;
     Ok(inserted)
-}
-
-fn shift_day(day: i32, delta: i32) -> i32 {
-    let mut current = day;
-    for _ in 0..delta.abs() {
-        current = if delta > 0 {
-            days::next_day(current)
-        } else {
-            days::prev_day(current)
-        };
-    }
-    current
-}
-
-/// 1=周一 … 7=周日
-fn weekday_of(day: i32) -> i32 {
-    let ms = days::day_start_ms(day);
-    chrono::DateTime::from_timestamp_millis(ms)
-        .map(|utc| {
-            utc.with_timezone(&chrono::Local)
-                .weekday()
-                .number_from_monday() as i32
-        })
-        .unwrap_or(1)
 }

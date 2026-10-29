@@ -86,19 +86,62 @@ fn oldest_overdue(conn: &Connection, now: &dyn Now) -> Result<Option<i64>> {
     Ok((n > 0).then_some(n))
 }
 
-pub fn summary(conn: &Connection, now: &dyn Now, focus_limit: i64) -> Result<Summary> {
-    let today = now.today();
-    let t0 = now.day_start(today);
-    let t1 = days::day_end_ms(today);
+/// 今日该做的还剩几件 / 已经做掉几件。统计页的今日环用它，
+/// 于是「环上的两段」与驾驶舱的 TODAY / DONE 两张卡是同一个查询算出来的。
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TodayCounts {
+    pub open: i64,
+    pub done: i64,
+}
 
-    // 「今天要做的」= 今天到期且没做完，加上主动放进 today 区、还没定截止的
-    let today_value = count(
+/// 「今天要做的」= 今天到期且没做完，加上主动放进 today 区、还没定截止的。
+///
+/// 单独成函数是为了让统计页的今日环**用同一条 SQL**：两处各写一遍谓词，
+/// 迟早会出现「驾驶舱说 3 件、统计页说 4 件」这种最难查的对不上。
+pub fn open_today(conn: &Connection, now: &dyn Now) -> Result<i64> {
+    let today = now.today();
+    count(
         conn,
         "SELECT count(*) FROM todos
          WHERE deleted_at IS NULL AND completed = 0
            AND ((due_at BETWEEN ?1 AND ?2) OR (zone = ?3 AND due_at IS NULL))",
-        &[&t0, &t1, &zones::TODAY],
-    )?;
+        &[&now.day_start(today), &days::day_end_ms(today), &zones::TODAY],
+    )
+}
+
+/// 某个本地日**当前处于完成态**的条数。取消勾选过的不算 ——
+/// 口径与 KPI 完全一致：数字必须等于列表里能数出来的条数。
+pub fn done_on(conn: &Connection, day: i32) -> Result<i64> {
+    count(
+        conn,
+        "SELECT count(*) FROM todos WHERE deleted_at IS NULL AND completed = 1 AND done_day = ?1",
+        &[&i64::from(day)],
+    )
+}
+
+/// 这个库记了多少个自然日（含今天）。空库 → 0。
+///
+/// 统计页的门槛（时段直方图要 ≥ 30 天、时间轴要 ≥ 60 天才画趋势）全押在这一个数上，
+/// 所以它必须是唯一的口径 —— 两处各算一次会出现"门槛说够、图却是空的"。
+pub fn history_days(conn: &Connection, now: &dyn Now) -> Result<i64> {
+    Ok(conn
+        .query_row(
+            "SELECT min(created_day) FROM todos WHERE deleted_at IS NULL",
+            [],
+            |r| r.get::<_, Option<i64>>(0),
+        )
+        .unwrap_or(None)
+        .map(|first| days::days_between(first as i32, now.today()) + 1)
+        .unwrap_or(0))
+}
+
+pub fn summary(conn: &Connection, now: &dyn Now, focus_limit: i64) -> Result<Summary> {
+    let today = now.today();
+    let t0 = now.day_start(today);
+
+    // 「今天要做的」= 今天到期且没做完，加上主动放进 today 区、还没定截止的
+    let today_value = open_today(conn, now)?;
 
     let inbox_value = count(
         conn,
@@ -114,16 +157,8 @@ pub fn summary(conn: &Connection, now: &dyn Now, focus_limit: i64) -> Result<Sum
 
     // 完成口径一律只看**当前完成态**：`done_day` 记的是最后一次完成发生在哪天，
     // 但取消勾选之后它就不该再算进「今天完成了几件」—— 数字必须等于列表里看到的条数。
-    let done_today = count(
-        conn,
-        "SELECT count(*) FROM todos WHERE deleted_at IS NULL AND completed = 1 AND done_day = ?1",
-        &[&i64::from(today)],
-    )?;
-    let done_yesterday = count(
-        conn,
-        "SELECT count(*) FROM todos WHERE deleted_at IS NULL AND completed = 1 AND done_day = ?1",
-        &[&i64::from(days::prev_day(today))],
-    )?;
+    let done_today = done_on(conn, today)?;
+    let done_yesterday = done_on(conn, days::prev_day(today))?;
 
     let late_value = count(
         conn,
@@ -158,15 +193,7 @@ pub fn summary(conn: &Connection, now: &dyn Now, focus_limit: i64) -> Result<Sum
         &[&now.day_start(days::month_first_day(today)), &days::day_end_ms(days::month_last_day(today))],
     )?;
 
-    let history_days = conn
-        .query_row(
-            "SELECT min(created_day) FROM todos WHERE deleted_at IS NULL",
-            [],
-            |r| r.get::<_, Option<i64>>(0),
-        )
-        .unwrap_or(None)
-        .map(|first| days::days_between(first as i32, today) + 1)
-        .unwrap_or(0);
+    let history_days = history_days(conn, now)?;
 
     Ok(Summary {
         today: Kpi { value: today_value, delta: None, note: None },

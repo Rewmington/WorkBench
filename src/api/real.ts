@@ -17,6 +17,7 @@ import type {
   SettingsView,
   SnapshotView,
   SourcePaths,
+  StatsReport,
   Sticky,
   Suggestion,
   SysLoad,
@@ -87,6 +88,7 @@ export const realApi: Api = {
 
   dashSummary: () => invoke<DashSummary>('dash_summary'),
   dashSuggestions: () => invoke<Suggestion[]>('dash_suggestions'),
+  statsReport: () => invoke<StatsReport>('stats_report'),
   stickiesList: () => invoke<Sticky[]>('stickies_list'),
   stickySave: (slot, content) => invoke<Sticky>('sticky_save', { slot, content }),
   stickyClear: (slot) => invoke<boolean>('sticky_clear', { slot }),

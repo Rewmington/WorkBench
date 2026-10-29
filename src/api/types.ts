@@ -365,6 +365,68 @@ export interface HotkeyItem {
   registered: boolean
 }
 
+/**
+ * 统计视图的五张图，一次拿全（`repos/stats.rs`）。
+ *
+ * 日期一律是**本地自然日整数** `yyyymmdd`，小时是 0–23 的本地小时：
+ * 前端不做任何时区换算，换算的口径只有一处（Rust 的 `days` 模块）。
+ */
+export interface HeatCell {
+  day: number
+  done: number
+}
+
+export interface Heatmap {
+  /** 长度恒为 15×7，周一开头、空白天也占一格（done = 0） */
+  cells: HeatCell[]
+  startDay: number
+  endDay: number
+  activeDays: number
+  /** 连续做了几天，止于 `streakThrough` —— 今天还没做不代表连续断了 */
+  streak: number
+  streakThrough: number | null
+}
+
+/** 一天的三档。没设截止的既不属于按时也不属于补做，所以第三档明写出来。 */
+export interface DayBar {
+  day: number
+  onTime: number
+  late: number
+  noDue: number
+}
+
+export interface TodayCounts {
+  open: number
+  done: number
+}
+
+export interface TagBar {
+  tag: string
+  done: number
+}
+
+export interface HourBar {
+  hour: number
+  created: number
+}
+
+export interface StatsReport {
+  todayDay: number
+  historyDays: number
+  heatmap: Heatmap
+  bars: DayBar[]
+  gauge: TodayCounts
+  tags: TagBar[]
+  /** 近 90 天完成的总条数。一条待办能挂多个标签，所以各条加起来会超过它。 */
+  tagsTotal: number
+  hours: HourBar[]
+  /** 时段直方图够不够画：不足门槛天数画出来的是噪声 */
+  hoursEnough: boolean
+  /** 门槛天数由后端送来，前端不抄一份常量 —— 改了 Rust 的数，那句话不能还说旧的 */
+  hourMinDays: number
+  hasActivity: boolean
+}
+
 export interface Api {
   paths(): Promise<PathsView>
   deviceId(): Promise<string>
@@ -436,6 +498,9 @@ export interface Api {
   /** 首屏一次拿全：KPI + 环 + 队列 + 时间轴。全部来自 SQLite，不等任何外部源 */
   dashSummary(): Promise<DashSummary>
   dashSuggestions(): Promise<Suggestion[]>
+
+  /** 统计页五张图的聚合，一次出齐 */
+  statsReport(): Promise<StatsReport>
 
   stickiesList(): Promise<Sticky[]>
   stickySave(slot: number, content: string): Promise<Sticky>

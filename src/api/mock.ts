@@ -17,6 +17,7 @@ import type {
   Resource,
   SettingsView,
   SnapshotView,
+  StatsReport,
   Sticky,
   Suggestion,
   SysLoad,
@@ -116,9 +117,14 @@ const seedTodos = (): Todo[] => {
 }
 
 /**
- * 过去 90 天的完成记录：让时间轴与（M7 的）统计有真实形状可看。
+ * 过去 90 天的完成记录：让时间轴与统计页有真实形状可看。
  * 天数刻意跨过 60 天门槛，这样「不足 60 天不画趋势线」那条降级也能反过来验到。
+ *
+ * 三种形状都要有 —— 按时、补做（截止在前一天）、压根没设截止，外加约三分之一挂标签。
+ * 否则柱状图的三档堆叠与标签条的「无标签」档只有一档有东西，截图看着满、其实什么也没测到。
  */
+const HISTORY_TAGS = ['工作', '家里', '跑腿', '电脑']
+
 function seedHistory(t: number): Todo[] {
   const out: Todo[] = []
   for (let i = 1; i <= 90; i++) {
@@ -127,13 +133,20 @@ function seedHistory(t: number): Todo[] {
     const n = dow === 0 || dow === 6 ? (i % 4 === 0 ? 1 : 0) : i % 3 === 0 ? 3 : i % 5 === 0 ? 0 : 2
     for (let k = 0; k < n; k++) {
       const at = t - i * DAY + (9 + k * 4) * HOUR
+      const midnight = new Date(at)
+      midnight.setHours(0, 0, 0, 0)
+      const shape = (i + k) % 5
+      const dueAt = shape === 4 ? null : shape === 3 ? at - DAY : at + 6 * HOUR
+      const createdAt = midnight.getTime() - 2 * DAY + (7 + ((i * 3) % 14)) * HOUR
       out.push(
         makeTodo({
           title: `完成于 ${String(dayInt(at)).slice(4, 6)}/${String(dayInt(at)).slice(6, 8)} 的第 ${k + 1} 项`,
           zone: 'today',
-          createdAt: at - 2 * DAY,
+          createdAt,
           doneAt: at,
           doneDay: dayInt(at),
+          dueAt,
+          tags: (i + k) % 3 === 0 ? [HISTORY_TAGS[(i + k) % HISTORY_TAGS.length]] : [],
         }),
       )
     }
@@ -559,6 +572,132 @@ function assertCombo(combo: string): string {
   return next
 }
 
+// 统计页的窗口与门槛，逐条对齐 `repos/stats.rs` 的常量。
+const HEATMAP_WEEKS = 15
+const BAR_DAYS = 30
+const TAG_DAYS = 90
+const HOUR_MIN_DAYS = 30
+const TAG_LIMIT = 8
+
+const splitDay = (day: number): [number, number, number] => [
+  Math.floor(day / 10000),
+  Math.floor(day / 100) % 100,
+  day % 100,
+]
+
+/** 加减自然日。整数相加会造出 `20261033` 这种日子，所以走 `Date` 再折回整数。 */
+function shiftDay(day: number, by: number): number {
+  const [y, m, d] = splitDay(day)
+  return dayInt(new Date(y, m - 1, d + by).getTime())
+}
+
+/** 1 = 周一 … 7 = 周日，与 Rust 的 `days::weekday` 同一约定。 */
+function weekdayOf(day: number): number {
+  const [y, m, d] = splitDay(day)
+  const g = new Date(y, m - 1, d).getDay()
+  return g === 0 ? 7 : g
+}
+
+function mockStats(): StatsReport {
+  const live = store.todos.filter((t) => t.deletedAt === null)
+  const done = live.filter((t) => t.completed && t.doneDay != null)
+  const todayDay = dayInt(Date.now())
+  const today0 = new Date().setHours(0, 0, 0, 0)
+  const today1 = new Date().setHours(23, 59, 59, 999)
+
+  const anchor = shiftDay(todayDay, -(HEATMAP_WEEKS * 7 - 7))
+  const start = shiftDay(anchor, 1 - weekdayOf(anchor))
+  const end = shiftDay(start, HEATMAP_WEEKS * 7 - 1)
+  const byDay = new Map<number, number>()
+  for (const t of done) byDay.set(t.doneDay as number, (byDay.get(t.doneDay as number) ?? 0) + 1)
+  const cells = Array.from({ length: HEATMAP_WEEKS * 7 }, (_, i) => {
+    const day = shiftDay(start, i)
+    return { day, done: byDay.get(day) ?? 0 }
+  })
+
+  const activeSet = [...new Set(done.map((t) => t.doneDay as number))].filter((d) => d <= todayDay)
+  const activeSetSorted = activeSet.sort((a, b) => a - b)
+  const last = activeSetSorted.at(-1)
+  let streak = 0
+  if (last != null) {
+    streak = 1
+    let cursor = last
+    while (activeSetSorted.includes(shiftDay(cursor, -1))) {
+      cursor = shiftDay(cursor, -1)
+      streak += 1
+    }
+  }
+
+  const bars = Array.from({ length: BAR_DAYS }, (_, i) => ({
+    day: shiftDay(todayDay, -(BAR_DAYS - 1) + i),
+    onTime: 0,
+    late: 0,
+    noDue: 0,
+  }))
+  const barIndex = new Map(bars.map((b, i) => [b.day, i]))
+  for (const t of done) {
+    const i = barIndex.get(t.doneDay as number)
+    if (i === undefined) continue
+    if (t.dueAt == null) bars[i].noDue += 1
+    else if ((t.doneDay as number) <= dayInt(t.dueAt)) bars[i].onTime += 1
+    else bars[i].late += 1
+  }
+
+  const windowFrom = shiftDay(todayDay, -(TAG_DAYS - 1))
+  const inWindow = done.filter((t) => (t.doneDay as number) >= windowFrom)
+  const tagCount = new Map<string, number>()
+  let untagged = 0
+  for (const t of inWindow) {
+    if (t.tags.length === 0) untagged += 1
+    for (const name of t.tags) tagCount.set(name, (tagCount.get(name) ?? 0) + 1)
+  }
+  const tags = [...tagCount.entries()]
+    .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+    .slice(0, TAG_LIMIT)
+    .map(([tag, n]) => ({ tag, done: n }))
+  if (untagged > 0) tags.push({ tag: '无标签', done: untagged })
+
+  const hours = Array.from({ length: 24 }, (_, hour) => ({
+    hour,
+    created: live.filter((t) => t.createdHour === hour).length,
+  }))
+
+  const firstDay = live.reduce<number | null>(
+    (min, t) => (t.createdDay != null && (min === null || t.createdDay < min) ? t.createdDay : min),
+    null,
+  )
+  const historyDays = firstDay === null ? 0 : daysBetween(firstDay, todayDay) + 1
+
+  return {
+    todayDay,
+    historyDays,
+    heatmap: {
+      cells,
+      startDay: start,
+      endDay: end,
+      activeDays: cells.filter((c) => c.done > 0).length,
+      streak,
+      streakThrough: last ?? null,
+    },
+    bars,
+    gauge: {
+      open: live.filter(
+        (t) =>
+          !t.completed &&
+          ((t.dueAt != null && t.dueAt >= today0 && t.dueAt <= today1) ||
+            (t.zone === 'today' && t.dueAt == null)),
+      ).length,
+      done: done.filter((t) => t.doneDay === todayDay).length,
+    },
+    tags,
+    tagsTotal: inWindow.length,
+    hours,
+    hoursEnough: historyDays >= HOUR_MIN_DAYS,
+    hourMinDays: HOUR_MIN_DAYS,
+    hasActivity: done.length > 0,
+  }
+}
+
 export const mockApi: Api = {
   paths: async () => paths,
   deviceId: async () => DEVICE_ID,
@@ -978,6 +1117,7 @@ export const mockApi: Api = {
     return out.slice(0, 3)
   },
 
+  statsReport: async () => mockStats(),
   stickiesList: async () => [...store.stickies].sort((a, b) => a.slot - b.slot).map((s) => ({ ...s })),
   stickySave: async (slot, content) => {
     const found = store.stickies.find((s) => s.slot === slot)
