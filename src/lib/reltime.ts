@@ -27,6 +27,14 @@ export function daysBetween(now: number, ts: number): number {
   return Math.round((startOfDay(now) - startOfDay(ts)) / DAY)
 }
 
+/** 某月全部自然日的 yyyymmdd，按顺序。完成时间轴一行铺的就是它。 */
+export function monthDays(day: number): number[] {
+  const y = Math.floor(day / 10000)
+  const m = Math.floor(day / 100) % 100
+  const last = new Date(y, m, 0).getDate()
+  return Array.from({ length: last }, (_, i) => y * 10000 + m * 100 + i + 1)
+}
+
 export function clockTime(ms: number): string {
   const d = new Date(ms)
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`

@@ -13,6 +13,8 @@ defineProps<{
   detail?: string
   fetchedAt?: number | null
   busy?: boolean
+  /** 「重试」对某些空态没有意义（比如隐藏的部件、没到期的环），关掉它换 action 插槽。 */
+  retryable?: boolean
 }>()
 
 const emit = defineEmits<{ retry: [] }>()
@@ -24,7 +26,8 @@ const { now } = useClock()
     <span class="lb">{{ label }}</span>
     <span v-if="detail" class="dt">{{ detail }}</span>
     <span v-if="fetchedAt" class="ag">最后成功于 {{ relTime(now, fetchedAt) }}</span>
-    <button type="button" class="rt" :disabled="busy" :title="'再试一次'" @click="emit('retry')">
+    <span class="act"><slot name="action" /></span>
+    <button v-if="retryable !== false" type="button" class="rt" :disabled="busy" :title="'再试一次'" @click="emit('retry')">
       <RefreshCw :size="12" :class="{ spin: busy }" />
     </button>
   </div>
@@ -44,8 +47,13 @@ const { now } = useClock()
   color: var(--t3);
   font-size: 11px;
 }
-.rt {
+.act {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rt {
   color: var(--t3);
   display: grid;
   place-items: center;

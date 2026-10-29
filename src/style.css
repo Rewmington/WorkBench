@@ -610,6 +610,13 @@ ol {
   color: var(--accent);
   border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
 }
+/* §8.8.6：同屏只允许一处 --accent 实心填充。选中了东西时，详情面板的主按钮让位 ——
+   重心已经是那张翻亮的选中卡 / 环上正对镜头的 .hot 卡，不该再有一块绿去抢。 */
+.y-shell[data-sel='1'] .y-solid {
+  background: var(--card-2);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
+}
 
 .flash {
   animation: flash-in var(--dur-2) var(--ease);

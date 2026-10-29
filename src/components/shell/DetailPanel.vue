@@ -6,6 +6,7 @@ import { api } from '../../api'
 import type { Resource, Todo } from '../../api/types'
 import { useClock } from '../../composables/useClock'
 import { useShell } from '../../composables/useShell'
+import { useTodos } from '../../composables/useTodos'
 import { dueLabel, relTime } from '../../lib/reltime'
 
 /**
@@ -21,6 +22,20 @@ const resource = ref<Resource | null>(null)
 const children = ref<Todo[]>([])
 const secret = ref<string | null | 'unavailable'>(null)
 const childDraft = ref('')
+const todosModel = useTodos()
+
+/** 时间轴点某天时列在当天的完成项（§8.8.5：复用常驻面板，不另做弹窗）。 */
+const dayItems = computed(() => {
+  const sel = shell.selection.value
+  if (sel?.kind !== 'day') return []
+  return todosModel.all.value.filter((t) => t.completed && t.doneDay === sel.day)
+})
+const dayLabel = computed(() => {
+  const sel = shell.selection.value
+  if (sel?.kind !== 'day') return ''
+  const s = String(sel.day)
+  return `${s.slice(0, 4)} 年 ${Number(s.slice(4, 6))} 月 ${Number(s.slice(6, 8))} 日`
+})
 
 const PRIORITY = ['紧急', '高', '普通', '低']
 
@@ -160,6 +175,19 @@ async function launchIt() {
           查看加密备注
         </button>
         <p v-if="secret !== null" class="dd">{{ secret === 'unavailable' ? '没有备注' : secret }}</p>
+      </template>
+
+      <template v-else-if="dayItems.length">
+        <h2 class="dt">{{ dayLabel }}</h2>
+        <p class="dd">这一天完成 {{ dayItems.length }} 项</p>
+        <div class="kids">
+          <div class="kh">完成记录</div>
+          <div v-for="t in dayItems" :key="t.id" class="kr">
+            <span class="kcb on" />
+            <span class="kt" :class="{ done: t.completed }">{{ t.title }}</span>
+            <button type="button" class="kx" aria-label="取消完成" @click="api.todosSetDone(t.id, false)">×</button>
+          </div>
+        </div>
       </template>
 
       <div v-else class="y-empty">选中任何待办、速达条目，这里显示它的全貌与操作。</div>

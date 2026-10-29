@@ -57,10 +57,24 @@ export function toggleMode() {
 }
 
 export function useTheme() {
-  watch(mode, (v) => persist('mode', v))
-  watch(preset, (v) => persist('preset', v))
-  watch(accent, (v) => persist('accent', v))
-  watch(reducedMotion, (v) => persist('reducedMotion', v))
+  // 每个轴都要「存 + 立刻生效」。只 persist 不 apply 的话，切主题要重启才看得见，
+  // 而界面不会报错 —— 这类洞在截图里看不出来，因为截图常常是直接改 data-mode 的。
+  watch(mode, (v) => {
+    persist('mode', v)
+    apply()
+  })
+  watch(preset, (v) => {
+    persist('preset', v)
+    apply()
+  })
+  watch(accent, (v) => {
+    persist('accent', v)
+    apply()
+  })
+  watch(reducedMotion, (v) => {
+    persist('reducedMotion', v)
+    apply()
+  })
 
-  return { mode, preset, accent, reducedMotion, resolved, load, toggleMode }
+  return { mode, preset, accent, reducedMotion, resolved, load, apply, toggleMode }
 }

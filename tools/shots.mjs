@@ -30,6 +30,10 @@ const extra = opt('then', '')
  * 附身模式不改视口也不重新导航 —— 要看的就是那个真实窗口现在的样子。
  */
 const attach = opt('attach', '')
+/** --url 用来截 design/ 下的基准图，实现与参考稿并排比对，不靠记忆。 */
+const target = opt('url', URL)
+/** --raw：只导航 + 跑 --then + 截图，不去点应用内的侧栏。用来截 design/ 基准图。 */
+const raw = args.includes('--raw')
 const widths = (opt('widths', '') || '').split(',').filter(Boolean).map(Number)
 const wlist = widths.length ? widths : WIDTHS
 const mlist = (opt('modes', 'dark,light') || '').split(',').filter(Boolean)
@@ -159,12 +163,14 @@ async function main() {
           deviceScaleFactor: 2,
           mobile: false,
         })
-        await cdp.send('Page.navigate', { url: URL })
+        await cdp.send('Page.navigate', { url: target })
       }
-      await cdp.until("document.querySelector('.y-win')")
-      const nav = await cdp.eval(clickNav(view))
-      if (nav !== 'ok') throw new Error(nav)
-      await cdp.until(`!!document.querySelector('h2')`, 5000)
+      await cdp.until(raw ? "document.body" : "document.querySelector('.y-win')")
+      if (!raw) {
+        const nav = await cdp.eval(clickNav(view))
+        if (nav !== 'ok') throw new Error(nav)
+        await cdp.until(`!!document.querySelector('h2')`, 5000)
+      }
       // --then 用来演「点一下才出现」的状态：内联确认、未配凭据、选中详情
       if (extra) {
         // async IIFE 也支持：命令面板那条链路要「按键 → 等渲染 → 打字 → 回车」
@@ -172,7 +178,20 @@ async function main() {
         if (r === false) throw new Error('--then 表达式没命中任何元素')
         if (typeof r === 'string' && r.length) console.log(`  ↳ ${r}`)
       }
-      if (mode) await cdp.eval(`document.documentElement.dataset.mode = '${mode}'`)
+      if (mode) {
+        // 走应用自己的切换路径（顶栏那个日/月按钮），不直接改 data-mode：
+        // 直接改属性会把「切了不生效」这类 bug 截成一张好看的照片。
+        const r = await cdp.eval(`(function(){
+          const want = '${mode}'
+          if (document.documentElement.dataset.mode === want) return 'already'
+          const btn = [...document.querySelectorAll('.iconbtn')].find(b => (b.title || '').includes(want === 'light' ? '亮色' : '暗色'))
+          if (!btn) return 'no-toggle'
+          btn.click()
+          return 'clicked'
+        })()`)
+        if (r === 'no-toggle') throw new Error('找不到主题切换按钮')
+        await cdp.until(`document.documentElement.dataset.mode === '${mode}'`, 3000)
+      }
       // 让 1s tick 与图片解码都落定，否则首屏数字是空的
       await sleep(400)
       const shot = await cdp.send('Page.captureScreenshot', { format: 'png' })

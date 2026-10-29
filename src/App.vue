@@ -19,8 +19,11 @@ import { toggleMode, useTheme } from './composables/useTheme'
 import Backup from './views/Backup.vue'
 import Blog from './views/Blog.vue'
 import Calendar from './views/Calendar.vue'
+import Dashboard from './views/Dashboard.vue'
 import Launcher from './views/Launcher.vue'
 import Medicine from './views/Medicine.vue'
+import Progress from './views/Progress.vue'
+import Settings from './views/Settings.vue'
 import Todos from './views/Todos.vue'
 
 const shell = useShell()
@@ -100,7 +103,7 @@ function showHint(text: string) {
   <div ref="root" class="y-win">
     <TitleBar />
 
-    <div class="y-shell" :data-cols="cols">
+    <div class="y-shell" :data-cols="cols" :data-sel="shell.selection.value ? '1' : '0'">
       <SideNav v-if="cols !== 'narrow'" />
       <IconRail v-else />
 
@@ -127,7 +130,10 @@ function showHint(text: string) {
 
         <p v-if="hint" class="y-hint flash">{{ hint }}</p>
 
-        <Todos v-if="shell.view.value === 'todos'" />
+        <Dashboard v-if="shell.view.value === 'dashboard'" />
+        <Progress v-else-if="shell.view.value === 'progress'" />
+        <Settings v-else-if="shell.view.value === 'settings'" />
+        <Todos v-else-if="shell.view.value === 'todos'" />
         <Launcher v-else-if="shell.view.value === 'launcher'" />
         <Calendar v-else-if="shell.view.value === 'calendar'" />
         <Blog v-else-if="shell.view.value === 'blog'" />

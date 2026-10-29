@@ -229,6 +229,92 @@ export interface RemoteFile {
   readable: boolean
 }
 
+// ---- M5 工作台 ----
+
+/**
+ * KPI 一格。`delta` 只有历史撑得住的那一项才有：完成数能算昨天，
+ * 而「昨天的未整理捕获有多少条」没有任何地方记过 —— 没有就不假装（§2 原则 5）。
+ */
+export interface Kpi {
+  value: number
+  delta: number | null
+  note: string | null
+}
+
+export interface DayCount {
+  /** 本地自然日 yyyymmdd */
+  day: number
+  done: number
+}
+
+export interface QueueGroup {
+  key: 'late' | 'today' | 'later'
+  label: string
+  items: Todo[]
+}
+
+export interface DashSummary {
+  today: Kpi
+  inbox: Kpi
+  done: Kpi
+  late: Kpi
+  /** 3D 卡片环的卡源，最多 8 张 */
+  focus: Todo[]
+  groups: QueueGroup[]
+  timeline: DayCount[]
+  month: { done: number; open: number }
+  /** 这个库记了多少个自然日。< 60 时时间轴不画趋势线（§8.8.5） */
+  historyDays: number
+}
+
+/** 「下一步建议」= 规则命中，不是模型。`rule` 是稳定 id，界面不靠文案认它。 */
+export interface Suggestion {
+  rule: 'overdue-oldest' | 'due-today-untouched' | 'countdown-short' | 'medicine-low' | 'inbox-pileup'
+  headline: string
+  detail: string
+  todoId: string | null
+  view: ViewId | null
+}
+
+export interface Sticky extends Stamp {
+  slot: number
+  content: string
+}
+
+export type CountdownMode = 'duration' | 'timed' | 'daily' | 'interval'
+export type CountdownState = 'idle' | 'running' | 'paused' | 'finished'
+
+export interface Countdown {
+  id: string
+  rev: number
+  createdAt: number
+  createdBy: string
+  updatedAt: number
+  updatedBy: string
+  deletedAt: number | null
+  label: string
+  mode: CountdownMode
+  spec: {
+    minutes?: number
+    everyMinutes?: number
+    startedAt?: number
+    until?: number
+    at?: string
+  }
+  endsAt: number | null
+  paused: boolean
+  state: CountdownState
+  /** 只在 paused 时有值：冻住的剩余毫秒（见迁移 0003） */
+  remainingMs: number | null
+}
+
+export interface SysLoad {
+  /** 第一次采样拿不到差值，界面那一格先空着而不是显示 0% */
+  cpuPercent: number | null
+  memTotal: number
+  memAvail: number
+}
+
 export interface Api {
   paths(): Promise<PathsView>
   deviceId(): Promise<string>
@@ -296,4 +382,25 @@ export interface Api {
   backupRestore(name: string): Promise<BackupOutcome>
   /** 不联网也能证明「换机能解开」这条链路 */
   backupSelfTest(email: string, password: string): Promise<boolean>
+
+  /** 首屏一次拿全：KPI + 环 + 队列 + 时间轴。全部来自 SQLite，不等任何外部源 */
+  dashSummary(): Promise<DashSummary>
+  dashSuggestions(): Promise<Suggestion[]>
+
+  stickiesList(): Promise<Sticky[]>
+  stickySave(slot: number, content: string): Promise<Sticky>
+  /** 腾开槽位（连行一起软删），与「正文写空」是两件事 */
+  stickyClear(slot: number): Promise<boolean>
+
+  countdownsList(): Promise<Countdown[]>
+  countdownAdd(label: string, mode: CountdownMode, spec: Countdown['spec']): Promise<Countdown>
+  countdownStart(id: string): Promise<Countdown>
+  /** 暂停会冻住剩余毫秒，继续从冻住的地方接着走（见迁移 0003） */
+  countdownPause(id: string): Promise<Countdown>
+  countdownResume(id: string): Promise<Countdown>
+  countdownReset(id: string): Promise<Countdown>
+  countdownDelete(id: string): Promise<void>
+
+  /** 第一次调用拿不到 CPU 差值 → cpuPercent 为 null，界面那一格先空着 */
+  sysLoad(): Promise<SysLoad>
 }

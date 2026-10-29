@@ -4,6 +4,8 @@ import type {
   Api,
   BackupOutcome,
   BackupStatus,
+  Countdown,
+  DashSummary,
   LinkedState,
   PaletteHit,
   PathsView,
@@ -12,6 +14,9 @@ import type {
   SettingsView,
   SnapshotView,
   SourcePaths,
+  Sticky,
+  Suggestion,
+  SysLoad,
   Todo,
   Zone,
 } from './types'
@@ -76,4 +81,19 @@ export const realApi: Api = {
   backupTestConnection: () => invoke<number>('backup_test_connection'),
   backupRestore: (name) => invoke<BackupOutcome>('backup_restore', { name }),
   backupSelfTest: (email, password) => invoke<boolean>('backup_self_test', { email, password }),
+
+  dashSummary: () => invoke<DashSummary>('dash_summary'),
+  dashSuggestions: () => invoke<Suggestion[]>('dash_suggestions'),
+  stickiesList: () => invoke<Sticky[]>('stickies_list'),
+  stickySave: (slot, content) => invoke<Sticky>('sticky_save', { slot, content }),
+  stickyClear: (slot) => invoke<boolean>('sticky_clear', { slot }),
+  countdownsList: () => invoke<Countdown[]>('countdowns_list'),
+  countdownAdd: (label, mode, spec) =>
+    invoke<Countdown>('countdown_add', { draft: { label, mode, spec } }),
+  countdownStart: (id) => invoke<Countdown>('countdown_start', { id }),
+  countdownPause: (id) => invoke<Countdown>('countdown_pause', { id }),
+  countdownResume: (id) => invoke<Countdown>('countdown_resume', { id }),
+  countdownReset: (id) => invoke<Countdown>('countdown_reset', { id }),
+  countdownDelete: (id) => invoke<void>('countdown_delete', { id }),
+  sysLoad: () => invoke<SysLoad>('sys_load'),
 }
