@@ -15,6 +15,10 @@ pub struct SourcePaths {
     pub blog_repo_exists: bool,
     pub medicine_db: String,
     pub medicine_db_exists: bool,
+    /// 药箱在坚果云上的同步目录。`cloud_ready` 是「配了那第二条应用密码」，
+    /// 不是「云端一定连得上」—— 那要发一次请求才知道，而首屏不发。
+    pub medicine_dav: String,
+    pub medicine_cloud_ready: bool,
     pub online_check_enabled: bool,
 }
 
@@ -46,6 +50,15 @@ pub fn medicine_db_path(conn: &Connection) -> Result<PathBuf> {
         .join("medicine_tracker.db"))
 }
 
+/// 药箱在坚果云上的同步目录。默认值与本地桩都走 `dav_readonly`，
+/// 免得两处各写一份 URL、改的时候只改到一半。
+pub fn medicine_dav_dir(conn: &Connection) -> Result<String> {
+    Ok(match settings::get_json(conn, settings::KEY_MEDICINE_DAV_DIR)? {
+        Some(serde_json::Value::String(s)) if !s.trim().is_empty() => s.trim().to_owned(),
+        _ => crate::linking::dav_readonly::DEFAULT_BASE.to_owned(),
+    })
+}
+
 pub fn resolve(conn: &Connection, now: &dyn Now, device: &str) -> Result<SourcePaths> {
     let blog = blog_repo_dir(conn)?;
     let med = medicine_db_path(conn)?;
@@ -62,6 +75,8 @@ pub fn resolve(conn: &Connection, now: &dyn Now, device: &str) -> Result<SourceP
         blog_repo_exists: blog.is_dir(),
         medicine_db: med.display().to_string(),
         medicine_db_exists: med.is_file(),
+        medicine_dav: medicine_dav_dir(conn)?,
+        medicine_cloud_ready: crate::win32::creds::medicine_configured(),
         online_check_enabled: online.as_bool().unwrap_or(true),
     })
 }

@@ -17,6 +17,7 @@ import type {
   Resource,
   SettingsView,
   SnapshotView,
+  SourcePaths,
   StatsReport,
   Sticky,
   Suggestion,
@@ -194,6 +195,7 @@ interface Store {
   secrets: Record<string, string>
   settings: Record<string, unknown>
   backup: BackupSeed
+  medicine: MedicineSeed
   stickies: Sticky[]
   countdowns: Countdown[]
   notes: Note[]
@@ -206,6 +208,23 @@ interface BackupSeed {
   hasPass: boolean
   log: BackupLogRow[]
   remote: RemoteFile[]
+}
+
+/**
+ * 药箱云端备用源同样只演状态：邮箱、有没有应用密码、目录地址。
+ * 真的去 GET 坚果云由 cargo test 负责，这里连不上也不该装出连上了。
+ */
+interface MedicineSeed {
+  email: string | null
+  hasPass: boolean
+  davDir: string
+}
+
+const MEDICINE_DAV_DEFAULT = 'https://dav.jianguoyun.com/dav/medicine-sync/'
+const MEDICINE_EMAIL_KEY = 'linked.medicine.email'
+
+function freshMedicine(): MedicineSeed {
+  return { email: null, hasPass: false, davDir: MEDICINE_DAV_DEFAULT }
 }
 
 function freshBackup(): BackupSeed {
@@ -404,7 +423,7 @@ function seedCountdowns(): Countdown[] {
 
 function freshStore(): Store {
   if (EMPTY) {
-    return { todos: [], resources: [], zones: [], secrets: {}, settings: {}, backup: { email: null, hasPass: false, log: [], remote: [] }, stickies: [], countdowns: [], notes: [], folders: [] }
+    return { todos: [], resources: [], zones: [], secrets: {}, settings: {}, backup: { email: null, hasPass: false, log: [], remote: [] }, medicine: freshMedicine(), stickies: [], countdowns: [], notes: [], folders: [] }
   }
   return {
     todos: seedTodos(),
@@ -413,6 +432,7 @@ function freshStore(): Store {
     secrets: {},
     settings: SEEDED_HOTKEY ? { [SETTINGS_HOTKEYS]: { [HOTKEY_ACTION]: SEEDED_HOTKEY } } : {},
     backup: freshBackup(),
+    medicine: freshMedicine(),
     stickies: seedStickies(),
     countdowns: seedCountdowns(),
     ...seedNotes(),
@@ -698,6 +718,19 @@ function mockStats(): StatsReport {
   }
 }
 
+/** 外部源的路径。云端那两个字段跟着 `store.medicine` 走，改完立刻能在界面上看到。 */
+function mockPaths(): SourcePaths {
+  return {
+    blogRepo: String.raw`D:\ADevelop\Repositories\Mine\Rewmington-Blog-main`,
+    blogRepoExists: true,
+    medicineDb: String.raw`C:\Users\hp\AppData\Roaming\dev.mine\medicine_tracker\medicine_tracker.db`,
+    medicineDbExists: true,
+    medicineDav: store.medicine.davDir,
+    medicineCloudReady: store.medicine.hasPass,
+    onlineCheckEnabled: true,
+  }
+}
+
 export const mockApi: Api = {
   paths: async () => paths,
   deviceId: async () => DEVICE_ID,
@@ -923,13 +956,7 @@ export const mockApi: Api = {
 
   // ---- 外部联动：浏览器里读不到本机仓库，给一份与真实形状一致的夹具，只用于看版式 ----
   linkedState: async () => ({
-    paths: {
-      blogRepo: String.raw`D:\ADevelop\Repositories\Mine\Rewmington-Blog-main`,
-      blogRepoExists: true,
-      medicineDb: String.raw`C:\Users\hp\AppData\Roaming\dev.mine\medicine_tracker\medicine_tracker.db`,
-      medicineDbExists: true,
-      onlineCheckEnabled: true,
-    },
+    paths: mockPaths(),
     blog: blogFixtures(),
     medicine: medicineFixture(),
   }),
@@ -943,13 +970,32 @@ export const mockApi: Api = {
       priority: 1,
       tags: ['跑腿'],
     }),
-  linkedSetBlogDir: async (path) => ({
-    blogRepo: path || String.raw`D:\ADevelop\Repositories\Mine\Rewmington-Blog-main`,
-    blogRepoExists: true,
-    medicineDb: String.raw`C:\Users\hp\AppData\Roaming\dev.mine\medicine_tracker\medicine_tracker.db`,
-    medicineDbExists: true,
-    onlineCheckEnabled: true,
-  }),
+  linkedSetBlogDir: async (path) => ({ ...mockPaths(), blogRepo: path || mockPaths().blogRepo }),
+  linkedSetMedicinePassword: async (email, password) => {
+    if (!email.trim()) throw new Error('邮箱不能为空')
+    if (!password.trim()) throw new Error('应用密码不能为空')
+    store.medicine.email = email.trim()
+    store.medicine.hasPass = true
+    // 与 Rust 一样落在两处：密码进凭据管理器（这里只有 hasPass 这个旗子），邮箱进 settings
+    store.settings[MEDICINE_EMAIL_KEY] = email.trim()
+    save()
+    return true
+  },
+  linkedClearMedicinePassword: async () => {
+    store.medicine.email = null
+    store.medicine.hasPass = false
+    store.settings[MEDICINE_EMAIL_KEY] = null
+    save()
+    return false
+  },
+  linkedSetMedicineDir: async (dir) => {
+    // 与 Rust 的 ReadRemote::check_dir 同一条规则：只有反向钉子，不校验地址格式
+    const next = dir.trim()
+    if (next.includes('/workbench-backup/')) throw new Error('那是工作台自己的备份目录，不是药箱的同步目录')
+    store.medicine.davDir = next || MEDICINE_DAV_DEFAULT
+    save()
+    return store.medicine.davDir
+  },
 
   // ---- 备份：只演状态机，加解密与传输由 cargo test + tools/m4-check.mjs 负责 ----
   backupStatus: async (): Promise<BackupStatus> => {
@@ -1441,6 +1487,21 @@ function blogFixtures(): SnapshotView[] {
     snap('notes', 'missing', [], 'notes 清单不在仓库里'),
   ]
 }
+/**
+ * `detail` 就是「这一屏数据是从哪份来的、有多新」，口径逐条对齐 `medicine_copy::refresh`：
+ * 没配第二条应用密码 → 空串（压根不启用云端，别在界面上提它）；
+ * 配了 → 三种结果各对应 Rust 里的一条分支。用 `?mock=1&cloud=…` 切换，
+ * 因为浏览器算不出真实的新旧比较（那是读两边的 `updated_at` 才知道的事）。
+ */
+function medicineDetail(): string {
+  const m = store.medicine
+  if (!m.hasPass) return ''
+  const wanted = new URLSearchParams(location.search).get('cloud')
+  if (wanted === 'local') return '本机 · 云端那份是 phone 3 天前发布'
+  if (wanted === 'failed') return '本机 · 云端这次没读上：坚果云返回了 401（应用密码不对）'
+  if (wanted === 'only') return '仅云端 · phone 发布于 3 分钟前'
+  return '云端 · phone 发布于 3 分钟前'
+}
 
 function medicineFixture(): SnapshotView {
   const payload: MedicineTodayPayload = {
@@ -1474,7 +1535,7 @@ function medicineFixture(): SnapshotView {
     fetchedAt: Date.now() - 2 * 60_000,
     sig: 'medicine-fixture',
     status: 'ok',
-    detail: '',
+    detail: medicineDetail(),
     payloadJson: JSON.stringify(payload),
   }
 }

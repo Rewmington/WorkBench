@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
-import { RefreshCw } from 'lucide-vue-next'
+import { computed, onMounted, ref } from 'vue'
+import { CloudDownload, RefreshCw } from 'lucide-vue-next'
 
 import { api } from '../api'
 import CollapsedRow from '../components/ui/CollapsedRow.vue'
@@ -15,6 +15,9 @@ import { relTime } from '../lib/reltime'
  * 药箱是**只读源**：复制它的库再打开，绝不写回去。
  * 它的同步是「每设备全量快照 + 按 updated_at 行级 LWW」且只在启动/手动时跑，
  * 我们写进去的东西会被下一次合并覆盖掉 —— 所以「补买」是往我们自己的待办里写。
+ *
+ * 坚果云那份是**备用源**：只有配了第二条应用密码才启用，和本机副本取更新的那一份，
+ * 用了哪份必须写在界面上（云端那份可能是几小时前发布的）。
  */
 const linked = useLinked()
 const shell = useShell()
@@ -25,8 +28,18 @@ const snap = computed(() => linked.medicineSnap.value)
 const data = computed(() => linked.medicine.value)
 const items = computed(() => data.value?.items ?? [])
 const meta = computed(() => data.value?.meta ?? {})
+const paths = computed(() => linked.state.value?.paths ?? null)
 
 const lowOnes = computed(() => items.value.filter((m) => m.isLow || m.isOut))
+
+/** 空 detail = 只走了本机那条路（Rust 在那一分支上不写任何话），不是「读不到」 */
+const sourceLine = computed(() => {
+  const s = snap.value
+  if (!s) return '还没读过药箱'
+  const read = `读取于 ${relTime(now.value, s.fetchedAt)}`
+  return s.detail ? `${s.detail} · ${read}` : `本机副本 · ${read}`
+})
+const fromCloud = computed(() => /^(仅?云端)/.test(snap.value?.detail ?? ''))
 
 function stockTone(daysLeft: number | null, lowDays: number) {
   if (daysLeft == null) return 'unknown'
@@ -47,8 +60,72 @@ async function restock(name: string, daysLeft: number | null) {
   })
 }
 
+// ---- 云端备用源的配置表单 ----
+
+const EMAIL_KEY = 'linked.medicine.email'
+const DEFAULT_DAV = 'https://dav.jianguoyun.com/dav/medicine-sync/'
+
+const email = ref('')
+const password = ref('')
+const dir = ref('')
+const saving = ref(false)
+const notice = ref<string | null>(null)
+const error = ref<string | null>(null)
+const cloudReady = computed(() => paths.value?.medicineCloudReady ?? false)
+
+/**
+ * 存完立刻刷一次：能不能读上是发一个请求才知道的事，
+ * 放在这里做，用户当场就能看到 detail 变成「云端这次没读上：…」，而不是等下次进这一页。
+ */
+async function saveCred() {
+  saving.value = true
+  notice.value = null
+  error.value = null
+  try {
+    await api.linkedSetMedicinePassword(email.value, password.value)
+    password.value = ''
+    notice.value = '应用密码只写进了 Windows 凭据管理器：不进数据库，也不跟着备份出门。'
+    await linked.refreshMedicine()
+    await linked.load()
+  } catch (e) {
+    error.value = String(e)
+  } finally {
+    saving.value = false
+  }
+}
+
+async function forgetCred() {
+  error.value = null
+  try {
+    await api.linkedClearMedicinePassword()
+    email.value = ''
+    password.value = ''
+    notice.value = '已清除，进度回到只看本机副本。'
+    await linked.refreshMedicine()
+    await linked.load()
+  } catch (e) {
+    error.value = String(e)
+  }
+}
+
+async function saveDir(raw: string) {
+  error.value = null
+  notice.value = null
+  const blank = !raw.trim()
+  try {
+    const next = await api.linkedSetMedicineDir(raw)
+    dir.value = next
+    notice.value = blank ? `已恢复默认目录 ${next}` : `已改用 ${next}`
+    await linked.load()
+  } catch (e) {
+    error.value = String(e)
+  }
+}
+
 onMounted(async () => {
   if (!linked.state.value) await linked.load()
+  dir.value = paths.value?.medicineDav ?? DEFAULT_DAV
+  email.value = String((await api.settingsGet(EMAIL_KEY)) ?? '')
   void linked.refreshMedicine()
 })
 </script>
@@ -56,8 +133,8 @@ onMounted(async () => {
 <template>
   <section class="y-view">
     <div class="bar">
-      <h2>药箱联动 <span class="sub">只读副本 · 不写回</span></h2>
-      <span v-if="snap" class="ago">副本读取于 {{ relTime(now, snap.fetchedAt) }}</span>
+      <h2>药箱联动 <span class="sub">只读 · 不写回</span></h2>
+      <span class="src" :class="{ alt: fromCloud }" :title="sourceLine">{{ sourceLine }}</span>
       <button type="button" class="y-ghost btn" :disabled="linked.busy.value.medicine" @click="linked.refreshMedicine()">
         <RefreshCw :size="13" />
         重新读取
@@ -117,10 +194,62 @@ onMounted(async () => {
       </div>
 
       <p class="note">
-        这些数来自 <code>{{ linked.state.value?.paths.medicineDb }}</code> 的一次性副本，读完即删。
-        工作台不会写药箱的库，也不会写它的 <code>medicine-sync/</code> 目录。
+        <template v-if="fromCloud">
+          这些数取自坚果云上的全量快照 <code>{{ paths?.medicineDav }}</code> —— 本机那份不比它新。
+        </template>
+        <template v-else>
+          这些数来自 <code>{{ paths?.medicineDb }}</code> 的一次性副本：复制 → 只读打开 → 用完删掉。
+        </template>
+        两条路都不写药箱的库，也不写它的 <code>medicine-sync/</code> 目录。
       </p>
     </template>
+
+    <div class="blk">
+      <h3>
+        <CloudDownload :size="13" /> 坚果云备用源
+        <span class="n">{{ cloudReady ? '已配应用密码' : '未配 · 只读本机副本' }}</span>
+      </h3>
+      <p class="why">
+        用得上它的两种时候：这台机器没装药箱，或者手机那边记得比本机新。
+        取哪一份只看谁的行更新，顶上那行会写明这次用的是哪份、发布于多久以前。
+      </p>
+
+      <div class="form">
+        <label class="fld">
+          <span>坚果云注册邮箱（Basic 认证的用户名）</span>
+          <input v-model="email" type="email" autocomplete="off" placeholder="me@example.com" />
+        </label>
+        <label class="fld">
+          <span>为「读药箱」单独建的应用密码（不是登录密码）</span>
+          <input v-model="password" type="password" autocomplete="new-password" placeholder="只写进凭据管理器" />
+        </label>
+      </div>
+      <div class="row">
+        <button type="button" class="y-ghost btn" :disabled="!email.trim() || !password.trim() || saving" @click="saveCred">
+          {{ saving ? '正在读取云端…' : '保存并立即读一次' }}
+        </button>
+        <button v-if="cloudReady" type="button" class="y-ghost btn" @click="forgetCred">清除</button>
+      </div>
+
+      <label class="fld">
+        <span>药箱的同步目录（我们只列它、读它的 <code>device-*.json</code>）</span>
+        <div class="row">
+          <input v-model="dir" spellcheck="false" autocomplete="off" />
+          <button type="button" class="y-ghost btn" @click="saveDir(dir)">保存</button>
+          <button v-if="dir !== DEFAULT_DAV" type="button" class="y-ghost btn" @click="saveDir('')">恢复默认</button>
+        </div>
+      </label>
+
+      <p v-if="notice" class="ok">{{ notice }}</p>
+      <p v-if="error" class="bad">{{ error }}</p>
+
+      <p class="why">
+        说实话：坚果云的应用密码是<b>账号级</b>的，两把都能读整个网盘，分开并不构成权限隔离。
+        换来的是另外两件事 —— 可以在坚果云里单独吊销这一把而不停掉备份，
+        以及从条目名称就知道这条授权是谁在用。写入的边界不靠它，靠的是只读客户端：
+        那个类型压根没有 PUT / MKCOL / DELETE 方法。
+      </p>
+    </div>
 
     <UndoBar />
   </section>
@@ -149,10 +278,18 @@ h2 {
   font-weight: 500;
   color: var(--t3);
 }
-.ago {
+.src {
   margin-left: auto;
   font-size: 11px;
   color: var(--t3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+/* 用了云端那份 = 可能不是此刻本机的事实，措辞已经写在文字里，颜色只是加一层 */
+.src.alt {
+  color: var(--amber);
 }
 .btn {
   flex: none;
@@ -274,6 +411,86 @@ h2 {
   font-size: 11px;
   color: var(--t3);
   line-height: 1.6;
+}
+.blk {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.blk h3 {
+  font-size: 12px;
+  font-weight: 750;
+  color: var(--t2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.n {
+  font-size: 10.5px;
+  color: var(--t3);
+  font-weight: 500;
+  margin-left: auto;
+}
+.why {
+  font-size: 11px;
+  color: var(--t3);
+  line-height: 1.6;
+}
+.why b {
+  color: var(--t2);
+  font-weight: 700;
+}
+.form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.fld {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.fld span {
+  font-size: 10.5px;
+  color: var(--t3);
+}
+.fld input {
+  height: 30px;
+  min-width: 0;
+  flex: 1;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-2);
+  background: var(--card);
+  color: var(--t1);
+  font-size: 12px;
+  user-select: text;
+}
+.fld input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.ok,
+.bad {
+  font-size: 11px;
+  line-height: 1.5;
+  border-radius: var(--r-sm);
+  padding: 7px 10px;
+}
+.ok {
+  color: var(--t2);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.bad {
+  color: var(--t1);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
 }
 code {
   font-family: ui-monospace, monospace;

@@ -54,7 +54,8 @@ pub fn lived_in(conn: &mut Connection, n_todos: usize) {
             fetched_at: MS,
             sig: "deadbeef".to_owned(),
             status: Status::Ok,
-            detail: String::new(),
+            // 故意写成一条**云端来源**的药箱进度：备份必须连它一起剥掉
+            detail: "云端 · phone 3 分钟前发布".to_owned(),
             payload_json: "{\"remaining\":6}".to_owned(),
         },
     )
@@ -70,6 +71,13 @@ pub fn lived_in(conn: &mut Connection, n_todos: usize) {
             "C:\\Users\\hp\\AppData\\Roaming\\dev.mine\\medicine_tracker\\medicine_tracker.db",
         ),
         (settings::KEY_WDAV_EMAIL, "me@wmddd.online"),
+        // 药箱那边用的邮箱：同样是邮箱，一样不能出门
+        (settings::KEY_MEDICINE_EMAIL, "me@wmddd.online"),
+        // 目录地址是机器无关的，故意留着 —— 还原后仍然有效
+        (
+            settings::KEY_MEDICINE_DAV_DIR,
+            "https://dav.jianguoyun.com/dav/medicine-sync/",
+        ),
         (settings::KEY_THEME_MODE, "auto"),
     ] {
         settings::set_json(conn, key, &serde_json::json!(value), MS, "pc-a").expect("set");

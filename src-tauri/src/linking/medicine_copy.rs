@@ -12,7 +12,7 @@ use std::path::Path;
 use rusqlite::{Connection, OpenFlags};
 
 use super::medicine_math::{Dose, Medicine};
-use super::{sig, Snapshot, Status};
+use super::{sig, Snapshot, Status, Today};
 use crate::error::{Error, Result};
 use crate::time::{days, Now};
 
@@ -44,10 +44,26 @@ fn copy_sidecars(src: &Path, tmp_dir: &Path) -> Result<std::path::PathBuf> {
     Ok(tmp_dir.join(src.file_name().ok_or_else(|| Error::msg("药箱库路径没有文件名"))?))
 }
 
+/// 云端那边的结果。**作为数据注入**，这样本模块不需要知道 `medicine_cloud` 的存在 ——
+/// 读文件的和读网络的互相 import 过一次，降级路径就再也说不清是谁的责任了。
+#[derive(Debug, Clone)]
+pub enum CloudRead {
+    /// 没配第二条应用密码 = 不启用云端，这不是失败，detail 里也不该出现云端字样
+    Skipped,
+    /// 配了但这次没读上来（断网 / 目录不存在 / 凭据被拒）
+    Failed(String),
+    /// 读到了：数据 + 哪台设备 + 它发布的时刻
+    Fresh(Today, String, i64),
+}
+
 /// 读 + 折算成一个快照。失败也要产出快照（`missing` / `error`），
 /// 让命令层只负责落库与推送 —— 降级判断在这里可单测，不用起界面。
-pub fn snapshot_for(
+///
+/// 本机文件与云端快照**谁的行更新用谁**，`detail` 里必须写清用的是哪一份：
+/// 云端那份可能是几小时前发布的，不写就是拿旧数据冒充实时（PLAN §2 原则 5）。
+pub fn refresh(
     source: &Path,
+    cloud: CloudRead,
     tmp_root: &Path,
     now: &dyn Now,
     payload_of: impl FnOnce(&[Medicine], &[Dose], i64, i32) -> String,
@@ -57,34 +73,116 @@ pub fn snapshot_for(
     let day_start = days::day_start_ms(day);
     let now_minutes = ((ms - day_start) / 60_000) as i32;
 
-    match read_today(source, tmp_root, ms, day_start) {
-        Ok((meds, doses)) => {
-            let payload = payload_of(&meds, &doses, day_start, now_minutes);
+    let local = read_today(source, tmp_root, ms, day_start);
+    let cloud_today = match &cloud {
+        CloudRead::Fresh(t, device, published) => {
+            Some((t.clone(), device.clone(), *published))
+        }
+        _ => None,
+    };
+
+    // 三条分支就是这件事的全部复杂度：本机赢、云端赢、两边都不行。
+    let chosen: Option<(Today, String)> = match (&local, cloud_today) {
+        (Ok(l), Some((c, device, published))) => {
+            if super::cloud_is_fresher(c.fresh_ms, l.fresh_ms) {
+                Some((c, format!("云端 · {device} 发布于 {}", ago(published, ms))))
+            } else {
+                Some((l.clone(), local_detail(&device, published, ms)))
+            }
+        }
+        (Ok(l), None) => Some((
+            l.clone(),
+            match &cloud {
+                // 配了云端却读不上，而 detail 里什么都不写 = 和「压根没配」长得一样，
+                // 用户会以为云端在正常工作。这一句是唯一的报错出口。
+                CloudRead::Failed(ce) => format!("本机 · 云端这次没读上：{ce}"),
+                _ => String::new(),
+            },
+        )),
+        // 本机读不到而云端读到了：这是云端存在的主要意义之一（药箱被卸载 / 库被移走）
+        (Err(_), Some((c, device, published))) => {
+            Some((c, format!("仅云端 · {device} 发布于 {}", ago(published, ms))))
+        }
+        (Err(e), None) => {
+            let reason = match &cloud {
+                CloudRead::Failed(ce) => format!("{e}；云端也没读上：{ce}"),
+                _ => e.to_string(),
+            };
+            return Snapshot {
+                source: "medicine".into(),
+                kind: "today".into(),
+                fetched_at: ms,
+                sig: String::new(),
+                status: if source.exists() { Status::Error } else { Status::Missing },
+                detail: reason,
+                payload_json: crate::linking::empty_payload(),
+            };
+        }
+    };
+
+    match chosen {
+        Some((today, detail)) => {
+            let payload = payload_of(&today.meds, &today.doses, day_start, now_minutes);
             Snapshot {
                 source: "medicine".into(),
                 kind: "today".into(),
                 fetched_at: ms,
                 sig: sig::content_sig(&payload),
                 status: Status::Ok,
-                detail: String::new(),
+                detail,
                 payload_json: payload,
             }
         }
-        // 读不到就不生成任何待办、不算任何数（PLAN §6.1），界面折叠成虚线条
-        Err(e) => Snapshot {
+        // 走到这里只可能是「本机失败 + 云端也失败」，上面已经 return 了
+        None => Snapshot {
             source: "medicine".into(),
             kind: "today".into(),
             fetched_at: ms,
             sig: String::new(),
-            status: if source.exists() { Status::Error } else { Status::Missing },
-            detail: e.to_string(),
+            status: Status::Error,
+            detail: "本机与云端都没有数据".to_owned(),
             payload_json: crate::linking::empty_payload(),
         },
     }
 }
 
-/// 读今天的用药数据。返回 `(药品, 今日打卡)`；调用方只拿聚合结果，原始行不外传。
-pub fn read_today(src: &Path, tmp_root: &Path, now_ms: i64, day_start_ms: i64) -> Result<(Vec<Medicine>, Vec<Dose>)> {
+/// 用本机那份时，如果云端其实也读上来了，要说一句"云端那份更旧"——
+/// 否则用户会以为配了云端就一直在用云端。
+fn local_detail(device: &str, published: i64, ms: i64) -> String {
+    format!("本机 · 云端那份是 {device} {}前的", ago(published, ms))
+}
+
+/// 相对时刻的中文说法。云端那份的新鲜度必须让人一眼看出隔了多久。
+fn ago(then: i64, now_ms: i64) -> String {
+    let d = now_ms - then;
+    if d < 90_000 {
+        "刚刚".to_owned()
+    } else if d < 3_600_000 {
+        format!("{} 分钟前", d / 60_000)
+    } else if d < 86_400_000 {
+        format!("{} 小时前", d / 3_600_000)
+    } else {
+        format!("{} 天前", d / 86_400_000)
+    }
+}
+
+/// 只有本机一条路时的入口（也是全部旧测试走的路径）。
+pub fn snapshot_for(
+    source: &Path,
+    tmp_root: &Path,
+    now: &dyn Now,
+    payload_of: impl FnOnce(&[Medicine], &[Dose], i64, i32) -> String,
+) -> Snapshot {
+    refresh(source, CloudRead::Skipped, tmp_root, now, payload_of)
+}
+
+/// 读今天的用药数据。调用方只拿聚合结果与一个新鲜度，原始行不外传。
+pub fn read_today(
+    src: &Path,
+    tmp_root: &Path,
+    now_ms: i64,
+    day_start_ms: i64,
+) -> Result<Today> {
     if !src.exists() {
         return Err(Error::msg("没找到药箱的库，可能已卸载或换过位置"));
     }
@@ -132,8 +230,26 @@ pub fn read_today(src: &Path, tmp_root: &Path, now_ms: i64, day_start_ms: i64) -
         }
     }
 
+    // 新鲜度**含墓碑**：刚删掉一条药也是"这份数据比对方新"的证据。
+    // 只看活动行的话，删除会看起来像"什么都没变"，于是本机永远追不上云端。
+    let fresh_ms = conn
+        .query_row(
+            "SELECT max(u) FROM (
+               SELECT max(updated_at) AS u FROM medicines
+               UNION ALL SELECT max(updated_at) FROM dose_logs
+             )",
+            [],
+            |r| r.get::<_, Option<i64>>(0),
+        )
+        .unwrap_or(None)
+        .unwrap_or(0);
+
     drop(conn);
-    Ok((meds, doses))
+    Ok(Today {
+        meds,
+        doses,
+        fresh_ms,
+    })
 }
 
 #[cfg(test)]
@@ -186,7 +302,8 @@ mod tests {
         let db = src_root.path().join("medicine_tracker.db");
 
         let day_start = 1_000;
-        let (meds, doses) = read_today(&db, tmp_root.path(), 5_000, day_start).unwrap();
+        let today = read_today(&db, tmp_root.path(), 5_000, day_start).unwrap();
+        let (meds, doses) = (&today.meds, &today.doses);
 
         assert_eq!(meds.len(), 1, "deleted=1 的那支不该出现");
         assert_eq!(meds[0].name, "二甲双胍");
@@ -244,5 +361,120 @@ mod tests {
         let snap = snapshot_for(&bogus, tmp_root.path(), &FixedNow(1_700_000_000_000), payload_of);
         assert_eq!(snap.status, Status::Error);
         assert!(!snap.detail.is_empty(), "要说清楚为什么读不了");
+    }
+
+    // ---- 本机 / 云端取更新者 ----
+
+    use crate::linking::Today;
+    use crate::time::FixedNow;
+
+    /// fixture 里所有行的 `updated_at` 都是 1，所以本机新鲜度 = 1，
+    /// 造一个"比它新"或"不比它新"的云端数据只需要一个数。
+    fn cloud_today(fresh: i64) -> Today {
+        Today {
+            meds: vec![Medicine {
+                id: "m1".into(),
+                name: "云端那份".into(),
+                per_box: 30.0,
+                remaining: 3.0,
+                doses_per_day: 2.0,
+                amount_per_dose: 1.0,
+                unit: "片".into(),
+                low_days: 7,
+                times: String::new(),
+                created_at: 0,
+            }],
+            doses: Vec::new(),
+            fresh_ms: fresh,
+        }
+    }
+
+    fn payload_of(meds: &[Medicine], _: &[Dose], _: i64, _: i32) -> String {
+        meds.iter()
+            .map(|m| m.name.clone())
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
+    fn refresh_with(cloud: CloudRead, source: &Path) -> crate::linking::Snapshot {
+        let tmp = tempfile::tempdir().unwrap();
+        refresh(
+            source,
+            cloud,
+            tmp.path(),
+            // 2023-11-15 前后，纯粹为了和 published_at 拉开一个可断言的差
+            &FixedNow(1_700_000_000_000),
+            payload_of,
+        )
+    }
+
+    #[test]
+    fn cloud_wins_only_when_its_rows_are_newer() {
+        let src = fixture(false);
+        let db = src.path().join("medicine_tracker.db");
+
+        let snap = refresh_with(CloudRead::Fresh(cloud_today(99), "phone".into(), 1), &db);
+        assert_eq!(snap.status, Status::Ok);
+        assert_eq!(snap.payload_json, "云端那份", "云端更新时该用云端的数据");
+        assert!(snap.detail.contains("云端"), "{}", snap.detail);
+        assert!(snap.detail.contains("phone"), "要说清是哪台设备发布的");
+
+        // 相等 → 本机；更旧 → 本机
+        for fresh in [1, 0] {
+            let snap = refresh_with(CloudRead::Fresh(cloud_today(fresh), "phone".into(), 1), &db);
+            assert!(snap.payload_json.contains("二甲双胍"), "fresh={fresh} 时本机该赢");
+            assert!(snap.detail.starts_with("本机"), "{}", snap.detail);
+        }
+    }
+
+    #[test]
+    fn using_the_local_copy_still_says_the_cloud_was_read() {
+        let src = fixture(false);
+        let db = src.path().join("medicine_tracker.db");
+        let snap = refresh_with(CloudRead::Fresh(cloud_today(0), "phone".into(), 1), &db);
+        // 配了云端不等于在用云端 —— 不写这一句，用户会一直以为看到的是手机的数据
+        assert!(snap.detail.contains("云端那份是 phone"), "{}", snap.detail);
+    }
+
+    #[test]
+    fn a_missing_local_app_falls_back_to_the_cloud() {
+        let gone = Path::new(r"C:\Users\hp\AppData\Roaming\dev.mine\nope\medicine_tracker.db");
+        let snap = refresh_with(
+            CloudRead::Fresh(cloud_today(99), "phone".into(), 1_700_000_000_000 - 90_000),
+            gone,
+        );
+        assert_eq!(snap.status, Status::Ok, "药箱被卸载时云端那份仍然可用");
+        assert!(snap.detail.starts_with("仅云端"), "{}", snap.detail);
+        assert!(snap.detail.contains("分钟前"), "发布时刻要翻成相对说法：{}", snap.detail);
+    }
+
+    #[test]
+    fn both_unavailable_keeps_both_reasons() {
+        let gone = Path::new(r"C:\Users\hp\AppData\Roaming\dev.mine\nope\medicine_tracker.db");
+        let snap = refresh_with(CloudRead::Failed("坚果云返回了 404".into()), gone);
+        assert_eq!(snap.status, Status::Missing);
+        assert!(snap.detail.contains("没找到"), "{}", snap.detail);
+        assert!(snap.detail.contains("404"), "两条路各自为什么不行都要说：{}", snap.detail);
+    }
+
+    #[test]
+    fn no_second_credential_means_the_cloud_is_never_mentioned() {
+        let src = fixture(false);
+        let db = src.path().join("medicine_tracker.db");
+        let snap = refresh_with(CloudRead::Skipped, &db);
+        assert_eq!(snap.status, Status::Ok);
+        assert!(snap.detail.is_empty(), "没启用云端就别提它：{}", snap.detail);
+    }
+
+    #[test]
+    fn a_failed_cloud_is_not_silent_when_local_works() {
+        let src = fixture(false);
+        let db = src.path().join("medicine_tracker.db");
+        let snap = refresh_with(CloudRead::Failed("坚果云返回了 401".into()), &db);
+        assert_eq!(snap.status, Status::Ok, "本机那份照常可用");
+        assert!(snap.payload_json.contains("二甲双胍"), "{}", snap.payload_json);
+        // 这一句是「配了云端但读不上」唯一的可见出口，别让它和「没配」撞成一回事
+        assert!(snap.detail.contains("云端这次没读上"), "{}", snap.detail);
+        assert!(snap.detail.contains("401"), "{}", snap.detail);
     }
 }

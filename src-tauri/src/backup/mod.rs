@@ -50,11 +50,13 @@ pub fn export(conn: &Connection, tmp_dir: &Path, ms: i64) -> Result<Vec<u8>> {
     stripped.execute_batch("DELETE FROM linked_snapshots; DELETE FROM backup_log;")?;
     // 键名用常量，免得哪天改了名字、备份里还带着本机绝对路径和邮箱
     stripped.execute(
-        "DELETE FROM settings WHERE key IN (?1, ?2, ?3)",
+        "DELETE FROM settings WHERE key IN (?1, ?2, ?3, ?4)",
         params![
             crate::repos::settings::KEY_BLOG_REPO_DIR,
             crate::repos::settings::KEY_MEDICINE_DB,
-            crate::repos::settings::KEY_WDAV_EMAIL
+            crate::repos::settings::KEY_WDAV_EMAIL,
+            // 药箱那边用的邮箱同样是邮箱。目录地址留着（它机器无关，还原后仍然有效）
+            crate::repos::settings::KEY_MEDICINE_EMAIL,
         ],
     )?;
     stripped.execute_batch("VACUUM")?;

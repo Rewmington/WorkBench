@@ -41,17 +41,25 @@ fn uploaded_artifact_keeps_todos_and_drops_everything_personal() {
     );
 
     assert_eq!(count(&probe, "SELECT count(*) FROM todos"), 3, "待办是备份的意义所在");
-    assert_eq!(count(&probe, "SELECT count(*) FROM linked_snapshots"), 0, "药箱库存不跟着上云");
+    assert_eq!(
+        count(&probe, "SELECT count(*) FROM linked_snapshots"),
+        0,
+        "药箱库存不跟着上云（夹具里那条是云端来源的，一样得剥掉）"
+    );
     assert_eq!(count(&probe, "SELECT count(*) FROM backup_log"), 0, "本机流水不该跨机器");
     assert_eq!(
         count(
             &probe,
-            "SELECT count(*) FROM settings WHERE key IN ('linked.blog.repoDir','linked.medicine.dbPath','webdav.email')"
+            "SELECT count(*) FROM settings WHERE key IN ('linked.blog.repoDir','linked.medicine.dbPath','webdav.email','linked.medicine.email')"
         ),
         0,
-        "绝对路径与邮箱不能出门"
+        "绝对路径与两个邮箱都不能出门"
     );
-    assert_eq!(count(&probe, "SELECT count(*) FROM settings"), 1, "主题这类无机器属性的设置要留着");
+    assert_eq!(
+        count(&probe, "SELECT count(*) FROM settings"),
+        2,
+        "主题与药箱同步目录都是机器无关的，还原后仍然有效，该留着"
+    );
 
     cleanup(&tmp);
 }

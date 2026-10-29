@@ -2,7 +2,10 @@ use serde_json::{json, Map, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::error::Error;
-use crate::linking::{blog_local, blog_online, medicine_copy, medicine_math, paths, Status};
+use crate::linking::{
+    blog_local, blog_online, dav_readonly, medicine_cloud, medicine_copy, medicine_math, paths,
+    Snapshot, Status,
+};
 use crate::model::Todo;
 use crate::repos::{linked, settings, todos};
 use crate::state::AppState;
@@ -164,14 +167,7 @@ pub async fn linked_refresh_medicine(app: AppHandle) -> Result<Option<linked::Sn
         let state = handle.state::<AppState>();
         let now = SystemNow;
 
-        let source = {
-            let conn = state.lock();
-            paths::medicine_db_path(&conn)?
-        };
-
-        let snap = medicine_copy::snapshot_for(&source, &state.paths.tmp, &now, |meds, doses, day_start, now_minutes| {
-            medicine_payload(day_start, now_minutes, meds, doses)
-        });
+        let snap = medicine_snapshot(&state, &now);
 
         let conn = state.lock();
         linked::upsert(&conn, &snap)?;
@@ -182,6 +178,120 @@ pub async fn linked_refresh_medicine(app: AppHandle) -> Result<Option<linked::Sn
 
     let _ = app.emit(LINK_MEDICINE, &view);
     Ok(view)
+}
+
+/// 本机文件 + （配了第二条应用密码时）坚果云快照，交给 `medicine_copy::refresh` 判谁更新。
+///
+/// 云端的失败永远不往上抛：这个部件的底线是"药箱被卸载 / 断网 / 凭据被拒，
+/// 工作台照常可用"（PLAN §6.1、§6.2）。
+fn medicine_snapshot(state: &AppState, now: &SystemNow) -> Snapshot {
+    let (source, dav_dir) = {
+        let conn = state.lock();
+        (
+            paths::medicine_db_path(&conn).unwrap_or_default(),
+            paths::medicine_dav_dir(&conn).unwrap_or_default(),
+        )
+    };
+
+    let cloud = match cloud_read(state, &dav_dir) {
+        Some(read) => read,
+        None => medicine_copy::CloudRead::Skipped,
+    };
+
+    medicine_copy::refresh(&source, cloud, &state.paths.tmp, now, |meds, doses, day_start, minutes| {
+        medicine_payload(day_start, minutes, meds, doses)
+    })
+}
+
+/// `None` = 没配第二条凭据，压根不启用云端（detail 里也不该出现"云端"字样）。
+fn cloud_read(state: &AppState, dav_dir: &str) -> Option<medicine_copy::CloudRead> {
+    if !crate::win32::creds::medicine_configured() {
+        return None;
+    }
+    let read = match fetch_cloud(state, dav_dir) {
+        Ok(got) => medicine_copy::CloudRead::Fresh(got.today, got.device, got.published_at),
+        Err(e) => medicine_copy::CloudRead::Failed(e.to_string()),
+    };
+    Some(read)
+}
+
+fn fetch_cloud(state: &AppState, dav_dir: &str) -> Result<medicine_cloud::Fetched, Error> {
+    let user = medicine_email(state)?;
+    let pass = crate::win32::creds::medicine_password()?;
+    medicine_cloud::fetch(&dav_readonly::ReadRemote::new(dav_dir, &user, &pass)?)
+}
+
+/// 云端用注册邮箱做 Basic 用户名。药箱把邮箱存在它自己的 shared_preferences 里，
+/// 我们不去读那个文件（PLAN §6.2），所以要求在这里单独填一次。
+fn medicine_email(state: &AppState) -> Result<String, Error> {
+    let conn = state.lock();
+    settings::get_json(&conn, settings::KEY_MEDICINE_EMAIL)?
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| Error::msg("还没填药箱那边用的坚果云邮箱"))
+}
+
+/// 邮箱进 settings（它不是秘密，且要解释凭据条目属于谁），应用密码只进凭据管理器。
+#[tauri::command]
+pub fn linked_set_medicine_password(
+    state: State<'_, AppState>,
+    email: String,
+    password: String,
+) -> Result<bool, Error> {
+    let email = email.trim().to_owned();
+    if email.is_empty() {
+        return Err(Error::msg("邮箱不能为空"));
+    }
+    if password.trim().is_empty() {
+        return Err(Error::msg("应用密码不能为空"));
+    }
+    crate::win32::creds::set_medicine_password(&password)?;
+    let now = SystemNow;
+    let conn = state.lock();
+    settings::set_json(
+        &conn,
+        settings::KEY_MEDICINE_EMAIL,
+        &json!(email),
+        now.ms(),
+        &state.device_id,
+    )?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn linked_clear_medicine_password(state: State<'_, AppState>) -> Result<bool, Error> {
+    crate::win32::creds::clear_medicine_password();
+    let now = SystemNow;
+    let conn = state.lock();
+    settings::set_json(
+        &conn,
+        settings::KEY_MEDICINE_EMAIL,
+        &Value::Null,
+        now.ms(),
+        &state.device_id,
+    )?;
+    Ok(false)
+}
+
+/// 改药箱的同步目录地址。空串恢复默认。填错当场拒，不等下次刷新才发现。
+#[tauri::command]
+pub fn linked_set_medicine_dir(state: State<'_, AppState>, dir: String) -> Result<String, Error> {
+    let now = SystemNow;
+    let conn = state.lock();
+    let value = if dir.trim().is_empty() {
+        dav_readonly::DEFAULT_BASE.to_owned()
+    } else {
+        dav_readonly::ReadRemote::check_dir(&dir)?;
+        dir.trim().trim_matches('"').to_owned()
+    };
+    settings::set_json(
+        &conn,
+        settings::KEY_MEDICINE_DAV_DIR,
+        &json!(value),
+        now.ms(),
+        &state.device_id,
+    )?;
+    Ok(value)
 }
 
 /// 「补买 X」是用户点出来的，不是系统偷偷建的（PLAN §6.1：副本读失败不生成任何待办）。

@@ -14,31 +14,70 @@ use crate::error::{Error, Result};
 /// 凭据管理器的服务名。所有 Anvil 凭据都在这个命名空间下，不与任何程序共用。
 const SERVICE: &str = "Anvil";
 const ACCOUNT_WEBDAV: &str = "webdav";
+const ACCOUNT_MEDICINE: &str = "medicine-webdav";
 const ACCOUNT_LOCAL_KEY: &str = "local-key";
 
 fn entry(account: &str) -> Result<Entry> {
     Entry::new(SERVICE, account).map_err(|e| Error::msg(format!("凭据管理器不可用：{e}")))
 }
 
-pub fn set_webdav_password(password: &str) -> Result<()> {
-    entry(ACCOUNT_WEBDAV)?
+fn put(account: &str, password: &str) -> Result<()> {
+    entry(account)?
         .set_password(password)
         .map_err(|e| Error::msg(format!("写入凭据管理器失败：{e}")))
 }
 
-pub fn webdav_password() -> Result<String> {
-    entry(ACCOUNT_WEBDAV)?
+fn take(account: &str, unset: &str) -> Result<String> {
+    entry(account)?
         .get_password()
-        .map_err(|_| Error::msg("还没在设置里填坚果云应用密码"))
+        .map_err(|_| Error::msg(unset.to_owned()))
+}
+
+fn drop_credential(account: &str) {
+    // 删除失败不值得报错：没有凭据就是没配置，调用方按未配置处理即可
+    let _ = entry(account).map(|e| e.delete_credential());
+}
+
+fn has(account: &str) -> bool {
+    matches!(entry(account).map(|e| e.get_password()), Ok(Ok(_)))
+}
+
+/// 坚果云有**两条**应用密码：`webdav` 给工作台自己的备份目录，
+/// `medicine-webdav` 只读药箱的同步目录。
+///
+/// 分成两条买的是「单独吊销 + 看名字知道谁在用」，**不是权限边界** ——
+/// 坚果云的应用密码是账号级的，任何一条都能访问整个账号的文件。
+/// 真正挡住"写药箱目录"的是类型：`linking::dav_readonly` 只有 PROPFIND 与 GET。
+pub fn set_webdav_password(password: &str) -> Result<()> {
+    put(ACCOUNT_WEBDAV, password)
+}
+
+pub fn webdav_password() -> Result<String> {
+    take(ACCOUNT_WEBDAV, "还没在设置里填坚果云应用密码")
 }
 
 pub fn clear_webdav_password() {
-    // 删除失败不值得报错：没有凭据就是没配置，调用方按未配置处理即可
-    let _ = entry(ACCOUNT_WEBDAV).map(|e| e.delete_credential());
+    drop_credential(ACCOUNT_WEBDAV);
 }
 
 pub fn webdav_configured() -> bool {
-    matches!(entry(ACCOUNT_WEBDAV).map(|e| e.get_password()), Ok(Ok(_)))
+    has(ACCOUNT_WEBDAV)
+}
+
+pub fn set_medicine_password(password: &str) -> Result<()> {
+    put(ACCOUNT_MEDICINE, password)
+}
+
+pub fn medicine_password() -> Result<String> {
+    take(ACCOUNT_MEDICINE, "还没填药箱的坚果云应用密码")
+}
+
+pub fn clear_medicine_password() {
+    drop_credential(ACCOUNT_MEDICINE);
+}
+
+pub fn medicine_configured() -> bool {
+    has(ACCOUNT_MEDICINE)
 }
 
 /// 本机加密密钥（32 字节，base64）。第一次用的时候随机生成。

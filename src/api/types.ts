@@ -145,6 +145,10 @@ export interface SourcePaths {
   blogRepoExists: boolean
   medicineDb: string
   medicineDbExists: boolean
+  /** 药箱在坚果云上的同步目录（只读） */
+  medicineDav: string
+  /** 配了那第二条应用密码。不是"云端连得上"—— 那要发一次请求才知道，而首屏不发。 */
+  medicineCloudReady: boolean
   onlineCheckEnabled: boolean
 }
 
@@ -481,6 +485,10 @@ export interface Api {
   /** 「补买 X」是用户点出来的，不是系统偷偷建的 */
   linkedRestockTodo(name: string, daysLeft: number | null): Promise<Todo>
   linkedSetBlogDir(path: string): Promise<SourcePaths>
+  /** 药箱云端备用源：邮箱进 settings，应用密码只进凭据管理器（与备份那条分开） */
+  linkedSetMedicinePassword(email: string, password: string): Promise<boolean>
+  linkedClearMedicinePassword(): Promise<boolean>
+  linkedSetMedicineDir(dir: string): Promise<string>
 
   backupStatus(): Promise<BackupStatus>
   backupNow(): Promise<BackupOutcome>
