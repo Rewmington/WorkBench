@@ -18,6 +18,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "0002_done_state",
         sql: include_str!("../../migrations/0002_done_state.sql"),
     },
+    Migration {
+        name: "0003_countdown_pause",
+        sql: include_str!("../../migrations/0003_countdown_pause.sql"),
+    },
 ];
 
 pub fn migrate(conn: &mut Connection) -> Result<u32> {
@@ -51,10 +55,10 @@ mod tests {
     fn migrate_is_idempotent_and_counts_tables() {
         let mut conn = Connection::open_in_memory().unwrap();
         let applied = migrate(&mut conn).unwrap();
-        assert_eq!(applied, 2);
+        assert_eq!(applied, 3);
         // M0 验收：迁移可重复执行。
         migrate(&mut conn).unwrap();
-        assert_eq!(version(&conn).unwrap(), 2);
+        assert_eq!(version(&conn).unwrap(), 3);
 
         let n: i64 = conn
             .query_row(

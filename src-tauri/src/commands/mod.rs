@@ -11,6 +11,7 @@ pub mod palette;
 pub mod settings;
 pub mod system;
 pub mod todos;
+pub mod widgets;
 
 use rusqlite::Transaction;
 
