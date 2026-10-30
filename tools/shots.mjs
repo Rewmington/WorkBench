@@ -156,10 +156,17 @@ async function main() {
       }
       // 让 1s tick 与图片解码都落定，否则首屏数字是空的
       await sleep(400)
-      const shot = await cdp.send('Page.captureScreenshot', { format: 'png' })
+      // design 基准图整页拍：手机框 800px 高，900 的视口会把底部导航切掉
+      const shot = await cdp.send('Page.captureScreenshot', {
+        format: 'png',
+        ...(raw ? { captureBeyondViewport: true } : {}),
+      })
       writeFileSync(join(ROOT, 'shots', file), Buffer.from(shot.data, 'base64'))
+      // design/ 基准图没有 .y-ctr / .y-view，量的是页面本身与手机框
       const dims = await cdp.eval(
-        `(function(){const r=document.querySelector('.y-ctr').getBoundingClientRect();return JSON.stringify({nav:document.querySelector('.y-nav')?'text':'rail',content:Math.round(r.width),scroll:document.querySelector('.y-view')?document.querySelector('.y-view').scrollHeight:0})})()`,
+        raw
+          ? `(function(){const pg=[...document.querySelectorAll('.page')].find(p=>!p.hidden);const ph=[...pg.querySelectorAll('.phone')];return JSON.stringify({page:Math.round(pg.getBoundingClientRect().width),phones:ph.length,overflow:ph.map(p=>{const b=p.querySelector('.pbody');return b?b.scrollHeight-b.clientHeight:0}),docH:document.body.scrollHeight})})()`
+          : `(function(){const r=document.querySelector('.y-ctr').getBoundingClientRect();return JSON.stringify({nav:document.querySelector('.y-nav')?'text':'rail',content:Math.round(r.width),scroll:document.querySelector('.y-view')?document.querySelector('.y-view').scrollHeight:0})})()`,
       )
       console.log(`✓ shots/${file}  ${attach ? 'native' : `${width}px ${mode}`}  ${dims}`)
     } catch (e) {
