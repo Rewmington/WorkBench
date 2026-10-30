@@ -669,3 +669,15 @@ M11c 在状态表里还是 🟡，欠的三块是手机侧 SQLite、快照/合�
 - 元数据：`package.json` 加英文描述；`mobile/pubspec.yaml` 的描述改成真话、版本从 `1.0.0+1` 对齐到 `0.1.0+1`。
 - 验证：`npm run typecheck` 干净、前端 86 条测试全绿、手机 75 条全绿；README 内相对链接逐条检查过。
 - 未做：`LICENSE` 没有擅自加（许可方式是你的决定）；个人绝对路径仍留在计划/记录里（示例性质），要不要泛化等你的意见。**一个发现**：`design/refs/yics-knowledge-os*.png` 从 M0 起就被 git 跟踪，首推时已随仓库公开；它们是参考图、不是本项目资产，已在 `design/refs/README.md` 注明。要彻底移出历史需要改写已推送的提交，没做。
+
+## 自动发布工作流（2026-10-31）
+
+新增 [.github/workflows/release.yml](../.github/workflows/release.yml)：推 `v*` tag 时并行构建桌面与手机，产物挂到同一个 GitHub Release。
+
+- **Windows job**：`npm ci` → typecheck → vitest → `npm run tauri:build` → NSIS 安装包。
+- **Android job**：Flutter 3.47.4 + JDK 17 → `flutter pub get` → analyze → 75 条测试 → `flutter build apk --release`。
+- **publish job**：只在 tag 推送时运行；手动触发是干跑，只出 workflow artifact，不建 Release。
+- 产物名：`Anvil-<tag>-x64-setup.exe`、`Anvil-<tag>-android.apk`。
+- 签名现状：桌面未做发布签名（会弹 SmartScreen），APK 用 debug 签名；应用内自动更新不在范围内。
+
+**干跑已验**（run `41098082471`，6m31s，2026-10-31）：两个 job 全绿，publish 按设计跳过；artifact 实测 desktop 3.8 MB、android 24 MB。还没有创建任何公开 Release —— 等 tag 决定。
