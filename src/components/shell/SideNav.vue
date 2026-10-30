@@ -1,8 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted } from 'vue'
 
-import { api } from '../../api'
-import type { PathsView } from '../../api/types'
 import { useBackup } from '../../composables/useBackup'
 import { useClock } from '../../composables/useClock'
 import { NAV, useShell } from '../../composables/useShell'
@@ -12,26 +10,22 @@ const { view, counts, go } = useShell()
 const backup = useBackup()
 const { now } = useClock()
 
-const paths = ref<PathsView | null>(null)
-
-// 路径只截尾显示，完整值留在 title 里 —— 原则 4 要的是「能看见绝对路径」，不是被省略号吞掉
-const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p
-const parentDir = (p: string) => p.replace(/[\\/][^\\/]*$/, '')
-
 /**
  * 上次成功时间只有一个来源：backup_log（useBackup 的 status）。
  * 早先这里读 settings 的 backup.lastSuccessAt，那个键从没被写过，于是页面说「上次成功 4 分钟前」、
  * 侧栏同时说「未配置」—— 两张脸对不上，正是原则 5 要避免的。
+ *
+ * 绝对路径不在这块常驻卡上了（§8.9：那是诊断，不是状态）—— 它在设置页「数据与诊断」里，
+ * 完整值、可复制，比这里截尾显示更好使。
  */
 const backupCard = computed(() => {
   const st = backup.status.value
-  if (!st?.configured) return { v: '未配置', sub: '填一次应用密码后每天自动快照' }
-  if (!st.lastSuccessAt) return { v: '还没成功过', sub: '凭据已配，云端还没有第一份快照' }
+  if (!st?.configured) return { v: '未配置', sub: '每天自动快照到坚果云' }
+  if (!st.lastSuccessAt) return { v: '还没成功过', sub: '云端还没有第一份快照' }
   return { v: relTime(now.value, st.lastSuccessAt), sub: null }
 })
 
-onMounted(async () => {
-  paths.value = await api.paths()
+onMounted(() => {
   if (!backup.status.value) void backup.load()
 })
 </script>
@@ -62,13 +56,8 @@ onMounted(async () => {
       </template>
     </nav>
 
-    <!-- 底部两张卡是 §2 原则 4 的落点：让人看见绝对路径与备份事实，而不是「已加密」三个字 -->
+    <!-- 一张状态卡：备份这件事的最近事实。诊断（绝对路径）在设置页，不常驻在这儿（§8.9） -->
     <div class="y-sidefoot">
-      <div class="y-picker">
-        <span class="k">数据位置 · 仅本机</span>
-        <span class="v" :title="paths?.db">{{ paths ? baseName(paths.db) : '…' }}</span>
-        <span v-if="paths" class="sub" :title="paths.root">{{ parentDir(paths.root) }}</span>
-      </div>
       <div class="y-picker">
         <span class="k">坚果云备份</span>
         <span class="v">{{ backupCard.v }}</span>

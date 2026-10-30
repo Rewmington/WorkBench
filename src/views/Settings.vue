@@ -1,19 +1,20 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 
-import type { ThemeAccent, ThemeMode, ThemePreset } from '../api/types'
+import { api } from '../api'
+import type { PathsView, ThemeAccent, ThemeMode, ThemePreset } from '../api/types'
 import Segmented from '../components/ui/Segmented.vue'
 import { useHotkeys } from '../composables/useHotkeys'
 import { useTheme } from '../composables/useTheme'
 
 /**
- * 设置页 v1 只放**已经在生效**的开关：主题三轴、降低动效、快捷键、开机自启、数据位置说明。
- *
- * 不放没实现的东西（自动更新、扩展市场这些 PLAN §4 明确不做），
- * 也不放「同步」—— 一台电脑一个写端，v1 没有同步可设（PLAN §10）。
+ * 设置页 v1 只放**已经在生效**的开关：主题三轴、降低动效、快捷键、开机自启，
+ * 外加两个"说清楚"的块：「关于与隐私」与「数据与诊断」（PLAN §8.9 —— 解释性的话
+ * 从各屏搬到这里，操作屏每屏最多留一句能用的提示）。
  */
 const theme = useTheme()
 const hk = useHotkeys()
+const paths = ref<PathsView | null>(null)
 
 const chipClass = computed(() => ({ cap: hk.capturing.value, warn: hk.idle.value }))
 const chipText = computed(() =>
@@ -50,6 +51,9 @@ function onKeydown(e: KeyboardEvent) {
 onMounted(() => {
   document.addEventListener('keydown', onKeydown, true)
   void hk.load()
+  void api.settingsAll().then((s) => {
+    paths.value = s.paths
+  })
 })
 onUnmounted(() => document.removeEventListener('keydown', onKeydown, true))
 </script>
@@ -74,10 +78,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown, true))
         <span class="k">强调色</span>
         <Segmented :options="ACCENTS" :model-value="theme.accent.value" @update:model-value="theme.accent.value = $event" />
       </div>
-      <p class="note">
-        三轴各自独立：预设改的是底与卡的明度阶梯，强调色只改 <code>--accent</code> 一族。
-        亮色下强调色自动降到 <code>#059669</code>，绿底白字那种对比度不够的写法不会出现。
-      </p>
+      <p class="note">三轴独立，每个预设都有对应的亮色版本。</p>
     </div>
 
     <div class="blk">
@@ -85,7 +86,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown, true))
       <label class="row chk">
         <input v-model="theme.reducedMotion.value" type="checkbox" />
         <span class="k">降低动效</span>
-        <span class="v">卡片环立刻停止巡航（不是只暂停 CSS 动画）</span>
+        <span class="v">卡片环停止巡航</span>
       </label>
     </div>
 
@@ -116,20 +117,50 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown, true))
           @change="hk.setAutostart(($event.target as HTMLInputElement).checked)"
         />
         <span class="k">开机自启</span>
-        <span class="v">写进系统启动项，只动这台电脑</span>
+        <span class="v">写入系统启动项</span>
       </label>
-      <p class="note">
-        自启记的是当前可执行文件的路径。开发模式下那是 <code>src-tauri\target\debug\anvil.exe</code>，
-        所以这条建议等装上正式版之后再打开。
-      </p>
+      <p v-if="hk.autostart.value === true" class="note">自启记的是当前 exe 路径，装正式版后再开。</p>
     </div>
 
     <div class="blk">
-      <h3>数据位置</h3>
-      <p class="note">
-        库文件、图标缓存与备份快照的绝对路径原样写在备份页与侧栏底部 ——
-        「数据只在这台机器上」这句话，要能被看见才算数。
-      </p>
+      <h3>关于与隐私</h3>
+      <dl class="y-dl">
+        <dt>数据在哪</dt>
+        <dd>只在本机这一个文件里，见下面「数据与诊断」。坚果云上只有加密快照。</dd>
+        <dt>备份会上传</dt>
+        <dd>待办、笔记、速达条目、便签、倒计时、课表、主题与界面设置。整库 gzip 后 AES-256-GCM，密钥由「邮箱 + 应用密码」派生 —— 坚果云只见密文。</dd>
+        <dt>备份不上传</dt>
+        <dd>应用密码（只在本机 Windows 凭据管理器）、药箱的库存与健康数据、绝对路径与邮箱、备份流水。药箱的 <code>device-*.json</code> 在另一个目录，永不读写。</dd>
+        <dt>应用密码</dt>
+        <dd>坚果云的应用密码是<b>账号级</b>的：备份与读药箱这两把都能读整个网盘，分开是为了能单独吊销、以及从名字认人，不构成权限隔离。写入的边界靠的是只读客户端 —— 那个类型没有 PUT / MKCOL / DELETE。</dd>
+        <dt>密码框为何不回显</dt>
+        <dd>它从不进库，所以没有东西可以回显。框里空着 = 沿用已存那条，不是丢了。</dd>
+        <dt>课表与教务</dt>
+        <dd>导入进来的只读副本。工作台不连教务网站、不碰教务密码；要改课，回教务导出再导一次。</dd>
+        <dt>药箱</dt>
+        <dd>只读源：把它的库复制一份再只读打开，用完就删；不写它的库，也不写它的 <code>medicine-sync/</code> 目录，更不读它的凭据文件。</dd>
+        <dt>遥测</dt>
+        <dd>没有。不统计、不上报，联网只发生在你点备份、读药箱云端、刷新博客这三处。</dd>
+      </dl>
+    </div>
+
+    <div class="blk">
+      <h3>数据与诊断</h3>
+      <dl v-if="paths" class="y-dl">
+        <dt>库文件</dt>
+        <dd><code>{{ paths.db }}</code></dd>
+        <dt>备份快照</dt>
+        <dd><code>{{ paths.backups }}</code></dd>
+        <dt>日志</dt>
+        <dd><code>{{ paths.logs }}</code></dd>
+        <dt>设备 id</dt>
+        <dd><code>{{ paths.deviceId }}</code></dd>
+        <dt>SQLite 模式</dt>
+        <dd>{{ paths.journalMode }}</dd>
+      </dl>
+      <div class="row">
+        <button type="button" class="mini" @click="api.openDataDir()">打开数据目录</button>
+      </div>
     </div>
   </section>
 </template>
@@ -195,6 +226,32 @@ h2 {
 .note code {
   font: 500 11px/1.5 ui-monospace, Consolas, monospace;
   color: var(--t2);
+  word-break: break-all;
+}
+/* 「关于与隐私」与「数据与诊断」共用的一张问答表 */
+.y-dl {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 8px 10px;
+  margin: 0;
+}
+.y-dl dt {
+  font-size: 11px;
+  color: var(--t3);
+}
+.y-dl dd {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--t2);
+}
+.y-dl dd b {
+  color: var(--t1);
+}
+.y-dl code {
+  font: 500 11px/1.5 ui-monospace, Consolas, monospace;
+  color: var(--t1);
+  word-break: break-all;
 }
 /* 组合键芯片：等宽、有边框、不带 accent —— 它显示的是一个值，不是一个动作 */
 .combo {

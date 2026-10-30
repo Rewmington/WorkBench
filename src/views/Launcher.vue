@@ -184,7 +184,7 @@ const zoneChips = computed(() => [
       </div>
     </div>
 
-    <p class="hint">拖进来即可添加；已运行的程序会直接把窗口带到前台，而不是再开一个。</p>
+    <p class="hint">拖进来即可添加</p>
   </section>
 </template>
 

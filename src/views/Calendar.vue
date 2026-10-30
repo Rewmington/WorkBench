@@ -141,7 +141,7 @@ const dayLabel = (ms: number) => `${new Date(ms).getMonth() + 1}/${new Date(ms).
       </div>
     </div>
 
-    <p class="hint">只显示有截止时间且未完成的待办。灰色格子是别的月份的补位，不是空档。</p>
+    <p class="hint">只显示未完成的到期项</p>
   </section>
 </template>
 

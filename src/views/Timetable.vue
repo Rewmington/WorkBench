@@ -142,7 +142,7 @@ const hasData = computed(() => (st.value?.rows ?? 0) > 0)
 <template>
   <section class="y-view y-tt">
     <div class="bar">
-      <h2>课表 <span class="sub">教务导入的副本 · 不连教务网站</span></h2>
+      <h2>课表 <span class="sub">教务导入的副本</span></h2>
       <div v-if="hasData" class="wk">
         <button type="button" class="y-ghost nav" title="上一周" :disabled="(viewing ?? 1) <= 1" @click="step(-1)">
           <ChevronLeft :size="13" />
@@ -178,7 +178,7 @@ const hasData = computed(() => (st.value?.rows ?? 0) > 0)
     <CollapsedRow
       v-if="!hasData"
       label="课表 · 还没有导入过"
-      detail="在教务系统里导出课表，用 Excel 另存为「CSV UTF-8(逗号分隔)」，然后点右边的「导入 CSV」。工作台不连教务网站，也不碰你的教务密码。"
+      detail="教务导出 → Excel 另存为「CSV UTF-8(逗号分隔)」→ 点右上「导入 CSV」"
       :busy="busy"
       @retry="pick()"
     />
@@ -187,7 +187,7 @@ const hasData = computed(() => (st.value?.rows ?? 0) > 0)
       <span>第 1 周的周一是哪天？</span>
       <input v-model="week1Draft" type="date" />
       <button type="button" class="y-ghost btn" @click="saveWeek1">保存</button>
-      <em>CSV 里只有"学年学期"，没有开学日 —— 没它算不出"今天第几周"，硬猜会猜错一整个学期。</em>
+      <em>CSV 里没有开学日，算不出"今天第几周"</em>
     </div>
 
     <p v-if="notice" class="ok">{{ notice }}</p>

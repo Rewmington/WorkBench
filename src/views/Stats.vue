@@ -58,7 +58,7 @@ function pickDay(day: number) {
           <span class="win">今天 00:00 起</span>
         </div>
         <TodayRing :counts="report.gauge" />
-        <p class="why">环只有两段：做掉的与还剩的。没有「目标数」这一说 —— 这个应用里没人定过目标。</p>
+        <p class="why">只有两段：做掉的与还剩的</p>
       </div>
 
       <div class="card heat">
@@ -75,7 +75,7 @@ function pickDay(day: number) {
           @pick="pickDay"
         />
         <CollapsedRow v-else label="还没有完成记录" detail="去待办勾掉一条，这里才会开始有形状" />
-        <p class="why">看的是断点，不是总量 —— 柱状图给形状，给不出「有没有连着做」。</p>
+        <p class="why">看的是连着做的天数，不是总量</p>
       </div>
 
       <div class="card bars">
@@ -85,7 +85,7 @@ function pickDay(day: number) {
         </div>
         <DayBars v-if="report.hasActivity" :bars="report.bars" :today-day="report.todayDay" @pick="pickDay" />
         <CollapsedRow v-else label="近 30 天没有完成记录" detail="这一页要的是回顾，不是预测" />
-        <p class="why">「补做」那截是前一天就该做完的。它变高，说明账在往后堆。</p>
+        <p class="why">「补做」变高，说明账在往后堆</p>
       </div>
 
       <div class="card tags">

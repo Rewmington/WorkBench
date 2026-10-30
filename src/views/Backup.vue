@@ -1,20 +1,22 @@
 <script setup lang="ts">
-import { CheckCircle2, Download, Loader2, PlugZap, ShieldCheck, UploadCloud, X } from 'lucide-vue-next'
+import { CheckCircle2, Download, Loader2, PlugZap, ShieldCheck, UploadCloud } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { usingMock } from '../api'
 import CollapsedRow from '../components/ui/CollapsedRow.vue'
 import { useBackup } from '../composables/useBackup'
 import { useClock } from '../composables/useClock'
+import { useShell } from '../composables/useShell'
 import { relTime } from '../lib/reltime'
 
 /**
- * 备份页只做三件事：说清楚**要上传什么、不上传什么**，配一次凭据，然后能还原。
+ * 备份页只做三件事：配一次凭据、手动备一份、挑一份还原。
  *
- * 应用密码进 Windows 凭据管理器，不进 SQLite、不进备份；邮箱留在 settings，
- * 因为密钥是 `email:应用密码` 一起派生的，换机时要靠它解释凭据条目属于谁。
+ * 「什么会上云、什么不会」那张表搬去了设置页「关于与隐私」（PLAN §8.9）——
+ * 它是可信度说明，不是操作提示，不该占主屏半屏高度。这里只留一个入口。
  */
 const backup = useBackup()
+const shell = useShell()
 const { now } = useClock()
 
 const email = ref('')
@@ -32,7 +34,6 @@ const st = computed(() => backup.status.value)
 const configured = computed(() => !!st.value?.configured)
 const passwordStored = computed(() => !!st.value?.passwordStored)
 const log = computed(() => st.value?.log ?? [])
-const paths = computed(() => st.value?.paths ?? null)
 const okCount = computed(() => log.value.filter((l) => l.ok).length)
 
 /**
@@ -103,7 +104,7 @@ async function selfTest() {
   testing.value = true
   const ok = await backup.selfTest(email.value || st.value?.email || '', password.value)
   selfTestMsg.value = ok
-    ? '本机 KDF + AES-GCM 往返通过：同样的邮箱 + 应用密码能解开同一份文件。这只证明算法链路，不证明凭据可用 —— 要试凭据点「测试连接」。'
+    ? '本机加解密往返通过。这只证明算法链路，不证明凭据可用 —— 试凭据请点「测试连接」。'
     : null
   testing.value = false
 }
@@ -145,30 +146,14 @@ onBeforeUnmount(() => unlisten?.())
       <span class="ago" :class="{ warn: !configured }">{{ configured ? '已配凭据' : '未配凭据' }}</span>
     </div>
 
-    <div class="scope">
-      <div class="col">
-        <h3><ShieldCheck :size="13" /> 会上传</h3>
-        <ul>
-          <li>待办、笔记、速达条目、便签、倒计时</li>
-          <li>主题与界面设置（不含任何绝对路径）</li>
-          <li>整库 gzip 后 AES-256-GCM 加密，坚果云只见密文</li>
-        </ul>
-      </div>
-      <div class="col">
-        <h3><X :size="13" /> 不会上传</h3>
-        <ul>
-          <li>应用密码 —— 只在本机 Windows 凭据管理器里</li>
-          <li>药箱库存缓存与健康数据（外部只读源不进云）</li>
-          <li>本机绝对路径、坚果云邮箱、备份流水</li>
-          <li>药箱的 <code>device-*.json</code>：目录不同，永不读写</li>
-        </ul>
-      </div>
-    </div>
+    <p class="scope">
+      <button type="button" class="link" @click="shell.go('settings')">哪些会上云、哪些不会 →</button>
+    </p>
 
     <div v-if="staleFailure" class="err">
       最近一次失败 · {{ relTime(now, staleFailure.lastErrorAt ?? now) }}
       <b>{{ staleFailure.lastError }}</b>
-      <span class="hint">失败不弹窗，一分钟内自动重试；连续失败按 2 倍退避，最长 30 分钟。</span>
+      <span class="hint">自动重试，最长退避 30 分钟。</span>
     </div>
 
     <div class="blk">
@@ -179,7 +164,7 @@ onBeforeUnmount(() => unlisten?.())
           <input v-model="email" type="email" autocomplete="off" placeholder="me@example.com" />
         </label>
         <label class="fld">
-          <span>第三方应用管理里的「应用密码」（不是登录密码）</span>
+          <span>应用密码（不是登录密码）</span>
           <input
             v-model="password"
             type="password"
@@ -188,10 +173,7 @@ onBeforeUnmount(() => unlisten?.())
           />
         </label>
       </div>
-      <p v-if="passwordStored" class="why">
-        应用密码已在本机 Windows 凭据管理器里（服务 <code>Anvil</code> · 账号 <code>webdav</code>）。
-        它不回显，所以换一页再回来框里是空的 —— 那不是丢了；要换密码才需要重新填。
-      </p>
+      <p v-if="passwordStored" class="why">密码不回显，留空就是沿用已存那条。</p>
       <div class="row">
         <button type="button" class="y-ghost btn" :disabled="!email" @click="save">
           <CheckCircle2 :size="13" /> 保存凭据
@@ -206,11 +188,7 @@ onBeforeUnmount(() => unlisten?.())
         <button v-if="configured" type="button" class="y-ghost btn" @click="forget">清除</button>
       </div>
       <p v-if="saved" class="ok">
-        {{
-          keptExisting
-            ? '邮箱已存；应用密码沿用凭据管理器里那条，没动它。'
-            : '两条都写好了：邮箱进设置，应用密码只进 Windows 凭据管理器 —— 不进数据库，备份文件里也没有它。'
-        }}
+        {{ keptExisting ? '邮箱已存，应用密码沿用已存那条。' : '两条都写好了：邮箱进设置，密码进凭据管理器。' }}
       </p>
       <p v-if="selfTestMsg" class="ok">{{ selfTestMsg }}</p>
       <p v-if="backup.notice.value" class="ok">{{ backup.notice.value }}</p>
@@ -297,11 +275,6 @@ onBeforeUnmount(() => unlisten?.())
       </ul>
       <p v-else class="none">还没有备份记录。开启后每天第一次运行时会自动补一份。</p>
     </div>
-
-    <div v-if="paths" class="where">
-      <span>库文件</span><code>{{ paths.db }}</code>
-      <span>设备 id 文件</span><code>{{ paths.deviceId }}</code>
-    </div>
   </section>
 </template>
 
@@ -337,41 +310,19 @@ h2 {
   color: var(--amber);
 }
 
+/* 一句话入口：细节在设置页「关于与隐私」，这里不铺半屏表格（§8.9） */
 .scope {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-.scope .col {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  padding: 10px 12px;
-}
-.scope h3 {
-  font-size: 11.5px;
-  font-weight: 750;
-  color: var(--t2);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-.scope ul {
   margin: 0;
-  padding-left: 15px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }
-.scope li {
+.link {
   font-size: 11.5px;
   color: var(--t2);
-  line-height: 1.5;
+  border-bottom: 1px dashed var(--line-2);
+  padding-bottom: 1px;
 }
-.scope code {
-  font-size: 11px;
-  color: var(--t1);
+.link:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
 }
 
 .err {
@@ -570,22 +521,9 @@ h2 {
   max-width: 46%;
 }
 
-.where {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 10.5px;
-  color: var(--t3);
-  flex-wrap: wrap;
-}
-.where code {
-  font-size: 10.5px;
-  color: var(--t2);
-  user-select: text;
-}
 
 @media (max-width: 900px) {
-  .scope,
+
   .form {
     grid-template-columns: 1fr;
   }

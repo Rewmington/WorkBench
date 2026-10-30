@@ -205,7 +205,7 @@ async function launchIt() {
           <dt>节次</dt><dd>{{ cls.period }}</dd>
           <dt>周次</dt><dd>第 {{ selWeek }} 周在 · 排 {{ cls.weeks }} 周</dd>
         </dl>
-        <p class="dd">课表是导入进来的只读副本，改它要回教务导出再导一次。</p>
+        <p class="dd">只读副本 · 改课要重新导入</p>
       </template>
 
       <div v-else class="y-empty">选中任何待办、速达条目，这里显示它的全貌与操作。</div>

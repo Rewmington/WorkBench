@@ -85,9 +85,7 @@ async function saveCred() {
   try {
     await api.linkedSetMedicinePassword(email.value, password.value)
     password.value = ''
-    notice.value = typed
-      ? '应用密码只写进了 Windows 凭据管理器：不进数据库，也不跟着备份出门。'
-      : '邮箱已存；应用密码沿用凭据管理器里那条，没动它。'
+    notice.value = typed ? '已存进凭据管理器，并读了一次。' : '邮箱已存，密码沿用那条。'
     await linked.refreshMedicine()
     await linked.load()
   } catch (e) {
@@ -194,14 +192,11 @@ onMounted(async () => {
         </div>
       </div>
 
+      <!-- 只说"读的是哪一份"：路径必须是它真正读的那个，否则就是假话（§2 原则 5）。
+           怎么读的（复制→只读→删）搬去了设置页「关于与隐私」。 -->
       <p class="note">
-        <template v-if="fromCloud">
-          这些数取自坚果云上的全量快照 <code>{{ paths?.medicineDav }}</code> —— 本机那份不比它新。
-        </template>
-        <template v-else>
-          这些数来自 <code>{{ paths?.medicineDb }}</code> 的一次性副本：复制 → 只读打开 → 用完删掉。
-        </template>
-        两条路都不写药箱的库，也不写它的 <code>medicine-sync/</code> 目录。
+        <template v-if="fromCloud">读的是坚果云上的快照 <code>{{ paths?.medicineDav }}</code></template>
+        <template v-else>读的是 <code>{{ paths?.medicineDb }}</code> 的副本</template>
       </p>
     </template>
 
@@ -211,7 +206,7 @@ onMounted(async () => {
         <span class="n">{{ paths.medicineDbExists ? '读得到' : '这个位置没有药箱的库' }}</span>
       </h3>
       <PathField
-        label="药箱的 SQLite 库（复制一份再只读打开，用完删）"
+        label="药箱的 SQLite 库"
         :value="paths.medicineDb"
         :fallback="paths.medicineDbDefault"
         :save="saveDbPath"
@@ -223,18 +218,15 @@ onMounted(async () => {
         <CloudDownload :size="13" /> 坚果云备用源
         <span class="n">{{ cloudReady ? '已配应用密码' : '未配 · 只读本机副本' }}</span>
       </h3>
-      <p class="why">
-        用得上它的两种时候：这台机器没装药箱，或者手机那边记得比本机新。
-        取哪一份只看谁的行更新，顶上那行会写明这次用的是哪份、发布于多久以前。
-      </p>
+      <p class="why">这台机器没装药箱，或手机那边记得比本机新时才有用。</p>
 
       <div class="form">
         <label class="fld">
-          <span>坚果云注册邮箱（Basic 认证的用户名）</span>
+          <span>坚果云注册邮箱</span>
           <input v-model="email" type="email" autocomplete="off" placeholder="me@example.com" />
         </label>
         <label class="fld">
-          <span>为「读药箱」单独建的应用密码（不是登录密码）</span>
+          <span>应用密码（不是登录密码）</span>
           <input
             v-model="password"
             type="password"
@@ -243,10 +235,7 @@ onMounted(async () => {
           />
         </label>
       </div>
-      <p v-if="cloudReady" class="why">
-        这把应用密码已在本机 Windows 凭据管理器里（服务 <code>Anvil</code> · 账号 <code>medicine-webdav</code>）。
-        它不回显，换一页再回来框里是空的 —— 那不是丢了；要换密码才需要重新填。
-      </p>
+      <p v-if="cloudReady" class="why">密码不回显，留空就是沿用已存那条。</p>
       <div class="row">
         <button
           type="button"
@@ -260,7 +249,7 @@ onMounted(async () => {
       </div>
 
       <PathField
-        label="药箱的同步目录（我们只列它、读它的 device-*.json）"
+        label="药箱的同步目录"
         :value="paths?.medicineDav ?? ''"
         :fallback="paths?.medicineDavDefault ?? ''"
         :save="saveDavDir"
@@ -268,13 +257,6 @@ onMounted(async () => {
 
       <p v-if="notice" class="ok">{{ notice }}</p>
       <p v-if="error" class="bad">{{ error }}</p>
-
-      <p class="why">
-        说实话：坚果云的应用密码是<b>账号级</b>的，两把都能读整个网盘，分开并不构成权限隔离。
-        换来的是另外两件事 —— 可以在坚果云里单独吊销这一把而不停掉备份，
-        以及从条目名称就知道这条授权是谁在用。写入的边界不靠它，靠的是只读客户端：
-        那个类型压根没有 PUT / MKCOL / DELETE 方法。
-      </p>
     </div>
 
     <UndoBar />
