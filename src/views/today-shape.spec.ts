@@ -113,3 +113,14 @@ describe('空档那行与课表页对齐', () => {
     expect(titles).toEqual([])
   })
 })
+
+/** 放在最后：这条会把「今天」档清空，跑在它前面的用例不能依赖那些种子。 */
+describe('今天档空着的时候', () => {
+  it('一条待办都没有，空档那行也还在 —— 这一屏还要回答"几点有空"', async () => {
+    for (const t of await api.todosList('today')) await api.todosDelete(t.id)
+    const wrapper = await mountTodos()
+    expect(wrapper.find('.y-empty').exists()).toBe(true)
+    expect(wrapper.find('.list').exists()).toBe(false)
+    expect(wrapper.find('.gap').text()).toContain('最近空档 10:00–16:00')
+  })
+})

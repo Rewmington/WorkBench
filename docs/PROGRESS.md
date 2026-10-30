@@ -368,12 +368,25 @@ Rust：165 passed + 5 ignored；clippy 干净。
 
 空档那行的文案是**由 `now` 现算的**，`loadGap` 只缓存"今天这几节课"。写死在 load 那一刻的话，待办页停在 12:09、课表页每秒跳一格，两个页面就会给出不同的值（§9 要求同一个值）。`src/views/today-shape.spec.ts` 把时钟冻在周五 10:00，两边对同一句 `最近空档 10:00–16:00`。
 
+那一行最后**从列表卡片里挪到了卡片外面**：真机上一打开，「今天」档是空的（你上午让我把测试数据清干净了），而 `.gap` 长在 `.list` 里，`v-if="visible.length"` 一为假就整块不渲染 —— 空清单时这一屏什么都不说。挪出来之后，一条待办都没有也照样回答"今天几点有空"（补了一条用例钉这个）。
+
+### 真后端实测（发布版）
+
+`npm run tauri:build` 之后带 `--remote-debugging-port` 起了 `target/release/anvil.exe`，`tools/probe-m9c.mjs` 只读**结构计数**（不读任何标题、课程名、教室），结果是：
+
+- `location.href` 是 `http://tauri.localhost/` —— 打包资源，不再指向 devUrl。dev server 是我先杀掉才起的，所以这条是真证据。
+- 侧栏 12 项、有「课表」；课表页 8 列 × 6 节次行、`needWeek1: false`、图例「12 门课 · 本周 13 个时段 · 最近空档 12:34–14:00」。
+- 待办页那一行给出 **同一句** `今天 4 节课 · 最近空档 12:34–14:00`。库里 `todos` 一行都没有，bands 为空、`.gap` 仍在 —— 挪出去那次改动的效果就在这儿。
+- `greenLines: 0`、`overdueOnDone: 0`：那两个 class 撞名与"勾掉还喊逾期"的缺陷在真数据上也确认没了。
+
+顺带发现：`classes` 里已经有 27 行 / 12 门课、`timetable.week1Monday` 也设好了 —— 是**你自己**在 12:26 用刚编出来的这一版导进去的（`created_by` 是本机设备号，27 行同一毫秒）。我没有替你的真库写过一行。
+
 ### 验收口径换了一条
 
 原写「点格子右栏出关联待办」，做的时候发现 `classes` 和 `todos` 之间没有任何字段能连起来，"关联"只能靠拿课程名去猜标题 —— 那是用字符串匹配冒充数据关系。所以右栏出的是这节课的事实 + 一句"导入进来的只读副本"，理由记在 PLAN §10。
 
 ### 验证
 
-- 前端 70 passed（新增 `today-shape.spec.ts` 6 条）、typecheck、`lint:style` + 令牌冻结表都过。
+- 前端 71 passed（`today-shape.spec.ts` 7 条：三条带的顺序与内容、空档行与课表页同值、没设开学日不编"全天有空"、空清单时那一行还在、课不进待办、把手与绿线）+ typecheck + `lint:style` 与令牌冻结表都过。
 - Rust 164 passed + 5 ignored、clippy `-D warnings` 干净。新增 `importing_a_whole_term_moves_no_completion_number`：整学期导进来，今日环 / 完成日历 / 标签总数 / 历史天数一个数都不许动。
 - 截图：`shots/m9-today-{1400,1000,760}-{dark,light}.png`（今天档三条带 + 空档行）、`shots/m9-tt-ok-*`（课表常态）、`shots/m9-tt-panel-*`（点一格出右栏，含图例那句空档）、`shots/m9-tt-*`（未设开学日与窄档）。

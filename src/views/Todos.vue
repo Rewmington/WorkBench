@@ -236,8 +236,10 @@ onMounted(async () => {
 
     <p v-if="error" class="err">{{ error }}</p>
 
+    <!-- 空档行在列表外面：今天档一条待办都没有时，这一屏仍然要回答"几点有空" -->
+    <p v-if="gapLine" class="gap">{{ gapLine }}</p>
+
     <div v-if="visible.length" ref="listEl" class="list scroller">
-      <p v-if="gapLine" class="gap">{{ gapLine }}</p>
       <div v-for="band in bands" :key="band.label ?? 'flat'" class="band">
         <div v-if="band.label" class="bandh">
           <span>{{ band.label }}</span>
@@ -318,7 +320,6 @@ onMounted(async () => {
 }
 .gap {
   margin: 0;
-  padding: 4px 0 2px;
   font-size: 11px;
   color: var(--t2);
   font-variant-numeric: tabular-nums;
