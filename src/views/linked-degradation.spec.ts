@@ -14,6 +14,9 @@ const linkedState = vi.hoisted(() => ({
       medicineDav: 'https://dav.jianguoyun.com/dav/medicine-sync/',
       medicineCloudReady: false,
       onlineCheckEnabled: true,
+      blogRepoDefault: String.raw`D:\default\blog`,
+      medicineDbDefault: String.raw`C:\default\medicine_tracker.db`,
+      medicineDavDefault: 'https://dav.jianguoyun.com/dav/medicine-sync/',
     },
     blog: [] as unknown[],
     medicine: null as unknown,
@@ -21,7 +24,7 @@ const linkedState = vi.hoisted(() => ({
 }))
 
 /** 保存云端凭据的次数：这一屏「存完立刻读一次」是刻意的，得能数出来。 */
-const calls = vi.hoisted(() => ({ setPassword: 0, refresh: 0 }))
+const calls = vi.hoisted(() => ({ setPassword: 0, refresh: 0, blogDir: 0, medDb: 0 }))
 
 vi.mock('../api', () => ({
   api: {
@@ -33,7 +36,18 @@ vi.mock('../api', () => ({
     },
     linkedCheckOnline: async () => [],
     linkedRestockTodo: async () => null,
-    linkedSetBlogDir: async () => linkedState.value.paths,
+    linkedSetBlogDir: async (path: string) => {
+      calls.blogDir += 1
+      const p = linkedState.value.paths
+      p.blogRepo = path.trim() ? path.trim() : p.blogRepoDefault
+      return p
+    },
+    linkedSetMedicineDb: async (path: string) => {
+      calls.medDb += 1
+      const p = linkedState.value.paths
+      p.medicineDb = path.trim() ? path.trim() : p.medicineDbDefault
+      return p
+    },
     linkedSetMedicinePassword: async () => {
       calls.setPassword += 1
       return true
@@ -61,6 +75,8 @@ beforeEach(() => {
   linkedState.value.paths.medicineCloudReady = false
   calls.setPassword = 0
   calls.refresh = 0
+  calls.blogDir = 0
+  calls.medDb = 0
 })
 
 function medicineSnap(detail: string) {
@@ -124,7 +140,10 @@ describe('外部源不可用时的降级', () => {
     const collapsed = wrapper.find('.y-empty.collapsed')
     expect(collapsed.exists()).toBe(true)
     expect(collapsed.text()).toContain('本地仓库里没有可显示的清单')
-    expect(wrapper.find('.blk').exists()).toBe(false)
+    // 原来断言的是「页面上不该有 .blk」，但「本机仓库位置」也是一块 .blk ——
+    // 仓库不可用时恰恰需要它出现。所以断言收窄成"不该有清单内容"。
+    expect(wrapper.find('.cards').exists()).toBe(false)
+    expect(wrapper.find('.rr').exists()).toBe(false)
   })
 })
 
@@ -205,5 +224,65 @@ describe('药箱数据源的标注', () => {
 
     expect(wrapper.find('.bad').exists()).toBe(false)
     expect(dir!.element.value).toContain('workbench-backup')
+  })
+})
+
+/**
+ * 「别人拿到这个应用能不能自己配」的两条断言。
+ * 命令 M3 就有（linked_set_blog_dir），但界面一直没接，于是换机/换路径只能改代码。
+ */
+describe('外部源路径就地可改', () => {
+  it('博客页有仓库目录输入框，保存走 linkedSetBlogDir', async () => {
+    const wrapper = mount(Blog, mountOpts)
+    await flushPromises()
+
+    const input = wrapper.find('input[spellcheck="false"]')
+    expect(input.exists()).toBe(true)
+    await input.setValue(String.raw`D:\somewhere\else`)
+    const save = wrapper.findAll('button').find((b) => b.text() === '保存')
+    expect(save).toBeTruthy()
+    await save!.trigger('click')
+    await flushPromises()
+
+    expect(calls.blogDir).toBe(1)
+    expect((input.element as HTMLInputElement).value).toBe(String.raw`D:\somewhere\else`)
+  })
+
+  it('药箱读不到时库路径仍然可改 —— 输入框不能藏在 v-else 里', async () => {
+    linkedState.value.medicine = {
+      source: 'medicine',
+      kind: 'today',
+      fetchedAt: Date.now(),
+      sig: '',
+      status: 'missing',
+      detail: '没找到药箱的库，可能已卸载或换过位置',
+      payloadJson: '{"items":[],"count":0,"meta":{}}',
+    }
+    const wrapper = mount(Medicine, mountOpts)
+    await flushPromises()
+
+    // 降级那一行在，输入框也必须在：没装药箱正是需要改路径的时刻
+    expect(wrapper.find('.y-empty.collapsed').exists()).toBe(true)
+    const input = wrapper.find('input[spellcheck="false"]')
+    expect(input.exists()).toBe(true)
+
+    await input.setValue(String.raw`D:\elsewhere\medicine_tracker.db`)
+    const save = wrapper.findAll('button').find((b) => b.text() === '保存')
+    await save!.trigger('click')
+    await flushPromises()
+    expect(calls.medDb).toBe(1)
+  })
+
+  it('「恢复默认」只在当前值不等于默认时出现', async () => {
+    const wrapper = mount(Blog, mountOpts)
+    await flushPromises()
+    const text = () => wrapper.findAll('button').map((b) => b.text())
+    // 初值就是默认（stub 里 blogRepo 与 blogRepoDefault 不同则应出现，相同则不该出现）
+    const same = linkedState.value.paths.blogRepo === linkedState.value.paths.blogRepoDefault
+    expect(text().includes('恢复默认')).toBe(!same)
+
+    await wrapper.find('input[spellcheck="false"]').setValue(String.raw`D\another`)
+    await flushPromises()
+    expect(wrapper.findAll('button').map((b) => b.text()).includes('恢复默认')).toBe(true)
   })
 })

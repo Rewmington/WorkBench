@@ -150,6 +150,13 @@ export interface SourcePaths {
   /** 配了那第二条应用密码。不是"云端连得上"—— 那要发一次请求才知道，而首屏不发。 */
   medicineCloudReady: boolean
   onlineCheckEnabled: boolean
+  /**
+   * 三个「不改时用它」的值 —— 界面那个「恢复默认」按钮得知道默认是什么。
+   * 默认值只有 Rust 那一份：以前 TS 里手抄过一条坚果云地址，改 Rust 不会通知它。
+   */
+  blogRepoDefault: string
+  medicineDbDefault: string
+  medicineDavDefault: string
 }
 
 export interface LinkedState {
@@ -485,6 +492,8 @@ export interface Api {
   /** 「补买 X」是用户点出来的，不是系统偷偷建的 */
   linkedRestockTodo(name: string, daysLeft: number | null): Promise<Todo>
   linkedSetBlogDir(path: string): Promise<SourcePaths>
+  /** 药箱库在这台机器上的位置。空串恢复默认 —— 换机或对方改了 AppData 目录时要能改。 */
+  linkedSetMedicineDb(path: string): Promise<SourcePaths>
   /** 药箱云端备用源：邮箱进 settings，应用密码只进凭据管理器（与备份那条分开） */
   linkedSetMedicinePassword(email: string, password: string): Promise<boolean>
   linkedClearMedicinePassword(): Promise<boolean>

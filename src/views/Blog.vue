@@ -5,6 +5,7 @@ import { ExternalLink, RefreshCw } from 'lucide-vue-next'
 import { api } from '../api'
 import type { BlogPayload } from '../api/types'
 import CollapsedRow from '../components/ui/CollapsedRow.vue'
+import PathField from '../components/ui/PathField.vue'
 import { useClock } from '../composables/useClock'
 import { useLinked } from '../composables/useLinked'
 import { relTime } from '../lib/reltime'
@@ -76,6 +77,16 @@ onMounted(async () => {
   if (!linked.state.value) await linked.load()
   void linked.refreshBlog()
 })
+
+/**
+ * 换机或仓库被挪走时要能改路径。命令 M3 就有，界面一直没接 ——
+ * 于是别人拿到这个应用，博客永远显示「本地仓库目录不可用」且无从修正。
+ */
+async function saveRepoDir(raw: string): Promise<string> {
+  const p = await api.linkedSetBlogDir(raw)
+  await linked.load()
+  return p.blogRepo
+}
 </script>
 
 <template>
@@ -163,6 +174,19 @@ onMounted(async () => {
         </span>
       </section>
     </template>
+
+    <section v-if="linked.state.value" class="blk">
+      <h3>
+        本机仓库位置
+        <span class="n">改这里只是告诉工作台去哪儿读，不会动到仓库本身</span>
+      </h3>
+      <PathField
+        label="博客仓库目录（读它的 src/content/*.json）"
+        :value="linked.state.value.paths.blogRepo"
+        :fallback="linked.state.value.paths.blogRepoDefault"
+        :save="saveRepoDir"
+      />
+    </section>
   </section>
 </template>
 

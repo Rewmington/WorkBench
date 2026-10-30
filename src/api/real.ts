@@ -75,6 +75,7 @@ export const realApi: Api = {
   linkedRestockTodo: (name, daysLeft) =>
     invoke<Todo>('linked_restock_todo', { name, daysLeft }),
   linkedSetBlogDir: (path) => invoke<SourcePaths>('linked_set_blog_dir', { path }),
+  linkedSetMedicineDb: (path) => invoke<SourcePaths>('linked_set_medicine_db', { path }),
   linkedSetMedicinePassword: (email, password) =>
     invoke<boolean>('linked_set_medicine_password', { email, password }),
   linkedClearMedicinePassword: () => invoke<boolean>('linked_clear_medicine_password'),

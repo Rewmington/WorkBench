@@ -218,13 +218,16 @@ interface MedicineSeed {
   email: string | null
   hasPass: boolean
   davDir: string
+  /** 药箱库在这台机器上的位置；null = 用默认路径 */
+  dbPath: string | null
 }
 
 const MEDICINE_DAV_DEFAULT = 'https://dav.jianguoyun.com/dav/medicine-sync/'
 const MEDICINE_EMAIL_KEY = 'linked.medicine.email'
+const MEDICINE_DB_DEFAULT = String.raw`C:\Users\hp\AppData\Roaming\dev.mine\medicine_tracker\medicine_tracker.db`
 
 function freshMedicine(): MedicineSeed {
-  return { email: null, hasPass: false, davDir: MEDICINE_DAV_DEFAULT }
+  return { email: null, hasPass: false, davDir: MEDICINE_DAV_DEFAULT, dbPath: null }
 }
 
 function freshBackup(): BackupSeed {
@@ -723,11 +726,14 @@ function mockPaths(): SourcePaths {
   return {
     blogRepo: String.raw`D:\ADevelop\Repositories\Mine\Rewmington-Blog-main`,
     blogRepoExists: true,
-    medicineDb: String.raw`C:\Users\hp\AppData\Roaming\dev.mine\medicine_tracker\medicine_tracker.db`,
+    medicineDb: store.medicine.dbPath ?? MEDICINE_DB_DEFAULT,
     medicineDbExists: true,
     medicineDav: store.medicine.davDir,
     medicineCloudReady: store.medicine.hasPass,
     onlineCheckEnabled: true,
+    blogRepoDefault: String.raw`D:\ADevelop\Repositories\Mine\Rewmington-Blog-main`,
+    medicineDbDefault: MEDICINE_DB_DEFAULT,
+    medicineDavDefault: MEDICINE_DAV_DEFAULT,
   }
 }
 
@@ -987,6 +993,14 @@ export const mockApi: Api = {
     store.settings[MEDICINE_EMAIL_KEY] = null
     save()
     return false
+  },
+  linkedSetMedicineDb: async (path) => {
+    // 与 Rust 的 normalize_dir 同口径：去首尾空白与引号，空串 = 恢复默认。
+    // 相对路径展开那步需要进程 CWD，浏览器里没有，只能留给真后端验。
+    const next = path.trim().replace(/"/g, '').trim()
+    store.medicine.dbPath = next || null
+    save()
+    return mockPaths()
   },
   linkedSetMedicineDir: async (dir) => {
     // 与 Rust 的 ReadRemote::check_dir 同一条规则：只有反向钉子，不校验地址格式

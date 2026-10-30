@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { CloudDownload, RefreshCw } from 'lucide-vue-next'
+import { CloudDownload, HardDrive, RefreshCw } from 'lucide-vue-next'
 
 import { api } from '../api'
 import CollapsedRow from '../components/ui/CollapsedRow.vue'
+import PathField from '../components/ui/PathField.vue'
 import UndoBar from '../components/ui/UndoBar.vue'
 import { useClock } from '../composables/useClock'
 import { useLinked } from '../composables/useLinked'
@@ -63,11 +64,9 @@ async function restock(name: string, daysLeft: number | null) {
 // ---- 云端备用源的配置表单 ----
 
 const EMAIL_KEY = 'linked.medicine.email'
-const DEFAULT_DAV = 'https://dav.jianguoyun.com/dav/medicine-sync/'
 
 const email = ref('')
 const password = ref('')
-const dir = ref('')
 const saving = ref(false)
 const notice = ref<string | null>(null)
 const error = ref<string | null>(null)
@@ -108,23 +107,21 @@ async function forgetCred() {
   }
 }
 
-async function saveDir(raw: string) {
-  error.value = null
-  notice.value = null
-  const blank = !raw.trim()
-  try {
-    const next = await api.linkedSetMedicineDir(raw)
-    dir.value = next
-    notice.value = blank ? `已恢复默认目录 ${next}` : `已改用 ${next}`
-    await linked.load()
-  } catch (e) {
-    error.value = String(e)
-  }
+/** 两个路径都交给 PathField：同一套「保存 / 恢复默认 / 后端原话」措辞，不再各写一遍 */
+async function saveDavDir(raw: string): Promise<string> {
+  const next = await api.linkedSetMedicineDir(raw)
+  await linked.load()
+  return next
+}
+
+async function saveDbPath(raw: string): Promise<string> {
+  const p = await api.linkedSetMedicineDb(raw)
+  await linked.load()
+  return p.medicineDb
 }
 
 onMounted(async () => {
   if (!linked.state.value) await linked.load()
-  dir.value = paths.value?.medicineDav ?? DEFAULT_DAV
   email.value = String((await api.settingsGet(EMAIL_KEY)) ?? '')
   void linked.refreshMedicine()
 })
@@ -204,6 +201,19 @@ onMounted(async () => {
       </p>
     </template>
 
+    <div v-if="paths" class="blk">
+      <h3>
+        <HardDrive :size="13" /> 本机库位置
+        <span class="n">{{ paths.medicineDbExists ? '读得到' : '这个位置没有药箱的库' }}</span>
+      </h3>
+      <PathField
+        label="药箱的 SQLite 库（复制一份再只读打开，用完删）"
+        :value="paths.medicineDb"
+        :fallback="paths.medicineDbDefault"
+        :save="saveDbPath"
+      />
+    </div>
+
     <div class="blk">
       <h3>
         <CloudDownload :size="13" /> 坚果云备用源
@@ -231,14 +241,12 @@ onMounted(async () => {
         <button v-if="cloudReady" type="button" class="y-ghost btn" @click="forgetCred">清除</button>
       </div>
 
-      <label class="fld">
-        <span>药箱的同步目录（我们只列它、读它的 <code>device-*.json</code>）</span>
-        <div class="row">
-          <input v-model="dir" spellcheck="false" autocomplete="off" />
-          <button type="button" class="y-ghost btn" @click="saveDir(dir)">保存</button>
-          <button v-if="dir !== DEFAULT_DAV" type="button" class="y-ghost btn" @click="saveDir('')">恢复默认</button>
-        </div>
-      </label>
+      <PathField
+        label="药箱的同步目录（我们只列它、读它的 device-*.json）"
+        :value="paths?.medicineDav ?? ''"
+        :fallback="paths?.medicineDavDefault ?? ''"
+        :save="saveDavDir"
+      />
 
       <p v-if="notice" class="ok">{{ notice }}</p>
       <p v-if="error" class="bad">{{ error }}</p>

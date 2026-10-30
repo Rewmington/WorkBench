@@ -294,6 +294,35 @@ pub fn linked_set_medicine_dir(state: State<'_, AppState>, dir: String) -> Resul
     Ok(value)
 }
 
+/// 改药箱库的位置。空串恢复默认（`%APPDATA%\dev.mine\medicine_tracker\medicine_tracker.db`）。
+///
+/// 与博客那条一样只做展开与去引号，**不要求文件此刻存在**：药箱可能压根没装在这台机器上，
+/// 那正是云端那条路的存在理由（§6.2），在这里拦一道就把用户的正当配置挡死了。
+#[tauri::command]
+pub fn linked_set_medicine_db(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<paths::SourcePaths, Error> {
+    let now = SystemNow;
+    let conn = state.lock();
+    match paths::normalize_dir(&path) {
+        Some(dir) => settings::set_json(
+            &conn,
+            settings::KEY_MEDICINE_DB,
+            &json!(dir.display().to_string()),
+            now.ms(),
+            &state.device_id,
+        )?,
+        None => {
+            conn.execute(
+                "DELETE FROM settings WHERE key = ?1",
+                rusqlite::params![settings::KEY_MEDICINE_DB],
+            )?;
+        }
+    }
+    paths::resolve(&conn, &now, &state.device_id)
+}
+
 /// 「补买 X」是用户点出来的，不是系统偷偷建的（PLAN §6.1：副本读失败不生成任何待办）。
 #[tauri::command]
 pub fn linked_restock_todo(
