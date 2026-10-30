@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="zh-CN" data-mode="dark" data-preset="graphite" data-accent="green">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>课表视图 · Anvil</title>
+<style>
+/* ===== 令牌：逐条抄自 src/style.css 的冻结表，不新增 ===== */
+:root {
+  --bg: #080b0a; --panel: #0d1110; --card: #131816; --card-2: #0f1413;
+  --line: rgba(255,255,255,.07); --line-2: rgba(255,255,255,.12);
+  --t1: #f1f5f3; --t2: #a3ada8; --t3: #6b7571;
+  --accent: #2ee27a; --accent-2: #10b981; --accent-ink: #04240f; --accent-soft: rgba(46,226,122,.14);
+  --blue: #60a5fa; --amber: #fbbf24; --red: #f87171; --violet: #a78bfa;
+  --r: 14px; --r-sm: 10px; --r-xs: 8px;
+  --dur-1: 120ms; --dur-2: 160ms; --ease: cubic-bezier(.2,.7,.3,1);
+}
+[data-mode='light'] {
+  --bg: #eef1f0; --panel: #f8faf9; --card: #ffffff; --card-2: #f2f5f4;
+  --line: rgba(20,30,26,.09); --line-2: rgba(20,30,26,.16);
+  --t1: #101614; --t2: #57615d; --t3: #8a938e;
+  --accent: #059669; --accent-2: #10b981; --accent-ink: #ffffff; --accent-soft: rgba(5,150,105,.12);
+  --blue: #2563eb; --amber: #b45309; --red: #b91c1c; --violet: #7c3aed;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--t1); font: 13px/1.5 "Inter","PingFang SC","Microsoft YaHei",system-ui,sans-serif; }
+button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+
+.pick { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 30; }
+.pick .lab { font-size: 11px; color: var(--t3); letter-spacing: .08em; font-weight: 800; }
+.pick .mode { margin-left: auto; font-size: 11.5px; color: var(--t2); border: 1px solid var(--line-2); padding: 4px 10px; border-radius: 999px; }
+.pick .wide { font-size: 11.5px; color: var(--t2); border: 1px solid var(--line-2); padding: 4px 10px; border-radius: 999px; }
+
+.win { display: grid; grid-template-columns: 208px minmax(0,1fr) 296px; height: calc(100vh - 47px); overflow: hidden; }
+.win.narrow { grid-template-columns: 56px minmax(0,1fr); }
+.win.narrow .detail, .win.narrow .brand .n, .win.narrow .nav .c, .win.narrow .grp { display: none; }
+.side { background: var(--panel); border-right: 1px solid var(--line); padding: 14px 10px; overflow-y: auto; }
+.brand { display: flex; align-items: center; gap: 8px; padding-bottom: 12px; }
+.brand .b { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; background: linear-gradient(150deg,var(--accent),#0a7a45); color: var(--accent-ink); font-size: 13px; font-weight: 800; flex: none; }
+.brand .n { font-size: 15px; font-weight: 800; }
+.grp { font-size: 10px; color: var(--t3); font-weight: 800; letter-spacing: .1em; padding: 12px 8px 5px; }
+.nav button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 9px; border-radius: var(--r-xs); font-size: 13px; color: var(--t2); font-weight: 600; }
+.nav button:hover { background: var(--card-2); color: var(--t1); }
+.nav button.on { background: var(--accent-soft); color: var(--t1); font-weight: 750; }
+.nav .i { width: 15px; text-align: center; opacity: .85; flex: none; }
+.nav .c { margin-left: auto; font-size: 10.5px; color: var(--t3); }
+
+.main { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 15px 16px 16px; gap: 11px; overflow: hidden; }
+.detail { border-left: 1px solid var(--line); background: var(--panel); padding: 14px 13px; overflow-y: auto; }
+.detail h3 { font-size: 12.5px; margin: 0 0 10px; }
+.detail .ph { border: 1px dashed var(--line-2); border-radius: var(--r-sm); padding: 12px; font-size: 11.5px; color: var(--t3); line-height: 1.7; }
+.detail dl { margin: 0; font-size: 11.5px; }
+.detail dt { color: var(--t3); margin-top: 9px; }
+.detail dd { margin: 2px 0 0; color: var(--t1); font-weight: 650; }
+.link { display: flex; align-items: center; gap: 7px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 12px; }
+.link .cb { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--line-2); flex: none; }
+
+.head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.head h1 { font-size: 21px; font-weight: 850; letter-spacing: -.02em; margin: 0; }
+.wk { display: flex; align-items: center; gap: 4px; }
+.wk button { border: 1px solid var(--line); border-radius: var(--r-xs); padding: 4px 9px; font-size: 11.5px; color: var(--t2); font-weight: 700; }
+.wk button:hover { border-color: var(--line-2); color: var(--t1); }
+.wk .now { background: var(--card); color: var(--t1); border-color: var(--line-2); }
+.prog { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--t3); }
+.prog .bar { width: 96px; height: 4px; border-radius: 999px; background: var(--card-2); overflow: hidden; }
+.prog .bar i { display: block; height: 100%; background: var(--accent); }
+
+/* ===== 网格：列 = 周一~周日，行 = 节次 ===== */
+.gridwrap { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--card); }
+table { height: 100%; min-height: 420px; }
+table { border-collapse: separate; border-spacing: 0; width: 100%; table-layout: fixed; }
+th, td { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); vertical-align: top; }
+thead th { position: sticky; top: 0; z-index: 3; background: var(--card-2); padding: 8px 6px; font-size: 11.5px; font-weight: 750; color: var(--t2); text-align: center; }
+thead th.today { background: var(--accent-soft); color: var(--t1); }
+thead th .d { display: block; font-size: 10px; color: var(--t3); font-weight: 600; margin-top: 1px; }
+th.hour { position: sticky; left: 0; z-index: 4; background: var(--card-2); width: 74px; text-align: left; padding: 8px; font: 700 10.5px/1.35 ui-monospace,Consolas,monospace; color: var(--t3); }
+th.hour b { display: block; color: var(--t2); font-size: 11px; font-family: inherit; }
+td.hour { position: sticky; left: 0; z-index: 2; background: var(--card-2); width: 74px; }
+td { padding: 5px; }
+td.today { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+td.free .f { font-size: 10.5px; color: var(--t3); opacity: .5; padding: 4px 6px; }
+
+.cls { display: block; width: 100%; height: 100%; border-radius: var(--r-xs); padding: 7px 8px; text-align: left; border: 1px solid transparent; position: relative; overflow: hidden; }
+.cls .n { font-size: 12px; font-weight: 750; line-height: 1.25; display: block; }
+.cls .w { font-size: 10.5px; opacity: .85; margin-top: 3px; display: block; }
+.cls .r { font-size: 10.5px; opacity: .85; display: block; }
+/* 六门课六种色相，全部走 color-mix 调档：不往 :root 加新令牌（token-check 会拦） */
+.c0 { background: color-mix(in srgb, var(--accent) 17%, transparent); color: var(--t1); }
+.c1 { background: color-mix(in srgb, var(--blue) 17%, transparent); }
+.c2 { background: color-mix(in srgb, var(--amber) 16%, transparent); }
+.c3 { background: color-mix(in srgb, var(--violet) 17%, transparent); }
+.c4 { background: color-mix(in srgb, var(--red) 15%, transparent); }
+.c5 { background: var(--card-2); border-color: var(--line-2); }
+.cls .odd { font-size: 9px; font-weight: 800; color: var(--t3); border: 1px solid var(--line-2); border-radius: 3px; padding: 0 3px; margin-left: 4px; white-space: nowrap; }
+.cls.live { outline: 2px solid var(--accent); outline-offset: -2px; }
+.cls.sel { background: var(--accent); color: var(--accent-ink); }
+.cls.sel .w, .cls.sel .r { opacity: .8; }
+
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--t3); }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+</style>
+</head>
+<body>
+<div class="pick">
+  <span class="lab">课表视图 · 单独一张表，课不进待办</span>
+  <button class="wide" id="wide">切窄屏（760）</button>
+  <button class="mode iconbtn" id="mode" title="切到亮色">切亮/暗</button>
+</div>
+
+<div class="win" id="win">
+  <aside class="side">
+    <div class="brand"><span class="b">A</span><span class="n">Anvil</span></div>
+    <div class="grp">第一组</div>
+    <div class="nav">
+      <button><span class="i">◔</span>今日驾驶舱</button>
+      <button><span class="i">≡</span>待办<span class="c">14</span></button>
+      <button><span class="i">⚡</span>速达</button>
+      <button><span class="i">▤</span>笔记</button>
+      <button><span class="i">◷</span>进行中</button>
+    </div>
+    <div class="grp">回顾</div>
+    <div class="nav">
+      <button><span class="i">˙</span>统计</button>
+      <button><span class="i">▦</span>日历</button>
+      <button class="on"><span class="i">◫</span>课表</button>
+    </div>
+    <div class="grp">外部</div>
+    <div class="nav"><button><span class="i">◱</span>博客<span class="c">5</span></button><button><span class="i">◈</span>药箱<span class="c">2</span></button></div>
+    <div class="grp">系统</div>
+    <div class="nav"><button><span class="i">☁</span>备份</button><button><span class="i">⚙</span>设置</button></div>
+  </aside>
+
+  <main class="main y-ctr">
+    <div class="head">
+      <h1>课表</h1>
+      <div class="wk">
+        <button>‹</button><button class="now">第 8 周 · 10/26–11/01</button><button>›</button>
+      </div>
+      <div class="prog"><span>学期 8/19 周</span><span class="bar"><i style="width:42%"></i></span></div>
+    </div>
+    <div class="gridwrap"><table id="tt"></table></div>
+    <div class="legend" id="legend"></div>
+  </main>
+
+  <aside class="detail" id="detail"></aside>
+</div>
+
+<script>
+/* 节次表：中国大学常见的 5 档（含晚自习）。行 = 节次，列 = 星期。 */
+const HOURS = [
+  { k: '1-2', t: '08:00', e: '09:40' },
+  { k: '3-4', t: '10:00', e: '11:40' },
+  { k: '5-6', t: '14:00', e: '15:40' },
+  { k: '7-8', t: '16:00', e: '17:40' },
+  { k: '9-10', t: '19:00', e: '20:40' },
+]
+const DAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+const DATE = ['27', '28', '29', '30', '31', '01', '02']
+const TODAY_COL = 3 /* 10/30 周四 */
+const LIVE = '3-4' /* 当前那一节 */
+
+/* 课程：week = 生效周；odd = 单周/双周限定 */
+const COURSES = [
+  { n: '高等数学 B', w: '王建明', r: '三教 201', d: 0, h: '1-2', c: 0, weeks: '1–16' },
+  { n: '大学英语读写', w: '李慧', r: '外院 305', d: 0, h: '3-4', c: 1, weeks: '1–12' },
+  { n: '数据结构', w: '张磊', r: '实验楼 A302', d: 1, h: '1-2', c: 2, weeks: '3–16' },
+  { n: '离散数学', w: '陈立', r: '三教 107', d: 1, h: '5-6', c: 3, weeks: '1–14' },
+  { n: '思想政治', w: '周敏', r: '一教 101', d: 2, h: '3-4', c: 4, weeks: '1–16', odd: '单周' },
+  { n: '大学物理实验', w: '吴涛', r: '物实 402', d: 2, h: '7-8', c: 5, weeks: '5–15', odd: '双周' },
+  { n: '高等数学 B', w: '王建明', r: '三教 201', d: 3, h: '1-2', c: 0, weeks: '1–16' },
+  { n: '数据结构习题', w: '张磊', r: '实验楼 A302', d: 3, h: LIVE, c: 2, weeks: '3–16' },
+  { n: '体育（游泳）', w: '孙浩', r: '北游泳馆', d: 3, h: '7-8', c: 1, weeks: '1–16' },
+  { n: '大学英语听说', w: 'Brown', r: '外院 112', d: 4, h: '1-2', c: 1, weeks: '1–12' },
+  { n: '计算机组成原理', w: '赵强', r: '三教 305', d: 4, h: '3-4', c: 3, weeks: '6–18' },
+  { n: '班会 / 选修', w: '—', r: '线上', d: 4, h: '7-8', c: 5, weeks: '每周' },
+]
+/* 一节课关联的待办：这是课表与待办之间唯一的联系 */
+const LINKED = {
+  '数据结构习题': [{ t: '交第 4 章作业', due: '今天 23:00', over: 0 }, { t: '预习第 5 章', due: '下周一前', over: 0 }],
+  '高等数学 B': [{ t: '整理积分那节的笔记', due: '逾期 1 天', over: 1 }],
+  '大学物理实验': [{ t: '补写实验报告（第 3 次）', due: '周五', over: 0 }],
+}
+
+const cell = (d, h) => COURSES.filter((c) => c.d === d && c.h === h)
+const esc = (s) => String(s).replace(/[&<>"]/g, (x) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[x]))
+
+let sel = '数据结构习题'
+
+function render() {
+  const head = `<tr><th class="hour">节次</th>${DAYS.map((d, i) =>
+    `<th class="${i === TODAY_COL ? 'today' : ''}">${d}<span class="d">10/${DATE[i]}</span></th>`,
+  ).join('')}</tr>`
+  const rows = HOURS.map((h) => {
+    const cells = DAYS.map((_, d) => {
+      const cs = cell(d, h.k)
+      if (!cs.length) {
+        return `<td class="${d === TODAY_COL ? 'today ' : ''}free"><span class="f">空闲</span></td>`
+      }
+      return `<td class="${d === TODAY_COL ? 'today' : ''}">${cs
+        .map(
+          (c) => `<button type="button" class="cls c${c.c}${c.n === sel ? ' sel' : ''}${
+            d === TODAY_COL && h.k === LIVE ? ' live' : ''
+          }" data-n="${esc(c.n)}">
+            <span class="n">${esc(c.n)}${c.odd ? ` <span class="odd">${esc(c.odd)}</span>` : ``}</span>
+            <span class="r">${esc(c.r)}</span>
+            <span class="w">${esc(c.w)} · ${esc(c.weeks)}</span>
+          </button>`,
+        )
+        .join('')}</td>`
+    }).join('')
+    return `<tr><th class="hour"><b>${h.k} 节</b>${h.t}<br>–${h.e}</th>${cells}</tr>`
+  }).join('')
+  document.getElementById('tt').innerHTML = head + rows
+  document.getElementById('legend').innerHTML =
+    `${COURSES.filter((c, i, a) => a.findIndex((x) => x.n === c.n) === i).length} 门课 · 本周 ${COURSES.length} 节` +
+    `<span><i style="background:var(--accent)"></i>此刻</span>` +
+    `<span><i style="background:var(--accent-soft)"></i>今天</span>` +
+    `<span>点格子看这门课关联的待办</span>`
+
+  const cs = COURSES.find((c) => c.n === sel)
+  const todo = LINKED[sel] || []
+  document.getElementById('detail').innerHTML = `<h3>${esc(sel)}</h3>
+    <dl>
+      <dt>教师</dt><dd>${esc(cs.w)}</dd>
+      <dt>教室</dt><dd>${esc(cs.r)}</dd>
+      <dt>时间</dt><dd>${DAYS[cs.d]} ${HOURS.find((h) => h.k === cs.h).t}–${HOURS.find((h) => h.k === cs.h).e}</dd>
+      <dt>周次</dt><dd>${esc(cs.weeks)}${cs.odd ? ' · ' + esc(cs.odd) : ''}</dd>
+      <dt>关联待办</dt><dd>${todo.length ? '' : '没有 —— 课本身不进待办列表'}</dd>
+    </dl>
+    ${todo
+      .map(
+        (x) => `<div class="link"><span class="cb"></span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.t)}</span>
+        <span style="margin-left:auto;font-size:11px;color:${x.over ? 'var(--red)' : 'var(--t3)'}">${esc(x.due)}</span></div>`,
+      )
+      .join('')}`
+  document.querySelectorAll('.cls').forEach((b) =>
+    b.addEventListener('click', () => {
+      sel = b.dataset.n
+      render()
+    }),
+  )
+}
+render()
+
+const modeBtn = document.getElementById('mode')
+modeBtn.onclick = () => {
+  const r = document.documentElement
+  r.dataset.mode = r.dataset.mode === 'dark' ? 'light' : 'dark'
+  modeBtn.title = r.dataset.mode === 'dark' ? '切到亮色' : '切到暗色'
+}
+document.getElementById('wide').onclick = () => {
+  const w = document.getElementById('win')
+  w.classList.toggle('narrow')
+  document.getElementById('detail').style.display = w.classList.contains('narrow') ? 'none' : ''
+}
+</script>
+</body>
+</html>
