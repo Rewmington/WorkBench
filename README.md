@@ -106,8 +106,8 @@ cd mobile && flutter test && flutter analyze
 推一个 `v*` tag 就会触发 [.github/workflows/release.yml](.github/workflows/release.yml)：
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 工作流会并行构建并挂到同一个 GitHub Release：
@@ -117,7 +117,7 @@ git push origin v0.1.0
 
 在 Actions 页面手动运行同一工作流是**干跑**：只产出 workflow artifacts，不建 Release。
 
-> 目前产物**未做发布签名**：Windows 首次运行会弹 SmartScreen；APK 使用 debug 签名（仅自用/侧载），而且每个 runner 生成的 debug 证书不同，**跨版本安装要先卸载旧版**。应用内自动更新不在当前范围。
+> Windows 产物未做发布签名（首次运行会弹 SmartScreen）。Android 用**固定发布签名**：本机在 `mobile/android/key.properties`，CI 从 GitHub Secrets 还原同一把 keystore。从 v0.1.0（临时 debug 证书）升到 v0.1.1 需卸载一次，之后可直接覆盖安装。应用内自动更新不在当前范围。
 
 ## 数据与隐私
 

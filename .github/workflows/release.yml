@@ -84,6 +84,23 @@ jobs:
         working-directory: mobile
         run: flutter test
 
+      - name: 还原发布签名
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            mkdir -p mobile/.signing
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > mobile/.signing/anvil-release.jks
+            printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=../.signing/anvil-release.jks\n' \
+              "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_PASSWORD" "$ANDROID_KEY_ALIAS" \
+              > mobile/android/key.properties
+          else
+            echo "没有签名 secrets，回退 debug 证书"
+          fi
+
       - name: 打 APK
         working-directory: mobile
         run: flutter build apk --release

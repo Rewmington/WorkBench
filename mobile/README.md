@@ -60,6 +60,10 @@ flutter run -d windows \
 - **`third_party/flutter_secure_storage_windows`**：该包的 Windows 实现要 Visual Studio 的 ATL（`atlstr.h`），本机工具链没装，会把 Windows 取证构建挡死。这里放同一版本的本地副本，只去掉 C++ 插件、保留 Dart FFI 实现；Android 仍用主包的 Keystore 实现。这是取证链的补丁，不是加密方案改动。
 - **`pubspec.yaml` 的 `hooks.user_defines.sqlite3`**：`sqflite_common_ffi` 只是测试依赖，但原生资产钩子会在 App 构建时也跑。Windows 用系统 `winsqlite3.dll`，Android 指到系统库，避免构建时去 GitHub 下载二进制；App 运行时走 sqflite 平台通道，不会碰它。
 
+## 发布签名
+
+release APK 用固定 keystore 签名：本机文件在 `mobile/.signing/anvil-release.jks` + `mobile/android/key.properties`（两者被忽略）；CI 从 `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD` 四个 secrets 还原。没有 key.properties 时回退 debug 证书。
+
 ## 已知限制
 
 - 只做 Android；没有 iOS 工程。

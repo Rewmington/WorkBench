@@ -697,3 +697,13 @@ M11c 在状态表里还是 🟡，欠的三块是手机侧 SQLite、快照/合�
 - **药箱账号可与同步账号不同**：新增设置页「药箱账号」行与 `Anvil/medicine-webdav` Keystore 条目；邮箱留空 = 回退同步那组，填了但没密码不会悄悄回退。服务层、Store、设置页与测试同步改。
 - 测试从 75 条增至 **81 条**（独立账号、回退、DNS 文案、设置页新行），`flutter analyze` 干净；本地 release APK 已重建并确认 `INTERNET` 在包里。
 - **v0.1.0 的 Release APK 仍是有问题的版本**，需要发 v0.1.1 或让用户先装本地新包；离线环境无法在真机复验 401，等用户在真机上确认。
+
+## v0.1.1：固定 Android 签名（2026-10-31）
+
+v0.1.0 的 APK 是 CI 临时 debug 证书签的，既不能跨版本覆盖安装，又缺 INTERNET。v0.1.1 一起收掉：
+
+- 本机生成固定发布 keystore：`mobile/.signing/anvil-release.jks`（忽略），`mobile/android/key.properties` 指向它（忽略）。
+- CI 用四个 secrets 还原同一把：`ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD`；没有时回退 debug 证书。
+- `build.gradle.kts` 读 key.properties 决定 release 签名；本地已重建验证：证书 `CN=Anvil`、`versionCode=2`、`versionName=0.1.1`、含 `INTERNET`。
+- 版本号：桌面与手机统一到 0.1.1（手机 `0.1.1+2`）。
+- **从 v0.1.0 升上来要卸载一次**（旧包是另一把 debug 证书）；之后同签名的版本可直接覆盖。

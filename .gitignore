@@ -17,6 +17,10 @@ tools/.webdav-sync-root/
 # 本机数据库备份件（可能含有个人数据）
 *.abackup
 
+# Android 发布签名（本机保留；CI 从 GitHub Secrets 还原）
+mobile/.signing/
+mobile/android/key.properties
+
 # 编辑器 / 代理工具
 .qoder/
 .idea/
