@@ -277,6 +277,179 @@ pub fn import(conn: &Connection, now: &dyn Now, device: &str, text: &str) -> Res
     })
 }
 
+/// 空档至少这么长才算"有空"。界面上要把这个数写出来（§2 原则 5：不藏着门槛）。
+pub const MIN_GAP_MINUTES: i32 = 30;
+
+/// 今天在第几周。开学日没设 / 还没开学 / 学期已结束 → `None`，
+/// 而不是回一个 0 或者硬猜 —— 猜错会把一整个学期的课表显示成另一周的样子。
+pub fn week_of(week1_monday_day: i32, today_day: i32, total_weeks: i32) -> Option<i32> {
+    let elapsed = crate::time::days::days_between(week1_monday_day, today_day);
+    if elapsed < 0 {
+        return None;
+    }
+    let week = (elapsed / 7 + 1) as i32;
+    (week <= total_weeks).then_some(week)
+}
+
+/// 一段周次集合的最高周，如 `1-10,12-16` → 16。
+fn weeks_high(spec: &str) -> Option<i32> {
+    spec.split(',')
+        .filter_map(|part| part.trim().split('-').next_back())
+        .filter_map(|n| n.parse::<i32>().ok())
+        .max()
+}
+
+/// 学期总周数：CSV 里没有这一项，从各课周次集合的最大端推一个默认值（界面允许改）。
+fn max_week(specs: impl Iterator<Item = String>) -> Option<i32> {
+    specs.filter_map(|s| weeks_high(&s)).max()
+}
+
+/// 当前时间之后、长度 ≥ `MIN_GAP_MINUTES` 的第一段空档。
+///
+/// 课表页与待办「今天」档顶部那行**必须调这一个函数**（§8.8 第 8 条）：
+/// 两处各写一遍，迟早给出两个"最近的空档"。
+pub fn next_free_gap(rows: &[ClassRow], now_min: i32) -> Option<(i32, i32)> {
+    let mut ends: Vec<(i32, i32)> = rows.iter().map(|r| (r.start_min, r.end_min)).collect();
+    ends.sort_unstable();
+    let mut cursor = now_min;
+    for (start, end) in ends {
+        if end <= cursor {
+            continue; // 已经上完的课不该把游标推回去
+        }
+        if start - cursor >= MIN_GAP_MINUTES {
+            return Some((cursor, start));
+        }
+        cursor = cursor.max(end);
+    }
+    None
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StateView {
+    pub term: Option<String>,
+    /// ISO 日期 `yyyy-mm-dd`；没设过时为 None —— 界面据此要求填开学日
+    pub week1_monday: Option<String>,
+    pub current_week: Option<i32>,
+    pub total_weeks: Option<i32>,
+    pub rows: usize,
+    pub courses: usize,
+}
+
+fn setting_str(conn: &Connection, key: &str) -> Option<String> {
+    conn.query_row("SELECT value_json FROM settings WHERE key = ?1", params![key], |r| {
+        r.get::<_, String>(0)
+    })
+    .optional()
+    .ok()
+    .flatten()
+    .and_then(|v| {
+        let t = v.trim().trim_matches('"').to_owned();
+        (!t.is_empty() && t != "null").then_some(t)
+    })
+}
+
+fn put_setting(conn: &Connection, key: &str, json: &str, ms: i64, device: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO settings (key, value_json, updated_at, updated_by)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
+        params![key, json, ms, device],
+    )?;
+    Ok(())
+}
+
+/// `2026-09-07` → `20260907`（本地日整数）。校验到能拒绝乱填的程度即可。
+pub fn iso_to_day(iso: &str) -> Result<i32> {
+    let parts: Vec<&str> = iso.trim().split('-').collect();
+    if parts.len() != 3 || parts[0].len() != 4 || parts[1].len() != 2 || parts[2].len() != 2 {
+        return Err(Error::msg("开学日要用 yyyy-mm-dd 这种写法"));
+    }
+    let (y, m, d) = (
+        parts[0].parse::<i32>().map_err(|_| Error::msg("开学日不是合法日期"))?,
+        parts[1].parse::<i32>().map_err(|_| Error::msg("开学日不是合法日期"))?,
+        parts[2].parse::<i32>().map_err(|_| Error::msg("开学日不是合法日期"))?,
+    );
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return Err(Error::msg("开学日的月或日不在范围内"));
+    }
+    Ok(y * 10000 + m * 100 + d)
+}
+
+pub fn state(conn: &Connection, now: &dyn Now) -> Result<StateView> {
+    let term = setting_str(conn, KEY_TERM);
+    let week1 = setting_str(conn, KEY_WEEK1);
+    let want = term.clone().unwrap_or_default();
+    let mut stmt = conn.prepare(
+        "SELECT weeks, name FROM classes WHERE deleted_at IS NULL AND (?1 = '' OR term = ?1)",
+    )?;
+    let pairs: Vec<(String, String)> = stmt
+        .query_map(params![want], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(stmt);
+
+    let total_weeks = max_week(pairs.iter().map(|(w, _)| w.clone()));
+
+    let current_week = match (week1.as_deref(), total_weeks) {
+        (Some(iso), Some(tw)) => iso_to_day(iso)
+            .ok()
+            .and_then(|monday| week_of(monday, now.today(), tw)),
+        _ => None,
+    };
+
+    let courses = pairs.iter().map(|(_, n)| n.as_str()).collect::<std::collections::HashSet<_>>().len();
+    Ok(StateView {
+        term,
+        week1_monday: week1,
+        current_week,
+        total_weeks,
+        rows: pairs.len(),
+        courses,
+    })
+}
+
+pub fn set_week1(conn: &Connection, now: &dyn Now, device: &str, iso: &str) -> Result<StateView> {
+    let trimmed = iso.trim();
+    if trimmed.is_empty() {
+        // 清空 = 回到"还没设"，界面重新提示，而不是留一个假日期在那儿算周次
+        put_setting(conn, KEY_WEEK1, "null", now.ms(), device)?;
+    } else {
+        iso_to_day(trimmed)?;
+        // 存 ISO 原样：input[type=date] 回填要的就是这个格式，整数日留给算周次时现转
+        put_setting(conn, KEY_WEEK1, &format!("\"{trimmed}\""), now.ms(), device)?;
+    }
+    state(conn, now)
+}
+
+/// 某一周的课。`week=None` 用当前周；没设开学日时返回空而不是猜。
+pub fn week_rows(conn: &Connection, now: &dyn Now, week: Option<i32>) -> Result<(Option<i32>, Vec<ClassRow>)> {
+    let st = state(conn, now)?;
+    let Some(week) = week.or(st.current_week) else {
+        return Ok((None, Vec::new()));
+    };
+    let term = st.term.unwrap_or_default();
+    let mut stmt = conn.prepare(
+        "SELECT name, teacher, room, day, start_min, end_min, period, weeks
+         FROM classes WHERE deleted_at IS NULL AND term = ?1 ORDER BY day, start_min",
+    )?;
+    let all: Vec<ClassRow> = stmt
+        .query_map(params![term], |r| {
+            Ok(ClassRow {
+                name: r.get(0)?,
+                teacher: r.get(1)?,
+                room: r.get(2)?,
+                day: r.get(3)?,
+                start_min: r.get(4)?,
+                end_min: r.get(5)?,
+                period: r.get(6)?,
+                weeks: r.get(7)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(stmt);
+    Ok((Some(week), all.into_iter().filter(|c| weeks_include(&c.weeks, week)).collect()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -403,5 +576,128 @@ mod tests {
             .query_row("SELECT count(*) FROM classes", [], |r| r.get(0))
             .unwrap();
         assert_eq!(n, 5);
+        // §6.7 边界 2：课不是待办。导入一行都不该往 todos 里写。
+        let todos: i64 = conn.query_row("SELECT count(*) FROM todos", [], |r| r.get(0)).unwrap();
+        assert_eq!(todos, 0, "导入课表不该顺手造待办");
+    }
+
+    #[test]
+    fn a_week_is_seven_days_counted_from_the_first_monday() {
+        // 2026-09-07 是周一
+        assert_eq!(week_of(20260907, 20260907, 19), Some(1));
+        assert_eq!(week_of(20260907, 20260913, 19), Some(1), "周日还在第 1 周");
+        assert_eq!(week_of(20260907, 20260914, 19), Some(2));
+        assert_eq!(week_of(20260907, 20260830, 19), None, "还没开学别说第 0 周");
+        assert_eq!(week_of(20260907, 20270201, 19), None, "学期结束了也不该继续编号");
+    }
+
+    #[test]
+    fn the_free_gap_waits_for_a_real_thirty_minutes() {
+        let at = |day: i32, s: i32, e: i32| ClassRow {
+            name: "课".into(),
+            teacher: String::new(),
+            room: String::new(),
+            day,
+            start_min: s,
+            end_min: e,
+            period: String::new(),
+            weeks: "1-16".into(),
+        };
+        let rows = vec![at(1, 480, 580), at(1, 600, 700), at(1, 710, 800)];
+        // 第一节之前那段是真空档
+        assert_eq!(next_free_gap(&rows, 400), Some((400, 480)));
+        // 正在上课 → 跳过；下一节只有 10 分钟 → 不算；课后没有下一节 → 不编空档
+        assert_eq!(next_free_gap(&rows, 600), None);
+        assert_eq!(next_free_gap(&rows, 700), None);
+        assert_eq!(next_free_gap(&rows, 800), None, "最后一节之后不该凭空造一段");
+        assert_eq!(
+            next_free_gap(&[at(1, 480, 500), at(1, 600, 700)], 500),
+            Some((500, 600)),
+            "刚好 60 分钟该算"
+        );
+        assert_eq!(
+            next_free_gap(&[at(1, 480, 500), at(1, 520, 700)], 500),
+            None,
+            "20 分钟不算空档（界面上要把门槛写出来）"
+        );
+    }
+
+    #[test]
+    fn overlapping_classes_do_not_fabricate_a_gap() {
+        let at = |s: i32, e: i32| ClassRow {
+            name: "课".into(),
+            teacher: String::new(),
+            room: String::new(),
+            day: 1,
+            start_min: s,
+            end_min: e,
+            period: String::new(),
+            weeks: "1-16".into(),
+        };
+        // 调课常见：两节时间重叠。游标必须取 max(end)，否则会算出一段不存在的空档
+        assert_eq!(next_free_gap(&[at(480, 700), at(500, 800)], 480), None);
+        assert_eq!(next_free_gap(&[at(480, 500), at(490, 800)], 480), None);
+    }
+
+    /// 2026-10-30 上午十点（本地）。周次算的是本地日，所以从日整数反推毫秒，
+    /// 不用裸常量 —— `FixedNow(1.7e12)` 其实是 2023-11-14，写测试时很容易记错。
+    fn at_oct_30() -> crate::time::FixedNow {
+        crate::time::FixedNow(crate::time::days::day_start_ms(20261030) + 10 * 3_600_000)
+    }
+
+    #[test]
+    fn no_current_week_until_the_first_monday_is_set() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        crate::db::migrations::migrate(&mut conn).unwrap();
+        let now = at_oct_30();
+        import(&conn, &now, "pc", CSV).unwrap();
+
+        let st = state(&conn, &now).unwrap();
+        assert_eq!(st.term.as_deref(), Some("2026-2027-1"));
+        assert_eq!(st.rows, 5);
+        assert_eq!(st.courses, 4, "五段里 人工智能 出现两次，门数按名字去重");
+        assert_eq!(st.total_weeks, Some(16), "总周数从周次集合的最大端推");
+        assert_eq!(st.current_week, None, "开学日没设就不该有当前周");
+        assert!(st.week1_monday.is_none());
+
+        // 设了开学日才算得出这一周：10/26 周一开学 → 10/30 是第 1 周
+        let st2 = set_week1(&conn, &now, "pc", "2026-10-26").unwrap();
+        assert_eq!(st2.current_week, Some(1));
+        assert_eq!(st2.week1_monday.as_deref(), Some("2026-10-26"), "回填 input[type=date] 要的就是它");
+
+        let (week, rows) = week_rows(&conn, &now, None).unwrap();
+        assert_eq!(week, Some(1));
+        // 3 而不是 5：体系结构是 2,4,6 周、人工智能的第二段是 9-16 周，第 1 周都不该出现
+        assert_eq!(rows.len(), 3);
+
+        // 清空回到"没设"，而不是留一个假日期在那儿算周次
+        let st3 = set_week1(&conn, &now, "pc", "").unwrap();
+        assert_eq!(st3.current_week, None);
+        assert_eq!(st3.rows, 5, "清开学日不该动课");
+    }
+
+    #[test]
+    fn a_week_between_ranges_has_no_classes() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        crate::db::migrations::migrate(&mut conn).unwrap();
+        let now = at_oct_30();
+        import(&conn, &now, "pc", CSV).unwrap();
+        // 操作系统 1-10,12-16 / 体育 1,3,5,7,9：第 11 周它俩都没有
+        let (week, rows) = week_rows(&conn, &now, Some(11)).unwrap();
+        assert_eq!(week, Some(11));
+        let names: Vec<&str> = rows.iter().map(|r| r.name.as_str()).collect();
+        assert!(!names.contains(&"操作系统"), "空出来的那一周不该出现");
+        assert!(!names.contains(&"大学体育5"), "1,3,5,7,9 不含 11");
+        assert!(names.contains(&"人工智能"), "9-16 含 11，这门该在");
+        let (_, rows16) = week_rows(&conn, &now, Some(16)).unwrap();
+        assert!(rows16.iter().any(|r| r.name == "操作系统"));
+    }
+
+    #[test]
+    fn a_junk_school_start_date_is_refused_not_stored() {
+        assert_eq!(iso_to_day("2026-09-07").unwrap(), 20260907);
+        for bad in ["2026-9-7", "20260907", "2026-13-01", "开学", ""] {
+            assert!(iso_to_day(bad).is_err(), "{bad} 不该被接受");
+        }
     }
 }

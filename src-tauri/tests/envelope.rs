@@ -47,6 +47,13 @@ fn uploaded_artifact_keeps_todos_and_drops_everything_personal() {
         "药箱库存不跟着上云（夹具里那条是云端来源的，一样得剥掉）"
     );
     assert_eq!(count(&probe, "SELECT count(*) FROM backup_log"), 0, "本机流水不该跨机器");
+    // 课表与药箱缓存相反：它是手工导入、又手工补了开学日的本机数据，
+    // 换机后没有它就得重导一学期 —— 所以它该跟着备份出门（PLAN §6.7）。
+    assert_eq!(
+        count(&probe, "SELECT count(*) FROM classes"),
+        1,
+        "classes 不在剥离名单里；哪天有人把它加进去，这条会拦住"
+    );
     assert_eq!(
         count(
             &probe,

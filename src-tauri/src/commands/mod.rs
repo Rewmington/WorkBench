@@ -13,6 +13,7 @@ pub mod palette;
 pub mod settings;
 pub mod stats;
 pub mod system;
+pub mod timetable;
 pub mod todos;
 pub mod widgets;
 

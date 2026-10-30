@@ -61,6 +61,16 @@ pub fn lived_in(conn: &mut Connection, n_todos: usize) {
     )
     .expect("linked upsert");
 
+    // 课表：手工导入的本机数据，与上面那条药箱缓存相反 —— 它该跟着备份出门（PLAN §6.7）
+    conn.execute(
+        "INSERT INTO classes (id, rev, created_at, created_by, updated_at, updated_by,
+                              deleted_at, term, name, teacher, room, day,
+                              start_min, end_min, period, weeks)
+         VALUES ('cls-fixture',1,?1,'pc-a',?1,'pc-a',NULL,'2026-2027-1','数据结构','张老师','一教101',3,480,580,'第一大节 [01-02]节','1-16')",
+        [MS],
+    )
+    .expect("class insert");
+
     for (key, value) in [
         (
             settings::KEY_BLOG_REPO_DIR,
