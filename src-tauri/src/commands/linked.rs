@@ -48,12 +48,13 @@ pub async fn linked_refresh_blog(app: AppHandle) -> Result<Vec<linked::SnapshotV
 
         // 线上是主源（站点每天 cron 重建，本地 checkout 不会同步 —— PLAN §6.8）。
         // 整轮全失败之后的抑制窗口内不再重撞冷启，直接退回本机仓库那份并说明原因。
-        let online = if blog_online::suppressed_until(now.ms()) {
+        let online = if blog_online::BLOG.suppressed(now.ms()) {
             Default::default()
         } else {
             blog_online::fetch_all(blog_local::kinds())
         };
-        let snaps = blog_online::merge(blog_local::read_repo(&repo, &now), &online, now.ms());
+        let snaps =
+            blog_online::merge(blog_local::read_repo(&repo, &now), &online, now.ms(), &blog_online::BLOG);
         let conn = state.lock();
         for snap in &snaps {
             linked::upsert(&conn, snap)?;

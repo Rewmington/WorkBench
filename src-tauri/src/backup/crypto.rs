@@ -23,6 +23,17 @@ pub const M_KIB: u32 = 65_536;
 pub const T_COST: u32 = 3;
 pub const P_COST: u32 = 1;
 
+/// 同步信封用的是**另一档成本**：手机打开一次 app 要派生两次（自己 seal 一份 +
+/// 开对方那一份），64 MiB 那档在真机上就是半秒起步的白等。
+///
+/// 2026-10-30 实测（`mobile/test/argon2_bench_test.dart`，纯 Dart 实现、本机 Dart VM）：
+/// 64 MiB/3/1 单次 632 ms，16 MiB/3/1 单次 129 ms。PLAN-MOBILE §7 第 1 条那条
+/// 「>1 s 就降参数」踩线的是前者（两次 ≈ 1.26 s），所以同步走 16 MiB ——
+/// 降的是成本不是算法，参数写进头部，`open` 照文件里的值派生，两端照样互通。
+pub const SYNC_M_KIB: u32 = 16_384;
+pub const SYNC_T_COST: u32 = 3;
+pub const SYNC_P_COST: u32 = 1;
+
 const SALT_LEN: usize = 16;
 const NONCE_LEN: usize = 12;
 const HEADER_LEN: usize = MAGIC.len() + 1 + 1 + 4 + 4 + 1 + SALT_LEN + NONCE_LEN;
@@ -55,18 +66,24 @@ fn derive(secret: &str, salt: &[u8], m_kib: u32, t: u32, p: u32) -> Result<[u8; 
 
 /// `secret` 是 `email:应用密码` —— 邮箱也进 KDF，
 /// 这样同一个应用密码在别的账号下解不开我们的快照。
+/// 用的是日备那档成本（[M_KIB]/[T_COST]/[P_COST]）。
 pub fn seal(secret: &str, plaintext: &[u8]) -> Result<Vec<u8>> {
+    seal_with(secret, plaintext, M_KIB, T_COST, P_COST)
+}
+
+/// 同一份布局，成本参数由调用方给。同步那份用 [SYNC_M_KIB]（见上面那段实测）。
+pub fn seal_with(secret: &str, plaintext: &[u8], m_kib: u32, t: u32, p: u32) -> Result<Vec<u8>> {
     let salt: [u8; SALT_LEN] = rand::rng().random();
     let nonce: [u8; NONCE_LEN] = rand::rng().random();
-    let key = derive(secret, &salt, M_KIB, T_COST, P_COST)?;
+    let key = derive(secret, &salt, m_kib, t, p)?;
 
     let mut out = Vec::with_capacity(HEADER_LEN + plaintext.len());
     out.extend_from_slice(MAGIC);
     out.push(VERSION);
     out.push(KDF_ARGON2ID);
-    out.extend_from_slice(&M_KIB.to_be_bytes());
-    out.extend_from_slice(&T_COST.to_be_bytes());
-    out.push(P_COST as u8);
+    out.extend_from_slice(&m_kib.to_be_bytes());
+    out.extend_from_slice(&t.to_be_bytes());
+    out.push(p as u8);
     out.extend_from_slice(&salt);
     let aad_len = out.len();
     out.extend_from_slice(&nonce);

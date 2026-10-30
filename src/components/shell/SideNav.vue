@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 
 import { useBackup } from '../../composables/useBackup'
 import { useClock } from '../../composables/useClock'
 import { NAV, useShell } from '../../composables/useShell'
+import { useWidgets } from '../../composables/useWidgets'
 import { relTime } from '../../lib/reltime'
 
 const { view, counts, go } = useShell()
 const backup = useBackup()
 const { now } = useClock()
+const w = useWidgets()
 
 /**
  * 上次成功时间只有一个来源：backup_log（useBackup 的 status）。
@@ -25,8 +27,42 @@ const backupCard = computed(() => {
   return { v: relTime(now.value, st.lastSuccessAt), sub: null }
 })
 
+/**
+ * 系统资源从「进行」视图的部件搬到这里（2026-10-30）：它是"随时瞥一眼"的东西，
+ * 不该要先切到一个视图才看得到。搬过来就不再有两份读数算法 —— 只这一处。
+ */
+const memUsedPct = computed(() => {
+  const l = w.load.value
+  if (!l || !l.memTotal) return null
+  return Math.round(((l.memTotal - l.memAvail) / l.memTotal) * 100)
+})
+const cpuPct = computed(() => {
+  const p = w.load.value?.cpuPercent
+  return p == null ? '—' : `${p.toFixed(0)}%`
+})
+const gib = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`
+
+/**
+ * 常驻 = 一直有人在等这个数，但不必按「盯着看」的分辨率去喂它：
+ * 5 秒一次；窗口不在（最小化 / 收进托盘都是 `document.hidden`）就不采，回到前台立刻补一次。
+ */
+const SAMPLE = 5_000
+let timer = 0
+const sample = () => {
+  if (!document.hidden) void w.pollLoad()
+}
+const onVis = () => sample()
+
 onMounted(() => {
   if (!backup.status.value) void backup.load()
+  sample()
+  timer = window.setInterval(sample, SAMPLE)
+  document.addEventListener('visibilitychange', onVis)
+})
+
+onBeforeUnmount(() => {
+  window.clearInterval(timer)
+  document.removeEventListener('visibilitychange', onVis)
 })
 </script>
 
@@ -56,8 +92,24 @@ onMounted(() => {
       </template>
     </nav>
 
-    <!-- 一张状态卡：备份这件事的最近事实。诊断（绝对路径）在设置页，不常驻在这儿（§8.9） -->
+    <!-- 两张常驻状态卡：系统资源在上，备份这件事的最近事实在下。诊断（绝对路径）在设置页，不常驻在这儿（§8.9） -->
     <div class="y-sidefoot">
+      <div class="y-picker res">
+        <span class="k">系统资源</span>
+        <div class="r">
+          <span class="nm">CPU</span>
+          <div class="track"><i :style="{ width: (w.load.value?.cpuPercent ?? 0) + '%' }"></i></div>
+          <span class="p">{{ cpuPct }}</span>
+        </div>
+        <div class="r">
+          <span class="nm">内存</span>
+          <div class="track"><i :style="{ width: (memUsedPct ?? 0) + '%' }"></i></div>
+          <span class="p">{{ memUsedPct == null ? '—' : memUsedPct + '%' }}</span>
+        </div>
+        <span v-if="w.load.value" class="sub">
+          物理内存 {{ gib(w.load.value.memTotal - w.load.value.memAvail) }} / {{ gib(w.load.value.memTotal) }}
+        </span>
+      </div>
       <div class="y-picker">
         <span class="k">坚果云备份</span>
         <span class="v">{{ backupCard.v }}</span>
@@ -113,5 +165,40 @@ onMounted(() => {
   margin-top: 3px;
   font-size: 10.5px;
   color: var(--t3);
+}
+/* 208px 的侧栏里放两条表：标签与数字各占固定宽，条子吃剩下的宽度 */
+.res .r {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 6px;
+  font-size: 11px;
+}
+.res .nm {
+  width: 26px;
+  flex: none;
+  color: var(--t3);
+  font-weight: 700;
+}
+.res .p {
+  width: 34px;
+  flex: none;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--t2);
+}
+.track {
+  flex: 1;
+  min-width: 0;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(128, 140, 135, 0.2);
+  overflow: hidden;
+}
+.track i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 160ms linear;
 }
 </style>

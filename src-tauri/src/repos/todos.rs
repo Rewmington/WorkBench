@@ -10,6 +10,8 @@ use crate::time::Now;
 
 /// `pub(crate)`：`dashboard::queue_groups` 复用同一份列与行映射，
 /// 保证「首屏分组卡」与「待办页列表」看到的是一模一样的行。
+///
+/// 不含 `dirty`：那是「这台机器还没传出去」的本机状态，上云与前端都不该看见它（PLAN-MOBILE §3.4）。
 pub(crate) const COLS: &str = "id, rev, created_at, created_by, updated_at, updated_by, deleted_at, \
      title, note, done_at, done_day, due_at, remind_at, priority, pinned, parent_id, \
      sort_key, zone, created_day, created_hour, completed";
@@ -173,11 +175,12 @@ fn next_sort_key(conn: &Connection, zone: &str) -> Result<f64> {
 }
 
 fn insert(conn: &Connection, stamp: &Stamp, todo: &Todo) -> Result<()> {
+    // `dirty = 1` 是写死的：走到这里的每一行都是这台机器刚写的，还没上过云。
     conn.execute(
         "INSERT INTO todos (id, rev, created_at, created_by, updated_at, updated_by, deleted_at,
                             title, note, done_at, done_day, due_at, remind_at, priority, pinned,
-                            parent_id, sort_key, zone, created_day, created_hour, completed)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)",
+                            parent_id, sort_key, zone, created_day, created_hour, completed, dirty)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,1)",
         params![
             stamp.id,
             stamp.rev,
@@ -260,7 +263,7 @@ fn update_row(conn: &Connection, todo: &Todo) -> Result<()> {
     conn.execute(
         "UPDATE todos SET rev=?2, updated_at=?3, updated_by=?4, title=?5, note=?6, done_at=?7,
             done_day=?8, due_at=?9, remind_at=?10, priority=?11, pinned=?12, parent_id=?13,
-            sort_key=?14, zone=?15, deleted_at=?16, completed=?17
+            sort_key=?14, zone=?15, deleted_at=?16, completed=?17, dirty=1
          WHERE id=?1",
         params![
             todo.stamp.id,
@@ -387,7 +390,7 @@ pub fn soft_delete(
 
         for hit in live {
             conn.execute(
-                "UPDATE todos SET deleted_at = ?2, rev = rev + 1, updated_at = ?2, updated_by = ?3 WHERE id = ?1",
+                "UPDATE todos SET deleted_at = ?2, rev = rev + 1, updated_at = ?2, updated_by = ?3, dirty = 1 WHERE id = ?1",
                 params![hit, ms, device],
             )?;
             affected.push(hit.clone());
@@ -406,7 +409,7 @@ pub fn restore(conn: &Connection, now: &dyn Now, device: &str, ids: &[String]) -
     let ms = now.ms();
     for id in ids {
         conn.execute(
-            "UPDATE todos SET deleted_at = NULL, rev = rev + 1, updated_at = ?2, updated_by = ?3 WHERE id = ?1",
+            "UPDATE todos SET deleted_at = NULL, rev = rev + 1, updated_at = ?2, updated_by = ?3, dirty = 1 WHERE id = ?1",
             params![id, ms, device],
         )?;
     }
@@ -459,7 +462,7 @@ pub fn reorder(
     };
 
     conn.execute(
-        "UPDATE todos SET sort_key = ?2, rev = rev + 1, updated_at = ?3, updated_by = ?4 WHERE id = ?1",
+        "UPDATE todos SET sort_key = ?2, rev = rev + 1, updated_at = ?3, updated_by = ?4, dirty = 1 WHERE id = ?1",
         params![id, key, now.ms(), device],
     )?;
     Ok(key)
@@ -477,7 +480,7 @@ pub fn rebalance(conn: &Connection, now: &dyn Now, device: &str, zone: &str) -> 
     let ms = now.ms();
     for (i, id) in ids.iter().enumerate() {
         conn.execute(
-            "UPDATE todos SET sort_key = ?2, rev = rev + 1, updated_at = ?3, updated_by = ?4 WHERE id = ?1",
+            "UPDATE todos SET sort_key = ?2, rev = rev + 1, updated_at = ?3, updated_by = ?4, dirty = 1 WHERE id = ?1",
             params![id, (i as i64 + 1) as f64 * sortkey::GAP, ms, device],
         )?;
     }
@@ -537,7 +540,7 @@ pub fn take_due_reminders(
     let out = rows.collect::<rusqlite::Result<Vec<_>>>()?;
     for item in &out {
         conn.execute(
-            "UPDATE todos SET reminded_at = ?2, rev = rev + 1, updated_at = ?2, updated_by = ?3
+            "UPDATE todos SET reminded_at = ?2, rev = rev + 1, updated_at = ?2, updated_by = ?3, dirty = 1
              WHERE id = ?1",
             params![item.id, ms, device],
         )?;

@@ -10,13 +10,19 @@
 
 use std::time::Duration;
 
-use ureq::tls::{TlsConfig, TlsProvider};
+use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 use ureq::Agent;
 
 /// Windows 证书库那套。不引 rustls，也就不用自己带一份根证书。
+///
+/// `root_certs(PlatformVerifier)` 不是可选项：ureq 的默认值是 `WebPki`（自带那份 Mozilla 根集），
+/// 配上 Schannel 后端后会 `disable_built_in_roots(true)` 并要求链上**逐字节等于** bundle 里的某个根 ——
+/// 凡是链末端是"交叉签过的根"的站（Cloudflare/GTS 就是）全部握手失败，而 Windows 自己是信的。
+/// 实测过的一次误诊就是把这句话当成了"这台机器的根存储缺 GTS"。
 pub fn tls() -> TlsConfig {
     TlsConfig::builder()
         .provider(TlsProvider::NativeTls)
+        .root_certs(RootCerts::PlatformVerifier)
         .build()
 }
 

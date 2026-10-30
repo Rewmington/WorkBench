@@ -100,8 +100,8 @@ pub fn populate(
             tx.execute(
                 "INSERT INTO todos (id, rev, created_at, created_by, updated_at, updated_by,
                                     title, note, done_at, done_day, due_at, priority, pinned,
-                                    sort_key, zone, created_day, created_hour, completed)
-                 VALUES (?1,1,?2,?3,?4,?3,?5,'',?6,?7,?8,?9,0,?10,'today',?11,?12,1)",
+                                    sort_key, zone, created_day, created_hour, completed, dirty)
+                 VALUES (?1,1,?2,?3,?4,?3,?5,'',?6,?7,?8,?9,0,?10,'today',?11,?12,1,1)",
                 rusqlite::params![
                     stamp.id,
                     stamp.created_at,

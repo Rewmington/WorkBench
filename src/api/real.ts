@@ -21,6 +21,7 @@ import type {
   StatsReport,
   Sticky,
   Suggestion,
+  SyncStatus,
   SysLoad,
   TimetableImportReport,
   TimetableState,
@@ -93,6 +94,9 @@ export const realApi: Api = {
   backupTestConnection: () => invoke<number>('backup_test_connection'),
   backupRestore: (name) => invoke<BackupOutcome>('backup_restore', { name }),
   backupSelfTest: (email, password) => invoke<boolean>('backup_self_test', { email, password }),
+
+  syncStatus: () => invoke<SyncStatus>('sync_status'),
+  syncNow: () => invoke<SyncStatus>('sync_now'),
 
   dashSummary: () => invoke<DashSummary>('dash_summary'),
   dashSuggestions: () => invoke<Suggestion[]>('dash_suggestions'),

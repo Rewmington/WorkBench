@@ -1,6 +1,11 @@
 // M4 验收用的本地 WebDAV 桩。它不是坚果云的克隆，只复刻工作台真正依赖的五个动词
 // 与三种「讨厌之处」：Basic 鉴权、PROPFIND 的命名空间前缀不稳定、href 百分号编码。
 // 由 tools/m4-check.mjs 拉起，不要手工长期开着。
+//
+// M11b 起它服务**两个集合**：`/dav/workbench-backup/`（每日备份）与
+// `/dav/workbench-sync/`（手机同步的 device-*.enc，PLAN-MOBILE §3.2/§3.6）。
+// 分两个目录正是三向钉子的现场证据：备份客户端在这里永远看不见 device-*，
+// 同步客户端也永远看不见 anvil-*.abackup。
 import { createServer } from 'node:http'
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
@@ -17,6 +22,8 @@ const ROOT = flag('root', join('tools', '.webdav-root'))
 const USER = flag('user', 'stub@example.com')
 const PASS = flag('pass', 'stub-app-password')
 const COLLECTION = '/dav/workbench-backup/'
+const SYNC = '/dav/workbench-sync/'
+const COLLECTIONS = [COLLECTION, SYNC]
 
 const pathFor = (href) => join(ROOT, ...href.replace(/^\//, '').split('/').filter(Boolean))
 
@@ -52,7 +59,7 @@ const server = createServer(async (req, res) => {
   if (!authed(req)) {
     return send(res, 401, '需要 Basic 鉴权', 'text/plain; charset=utf-8', { 'WWW-Authenticate': 'Basic realm="stub"' })
   }
-  if (!href.startsWith(COLLECTION)) return send(res, 404, '这个桩只服务 workbench-backup')
+  if (!COLLECTIONS.some((c) => href.startsWith(c))) return send(res, 404, '这个桩只服务 workbench-backup 与 workbench-sync')
 
   const target = pathFor(href)
   try {
@@ -101,8 +108,10 @@ const server = createServer(async (req, res) => {
 })
 
 server.listen(PORT, '127.0.0.1', async () => {
-  await mkdir(pathFor(COLLECTION), { recursive: true })
+  for (const c of COLLECTIONS) await mkdir(pathFor(c), { recursive: true })
   // 药箱的文件混在同一个账号里：客户端必须看不见它们，哪怕远端真有
   await writeFile(join(pathFor(COLLECTION), 'device-pc1.json'), '{"medicines":[]}')
-  console.log(`webdav-stub ready port=${PORT} base=http://127.0.0.1:${PORT}${COLLECTION}`)
+  // 同步目录里预放一个**不是 device-*.enc** 的名字：同步客户端必须把它筛掉（§3.6 第二颗钉子的现场版）
+  await writeFile(join(pathFor(SYNC), 'stray-note.txt'), 'not ours')
+  console.log(`webdav-stub ready port=${PORT} base=http://127.0.0.1:${PORT}${COLLECTION} sync=http://127.0.0.1:${PORT}${SYNC}`)
 })

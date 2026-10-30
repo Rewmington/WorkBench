@@ -242,6 +242,28 @@ export interface RemoteFile {
   readable: boolean
 }
 
+/**
+ * 手机同步的状态（PLAN-MOBILE §5.5 / §6 M11b）。
+ *
+ * `pending` 的唯一来源是 Rust 的 `merge::pending`；界面那句「N 条待上传」不许自己数。
+ * `lastError` 只在比 `lastSyncAt` 新时才值得显示 —— 与备份页的 staleFailure 同一判据。
+ * 这里没有「同步中」字段：这条 UI 永远不转圈（§5.5 删掉的那一列）。
+ */
+export interface SyncStatus {
+  /** 与备份同一组凭据：邮箱在 settings、应用密码在凭据管理器，两个都齐才算配好 */
+  configured: boolean
+  /** 本机设备 id（`pc-<uuid>`），用来在远端 listing 里认出「哪个是我」 */
+  myDevice: string
+  /** 最后一次**成功**同步的时刻；「上次同步于 12:03」的那半句 */
+  lastSyncAt: number | null
+  lastError: string | null
+  lastErrorAt: number | null
+  /** 还没传出去的条数（todos.dirty 的行数） */
+  pending: number
+  /** 远端别人的设备 id —— 就是云上那几份 device-*.enc 的 listing，不含邮箱 */
+  peers: string[]
+}
+
 // ---- M5 工作台 ----
 
 /**
@@ -558,6 +580,11 @@ export interface Api {
   backupRestore(name: string): Promise<BackupOutcome>
   /** 不联网也能证明「换机能解开」这条链路 */
   backupSelfTest(email: string, password: string): Promise<boolean>
+
+  /** 手机同步：读状态**不碰网络**（与 linkedState 同一条首屏纪律） */
+  syncStatus(): Promise<SyncStatus>
+  /** 手动「立即同步」。失败折进返回的状态里，只多一行字，不弹窗 */
+  syncNow(): Promise<SyncStatus>
 
   /** 首屏一次拿全：KPI + 环 + 队列 + 时间轴。全部来自 SQLite，不等任何外部源 */
   dashSummary(): Promise<DashSummary>

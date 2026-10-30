@@ -7,15 +7,21 @@ import CollapsedRow from '../components/ui/CollapsedRow.vue'
 import { useBackup } from '../composables/useBackup'
 import { useClock } from '../composables/useClock'
 import { useShell } from '../composables/useShell'
+import { useSync } from '../composables/useSync'
 import { relTime } from '../lib/reltime'
+import { currentFailure, syncSentence } from '../lib/sync'
 
 /**
  * 备份页只做三件事：配一次凭据、手动备一份、挑一份还原。
  *
  * 「什么会上云、什么不会」那张表搬去了设置页「关于与隐私」（PLAN §8.9）——
  * 它是可信度说明，不是操作提示，不该占主屏半屏高度。这里只留一个入口。
+ *
+ * 「手机同步」块挨着备份放：它们共用同一组坚果云凭据（PLAN-MOBILE §4），
+ * 状态行只写 §5.5 留下的那两句话 —— 没有「已同步」，没有转圈，没有弹窗。
  */
 const backup = useBackup()
+const sync = useSync()
 const shell = useShell()
 const { now } = useClock()
 
@@ -35,6 +41,11 @@ const configured = computed(() => !!st.value?.configured)
 const passwordStored = computed(() => !!st.value?.passwordStored)
 const log = computed(() => st.value?.log ?? [])
 const okCount = computed(() => log.value.filter((l) => l.ok).length)
+
+/** 同步的状态行：`sync.status` 是唯一来源，pending 的计数来自 Rust 的 merge::pending。 */
+const ss = computed(() => sync.status.value)
+const syncLine = computed(() => (ss.value ? syncSentence(ss.value) : null))
+const syncFailure = computed(() => (ss.value ? currentFailure(ss.value) : null))
 
 /**
  * 失败条只在「最近一次确实还没缓过来」时出现：已被成功覆盖的旧失败，流水里那一行就够了，
@@ -124,6 +135,7 @@ onMounted(async () => {
   await backup.load()
   email.value = st.value?.email ?? ''
   if (configured.value) void backup.refreshRemote()
+  void sync.load()
 
   if (!usingMock) {
     const { listen } = await import('@tauri-apps/api/event')
@@ -213,6 +225,33 @@ onBeforeUnmount(() => unlisten?.())
       <p v-else-if="backup.result.value && !backup.result.value.skipped" class="bad">
         这次没成：{{ backup.result.value.error }}
       </p>
+    </div>
+
+    <div class="blk">
+      <h3>手机同步 <span class="n">独立目录 workbench-sync · 与备份同一组凭据</span></h3>
+      <!-- 状态行只写可验证的真事实（§5.5）：时间来自最后一次成功同步，条数来自 dirty 计数。
+           没有「已同步」，没有转圈；失败时也就多这一行字，不弹窗。 -->
+      <p v-if="syncLine" class="why">{{ syncLine }}</p>
+      <p v-if="syncFailure" class="bad">{{ syncFailure }}</p>
+      <p v-if="sync.error.value" class="bad">{{ sync.error.value }}</p>
+      <div class="row">
+        <button
+          type="button"
+          class="y-ghost btn"
+          :disabled="!ss?.configured || sync.running.value"
+          @click="sync.runNow()"
+        >
+          立即同步
+        </button>
+      </div>
+      <p v-if="ss && !ss.configured" class="none">先在上面的「凭据」里填好坚果云邮箱与应用密码，同步才会走。</p>
+      <p v-else-if="ss && !ss.peers.length" class="why">远端还没有别的设备：手机第一次同步后，它的 id 会出现在这里。</p>
+      <ul v-if="ss?.peers.length" class="list">
+        <li v-for="p in ss.peers" :key="p" class="it">
+          <span class="nm">{{ p }}</span>
+          <span class="id">device-{{ p }}.enc</span>
+        </li>
+      </ul>
     </div>
 
     <div class="blk">

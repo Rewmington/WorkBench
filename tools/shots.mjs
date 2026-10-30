@@ -87,8 +87,11 @@ async function main() {
     process.exit(1)
   }
   mkdirSync(join(ROOT, 'shots'), { recursive: true })
+  // 附身模式拍的是真实窗口：发布版的地址是 tauri.localhost，dev 版才是 :1420，两个都要认
   const wsUrl = attach
-    ? await pollPage(Number(attach), { urlIncludes: ':1420', tries: 8 })
+    ? await pollPage(Number(attach), { urlIncludes: 'tauri.localhost', tries: 4 }).catch(() =>
+        pollPage(Number(attach), { urlIncludes: ':1420', tries: 8 }),
+      )
     : await launch()
   const cdp = await openCdp(
     wsUrl,

@@ -12,6 +12,7 @@ pub mod notes;
 pub mod palette;
 pub mod settings;
 pub mod stats;
+pub mod sync;
 pub mod system;
 pub mod timetable;
 pub mod todos;

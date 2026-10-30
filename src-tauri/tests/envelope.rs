@@ -232,3 +232,50 @@ fn emit_golden() {
 }
 
 
+
+// ------------------------------------------------------------------
+// M11a 跨语言向量：手机端（Flutter/Dart）是同一份信封的**第二个实现**。
+//
+// 两条各钉一头，都用固定常量而不是每次现生成 —— 向量的意义就是「字节冻住了」：
+//   1. Rust seal → Dart open（Dart 那边读 XLANG_RUST_SEALED）
+//   2. Dart seal → Rust open（下面这条读 XLANG_DART_SEALED）
+// 重新产出：`cargo test --test envelope emit_xlang_rust -- --ignored`
+//           `dart run tool/emit_xlang_dart.dart`（mobile/ 下）
+// ------------------------------------------------------------------
+
+const XLANG_SECRET: &str = "xlang@wmddd.online:xlang-pass";
+const XLANG_PLAINTEXT: &[u8] = b"anvil cross-language envelope vector";
+
+/// Dart 侧 `Envelope.seal`（16 MiB/3/1，同步那档成本）产出的 blob。
+const XLANG_DART_SEALED: &str =
+    "QU5WSUxCS1ABAQAAQAAAAAADAQV/TWdKdAtOXSW98yl1hoi2nC7bnhlfb1ZoHR8y4JaFvbR1wAV7Fye1dL9JSJ065JZ10065W+zPRl42PlJjZGNSFVqQWMaBnnnkjWG5YYRr";
+
+#[test]
+fn a_blob_sealed_by_dart_opens_in_rust() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let blob = STANDARD.decode(XLANG_DART_SEALED).expect("base64");
+    assert_eq!(&blob[..8], b"ANVILBKP", "魔数、版本、头部布局都得对上");
+    // 手机用的是同步那档成本，头部写的就是它自己那份 —— open 照文件里的参数派生
+    assert_eq!(
+        u32::from_be_bytes(blob[10..14].try_into().unwrap()),
+        crypto::SYNC_M_KIB,
+        "Dart 那份该是 16 MiB 那档"
+    );
+    assert_eq!(crypto::open(XLANG_SECRET, &blob).unwrap(), XLANG_PLAINTEXT);
+}
+
+/// 产出给 Dart 的那条：`cargo test --test envelope emit_xlang_rust -- --ignored`
+#[test]
+#[ignore]
+fn emit_xlang_rust() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let blob = crypto::seal_with(
+        XLANG_SECRET,
+        XLANG_PLAINTEXT,
+        crypto::SYNC_M_KIB,
+        crypto::SYNC_T_COST,
+        crypto::SYNC_P_COST,
+    )
+    .unwrap();
+    println!("XLANG_RUST={}", STANDARD.encode(blob));
+}

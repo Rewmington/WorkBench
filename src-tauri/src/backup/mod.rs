@@ -77,6 +77,20 @@ fn keep_machine_local(
     Ok(rows.len())
 }
 
+/// 还原之后把**这台机器**的待办全部标成待上传。
+///
+/// 为什么必须补这一刀：`todos.dirty` 的意思是「这台机器还没把它传出去」，
+/// 而整文件还原带回来的是**源机器那一刻**的 dirty 值。若源机器当时同步干净，
+/// 新机还原完 pending=0，而 §3.2 那条"没有本地写入就跳过 PUT"会让它
+/// 在用户改动第一条待办之前**永远不发**自己的 `device-*.enc` —— 手机端于是永远
+/// 看不到 PC 那份数据，而界面上那句"N 条待上传"还显示 0，看着像已经同步好了。
+///
+/// 只做 `todos`：`classes` 没有 dirty 列（手机只读它，PLAN-MOBILE §3.4）。
+fn mark_all_pending(db: &Path) -> Result<usize> {
+    let conn = Connection::open(db)?;
+    Ok(conn.execute("UPDATE todos SET dirty = 1", [])?)
+}
+
 /// 从库里导出「可上云的最小快照」：一致快照 → 剥掉不该出门的内容 → gzip。
 pub fn export(conn: &Connection, tmp_dir: &Path, ms: i64) -> Result<Vec<u8>> {
     std::fs::create_dir_all(tmp_dir)?;
@@ -141,7 +155,10 @@ pub(crate) fn webdav_email(conn: &Connection) -> Result<String> {
 /// 一次完整备份。失败只返回结果并记一行流水，不弹窗（PLAN §5.2 backup_log 的约定）。
 /// `kind` 是 `'daily'` 或 `'manual'`，只影响流水里怎么显示，判据都是「今天成功过没有」。
 /// 凭据齐不齐是「跳过」而不是「失败」：没填邮箱不该进失败退避，也不该记一条流水。
-fn credentials(conn: &Connection) -> Option<(String, String)> {
+///
+/// `pub(crate)`：`sync::relay` 复用**同一组**凭据与同一个构造方式（PLAN-MOBILE §4），
+/// 不新增第三把密码，也正因为共用这一个入口，才绝不会误读药箱存在它自己凭据管理器里的那把。
+pub(crate) fn credentials(conn: &Connection) -> Option<(String, String)> {
     let email = webdav_email(conn).ok()?;
     let password = creds::webdav_password().ok()?;
     Some((email, password))
@@ -371,6 +388,14 @@ pub fn restore_with(
     std::fs::write(&paths.device_id, &fresh)?;
     log::info!("已还原快照 {remote_name}（{stamp}），新设备 id {fresh}");
 
+    // 还原进来的每一行都要重新标脏（见 `mark_all_pending`）。
+    // 这一步失败不该把已经成功的还原说成失败 —— 库已经换好了 —— 但它会让手机端
+    // 看不到这台 PC 的数据，所以日志要说清后果，别说成"无害"。
+    match mark_all_pending(&paths.db) {
+        Ok(n) => log::info!("还原后把 {n} 条待办标成待上传：这台机器从没传过它们"),
+        Err(e) => log::error!("还原后没能把待办标成待上传，在手机看到这台 PC 的数据之前先检查它：{e}"),
+    }
+
     // 写回本机设置。这一步失败不该把已经成功的还原说成失败：库已经换好了，
     // 顶多邮箱空着、重填一次就能用，所以只记日志。
     match keep_machine_local(&paths.db, &local, ms, &fresh) {
@@ -458,6 +483,51 @@ mod tests {
             "快照里的主题归快照管，还原不该顺手改它"
         );
 
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// 换机还原后那台机器"欠着上传"这件事要有钉子：pending 若还是 0，
+    /// §3.2 那句"没有本地写入就跳过 PUT"会让它永远不发自己那份，手机端一直看不到 PC。
+    #[test]
+    fn a_restored_machine_owes_every_row_it_just_got() {
+        use crate::model::TodoDraft;
+        use crate::repos::todos;
+        use crate::sync::merge;
+        use crate::time::FixedNow;
+
+        let tmp = std::env::temp_dir().join(format!("anvil-restore-dirty-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let file = tmp.join("restored.db");
+        let ms = 1_793_000_000_000_i64;
+
+        {
+            let mut conn = Connection::open(&file).unwrap();
+            migrate(&mut conn).unwrap();
+            let now = FixedNow(ms);
+            for i in 0..3 {
+                todos::create(
+                    &conn,
+                    &now,
+                    "pc-old",
+                    TodoDraft {
+                        title: format!("还原带来的 {i}"),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            }
+            // 源机器那一刻是同步干净的：快照里的 dirty 全是 0
+            merge::clear_dirty(&conn, ms).unwrap();
+            assert_eq!(merge::pending(&conn).unwrap(), 0, "假设源机器已经把这些传上去了");
+        }
+
+        assert_eq!(mark_all_pending(&file).unwrap(), 3);
+        let conn = Connection::open(&file).unwrap();
+        assert_eq!(
+            merge::pending(&conn).unwrap(),
+            3,
+            "刚还原的这台机器从没传过它们，一条都不该装作已同步"
+        );
         std::fs::remove_dir_all(&tmp).ok();
     }
 

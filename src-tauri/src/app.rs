@@ -174,6 +174,8 @@ pub fn run() {
             commands::backup::backup_test_connection,
             commands::backup::backup_restore,
             commands::backup::backup_self_test,
+            commands::sync::sync_status,
+            commands::sync::sync_now,
         ])
         // 托盘与右键菜单的点击都汇到这一个分发口。
         .on_menu_event(|app, event| menus::handle(app, event.id().as_ref()))
@@ -186,6 +188,9 @@ pub fn run() {
                 crate::hotkeys::register_at_startup(&handle, &conn);
             }
             crate::backup::schedule::spawn(app.handle().clone());
+            // 开机同步一次（PLAN-MOBILE §3.2 的「打开 app 时」）；上限一次、不循环重试，
+            // 理由写在 `sync::schedule` 头上。手动那一半是设置页的「立即同步」。
+            crate::sync::schedule::spawn(app.handle().clone());
             crate::notify::register(app.handle());
             crate::notify::spawn(app.handle().clone());
             Ok(())

@@ -22,6 +22,7 @@ import type {
   StatsReport,
   Sticky,
   Suggestion,
+  SyncStatus,
   SysLoad,
   Todo,
   TodoDraft,
@@ -199,6 +200,7 @@ interface Store {
   secrets: Record<string, string>
   settings: Record<string, unknown>
   backup: BackupSeed
+  sync: SyncSeed
   medicine: MedicineSeed
   stickies: Sticky[]
   countdowns: Countdown[]
@@ -213,6 +215,32 @@ interface BackupSeed {
   hasPass: boolean
   log: BackupLogRow[]
   remote: RemoteFile[]
+}
+
+/**
+ * 手机同步也只演状态机：上次同步时间、最近一次失败、待上传数、远端 listing。
+ * 「pending 从哪来」归 Rust 的 merge::pending（这里演不出 dirty 列），
+ * 完整链路归 cargo test 的 sync_relay 单测与 tools/m11b-check.mjs。
+ */
+interface SyncSeed {
+  lastSyncAt: number | null
+  lastError: string | null
+  lastErrorAt: number | null
+  /** 待上传数：浏览器里手动演示「勾一条 → N 加一」，来源就是下面 pendingChange 的调用方 */
+  pending: number
+  peers: string[]
+}
+
+function freshSync(): SyncSeed {
+  const t = Date.now()
+  return {
+    // 演一个「同步过、但还欠两条」的常态：状态行的两个数都看得见
+    lastSyncAt: t - 26 * 3_600_000,
+    lastError: null,
+    lastErrorAt: null,
+    pending: 2,
+    peers: ['phone-a'],
+  }
 }
 
 /**
@@ -431,7 +459,7 @@ function seedCountdowns(): Countdown[] {
 
 function freshStore(): Store {
   if (EMPTY) {
-    return { todos: [], resources: [], zones: [], secrets: {}, settings: {}, backup: { email: null, hasPass: false, log: [], remote: [] }, medicine: freshMedicine(), timetable: freshTimetable(), stickies: [], countdowns: [], notes: [], folders: [] }
+    return { todos: [], resources: [], zones: [], secrets: {}, settings: {}, backup: { email: null, hasPass: false, log: [], remote: [] }, sync: { lastSyncAt: null, lastError: null, lastErrorAt: null, pending: 0, peers: [] }, medicine: freshMedicine(), timetable: freshTimetable(), stickies: [], countdowns: [], notes: [], folders: [] }
   }
   return {
     todos: seedTodos(),
@@ -440,6 +468,7 @@ function freshStore(): Store {
     secrets: {},
     settings: SEEDED_HOTKEY ? { [SETTINGS_HOTKEYS]: { [HOTKEY_ACTION]: SEEDED_HOTKEY } } : {},
     backup: freshBackup(),
+    sync: freshSync(),
     medicine: freshMedicine(),
     timetable: freshTimetable(),
     stickies: seedStickies(),
@@ -1019,6 +1048,7 @@ export const mockApi: Api = {
     // 与 Rust 的 ReadRemote::check_dir 同一条规则：只有反向钉子，不校验地址格式
     const next = dir.trim()
     if (next.includes('/workbench-backup/')) throw new Error('那是工作台自己的备份目录，不是药箱的同步目录')
+    if (next.includes('/workbench-sync/')) throw new Error('那是工作台的手机同步目录，不是药箱的同步目录')
     store.medicine.davDir = next || MEDICINE_DAV_DEFAULT
     save()
     return store.medicine.davDir
@@ -1084,6 +1114,37 @@ export const mockApi: Api = {
     return { at, ok: true, bytes: null, remotePath: name, error: null, skipped: false }
   },
   backupSelfTest: async (email, password) => !!email.trim() && !!password.trim(),
+
+  // ---- 手机同步：状态机 + 「立即同步」那一下（真链路归 m11b-check） ----
+  // configured 跟着**备份那组凭据**演 —— 与 Rust 的 backup::credentials 同一个来源（§4）。
+  syncStatus: async (): Promise<SyncStatus> => {
+    const s = store.sync
+    return {
+      configured: !!store.backup.email && store.backup.hasPass,
+      myDevice: DEVICE_ID,
+      lastSyncAt: s.lastSyncAt,
+      lastError: s.lastError,
+      lastErrorAt: s.lastErrorAt,
+      pending: s.pending,
+      peers: s.peers,
+    }
+  },
+  syncNow: async (): Promise<SyncStatus> => {
+    if (!store.backup.email || !store.backup.hasPass) {
+      // 与 Rust 的 commands::sync::sync_now 同一句话：这是可执行的提示，不是失败记录
+      throw new Error('先在备份页填好坚果云邮箱与应用密码（手机同步与备份共用这一组凭据）')
+    }
+    const s = store.sync
+    // 这里演不出「GET 对端 → LWW 合并 → PUT 自己」，只演两端都成立后的状态：
+    // 欠账清零、时间刷新、listing 换成桩上会有的那台。断线的形状由真后端演给用户看。
+    s.lastSyncAt = Date.now()
+    s.lastError = null
+    s.lastErrorAt = null
+    s.pending = 0
+    s.peers = ['phone-a']
+    save()
+    return mockApi.syncStatus()
+  },
 
   // ---- M5 工作台：聚合口径与 Rust 的 repos/dashboard.rs 逐条对齐 ----
   //
@@ -1525,10 +1586,11 @@ function snap(kind: string, status: SnapshotView['status'], items: unknown[], de
 function blogFixtures(): SnapshotView[] {
   return [
     snap('projects', 'ok', [
-      { name: 'Rewmington Desk', description: '基于 Next.js 16 的个人工作台，毛玻璃 + Bento Grid', tags: ['Next.js'], url: 'https://example.dev', status: 'live' },
+      // 覆盖表：url 指向下面那条仓库（大小写不同也要认成同一个），只改显示名/简介/标签/状态
+      { name: 'Rewmington Desk', description: '基于 Next.js 16 的个人工作台，毛玻璃 + Bento Grid', tags: ['Next.js'], url: 'https://github.com/rewmington/rewmington-blog', status: '编码中' },
     ]),
     snap('repos', 'ok', [
-      { name: 'rewmington-blog', description: '个人站点', language: 'TypeScript', stars: 12, pushedAt: '2026-10-22', archived: false, url: 'https://github.com/x/y' },
+      { name: 'rewmington-blog', description: '个人站点', language: 'TypeScript', stars: 12, pushedAt: '2026-10-22', archived: false, url: 'https://github.com/Rewmington/rewmington-blog' },
       { name: 'medicine', description: '药盒余量追踪', language: 'Dart', stars: 3, pushedAt: '2026-10-26', archived: false, url: 'https://github.com/x/m' },
     ], '线上', { remoteFetchedAt: '2026-10-25T00:14:00Z' }),
     snap('photos', 'ok', [{ id: 'p1', caption: '夜里的工作台', date: '2026-10-12', location: '杭州' }]),

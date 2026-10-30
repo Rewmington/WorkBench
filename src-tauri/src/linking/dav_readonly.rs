@@ -65,6 +65,12 @@ impl ReadRemote {
         if trimmed.contains("/workbench-backup/") {
             return Err(Error::msg("那是工作台自己的备份目录，不是药箱的同步目录"));
         }
+        // §3.6 的第三颗钉子（M11b 补）：手机同步目录也不许读。
+        // 那边全是 device-*.enc —— keep_device 虽只认 .json 而拿不到内容，
+        // 但"对药箱目录只读"的可辩护性靠的是类型层拒绝，不靠那层后缀过滤侥幸。
+        if trimmed.contains("/workbench-sync/") {
+            return Err(Error::msg("那是工作台的手机同步目录，不是药箱的同步目录"));
+        }
         Ok(())
     }
 
@@ -208,6 +214,17 @@ mod tests {
         assert!(err.contains("工作台自己的备份目录"), "{err}");
         assert!(ReadRemote::check_dir("https://dav.jianguoyun.com/dav/medicine-sync/").is_ok());
         assert!(ReadRemote::check_dir("  ").is_err());
+    }
+
+    /// §3.6 表里「补拒 /workbench-sync/」那一格（M11b）：手机同步目录对药箱读取器也是禁区。
+    #[test]
+    fn the_workbench_sync_directory_is_off_limits_too() {
+        let err = ReadRemote::check_dir("https://dav.jianguoyun.com/dav/workbench-sync/")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("手机同步目录"), "{err}");
+        // new() 走的是同一条 check_dir：填错当场拒，不等第一次刷新才发现
+        assert!(ReadRemote::new("https://dav.jianguoyun.com/dav/workbench-sync/", "me@x.com", "p").is_err());
     }
 
     #[test]

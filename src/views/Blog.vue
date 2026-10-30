@@ -8,24 +8,9 @@ import CollapsedRow from '../components/ui/CollapsedRow.vue'
 import PathField from '../components/ui/PathField.vue'
 import { useClock } from '../composables/useClock'
 import { useLinked } from '../composables/useLinked'
+import { mergeFromPayloads, type Projectish } from '../lib/blog'
 import { relTime } from '../lib/reltime'
 
-interface Project {
-  name: string
-  description?: string
-  tags?: string[]
-  url?: string
-  status?: string
-}
-interface Repo {
-  name: string
-  description?: string
-  language?: string
-  stars?: number
-  pushedAt?: string
-  archived?: boolean
-  url?: string
-}
 interface Photo {
   id: string
   caption?: string
@@ -56,8 +41,8 @@ const KIND_LABELS: Record<string, string> = {
 const linked = useLinked()
 const { now } = useClock()
 
-const projects = linked.payloadOf<BlogPayload<Project>>('projects')
-const repos = linked.payloadOf<BlogPayload<Repo>>('repos')
+const projects = linked.payloadOf<BlogPayload<Projectish>>('projects')
+const repos = linked.payloadOf<BlogPayload<Projectish>>('repos')
 const photos = linked.payloadOf<BlogPayload<Photo>>('photos')
 const friends = linked.payloadOf<BlogPayload<Friend>>('friends')
 const profile = linked.payloadOf<BlogPayload<Profile>>('profile')
@@ -71,11 +56,30 @@ const lastFetch = computed(() => {
   return times.length ? Math.max(...times) : null
 })
 
-/** 博客正文（notes）在对方仓库里已被清空，这里只列可显示的类别，不硬凑空页 */
+/**
+ * 一张「项目」卡，口径抄站点 `src/lib/projects.ts`：GitHub 仓库打头，`projects.json`
+ * 只是覆盖表（改显示名/简介/标签/状态，不顶掉仓库行），GitHub 没有的排在后面。
+ * 原来拆成「项目 1 条 / 仓库 4 条」两张卡，于是"我的项目"看着只有 1 个 —— 那不是数据旧，
+ * 是我把一件事摊成了两件。
+ */
+const allProjects = computed<Projectish[]>(() => mergeFromPayloads(projects.value, repos.value))
+
+/** 覆盖行与仓库行的字段凑在一排胶囊里 */
+function chipsOf(p: Projectish): string[] {
+  return [
+    p.status,
+    ...(p.tags ?? []),
+    p.language,
+    p.stars ? `★ ${p.stars}` : null,
+    p.pushedAt ? p.pushedAt.slice(0, 10) : null,
+    p.archived ? '已归档' : null,
+  ].filter((c): c is string => !!c && c.trim() !== '')
+}
+
+/** 站点 /projects/ 只有这一屏，所以不再单列「仓库」；照片/友链/关于仍是各自独立的清单 */
 const nothingToShow = computed(
   () =>
-    !projects.value?.count &&
-    !repos.value?.count &&
+    !allProjects.value.length &&
     !photos.value?.count &&
     !friends.value?.count &&
     !profile.value?.count,
@@ -95,9 +99,14 @@ function open(url?: string) {
   if (url) void api.openUrl(url)
 }
 
+/**
+ * 进这一页**不再自己起一轮拉取**。拉取是应用的事：`App.vue` 挂载时拉一次、之后每 10 分钟一次，
+ * 这一页只渲染那一份缓存（点「重新读取」仍然随时可读）。
+ * 原来这里也挂一次，于是启动那一轮还在跑的时候进页面就会并发第二条连接 ——
+ * 站点会把同一时刻的多条新连接排队成 `timeout: connect`，正是 §6.8 刚量出来的那个降级。
+ */
 onMounted(async () => {
   if (!linked.state.value) await linked.load()
-  void linked.refreshBlog()
 })
 
 /**
@@ -137,31 +146,14 @@ async function saveRepoDir(raw: string): Promise<string> {
     />
 
     <template v-else>
-      <section v-if="projects?.count" class="blk">
-        <h3>项目 <span class="n">{{ projects.count }}</span></h3>
+      <section v-if="allProjects.length" class="blk">
+        <h3>项目 <span class="n">{{ allProjects.length }}</span></h3>
         <div class="cards">
-          <button v-for="p in projects.items" :key="p.name" type="button" class="card" @click="open(p.url)">
+          <button v-for="p in allProjects" :key="p.name" type="button" class="card" @click="open(p.url)">
             <span class="ct">{{ p.name }}<ExternalLink v-if="p.url" :size="12" class="el" /></span>
             <span v-if="p.description" class="cd">{{ p.description }}</span>
             <span class="cm">
-              <span v-if="p.status" class="y-chip">{{ p.status }}</span>
-              <span v-for="t in p.tags ?? []" :key="t" class="y-chip">{{ t }}</span>
-            </span>
-          </button>
-        </div>
-      </section>
-
-      <section v-if="repos?.count" class="blk">
-        <h3>仓库 <span class="n">{{ repos.count }}</span></h3>
-        <div class="rows">
-          <button v-for="r in repos.items" :key="r.name" type="button" class="rr" @click="open(r.url)">
-            <span class="rn">{{ r.name }}</span>
-            <span class="rd">{{ r.description }}</span>
-            <span class="rm">
-              <span v-if="r.language">{{ r.language }}</span>
-              <span v-if="r.stars">★ {{ r.stars }}</span>
-              <span v-if="r.pushedAt">{{ r.pushedAt.slice(0, 10) }}</span>
-              <span v-if="r.archived" class="arch">已归档</span>
+              <span v-for="c in chipsOf(p)" :key="c" class="y-chip">{{ c }}</span>
             </span>
           </button>
         </div>
@@ -322,15 +314,6 @@ h2 {
 .rn {
   font-size: 12px;
   font-weight: 700;
-}
-.rm {
-  display: flex;
-  gap: 9px;
-  font-size: 10.5px;
-  color: var(--t3);
-}
-.arch {
-  color: var(--amber);
 }
 .two {
   display: grid;

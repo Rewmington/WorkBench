@@ -11,24 +11,25 @@ import { useWidgets } from '../composables/useWidgets'
 import { countdownLabel } from '../lib/reltime'
 
 /**
- * 「进行」视图（PLAN §4）：倒计时 / 便签 ×2 / 常用速达 / 系统资源。
+ * 「进行」视图（PLAN §4）：倒计时 / 便签 ×2 / 常用速达。
  *
- * 这四个是从首屏降级下来的部件 —— 候选一的版式里没有 Bento 的位置，
+ * 这些是从首屏降级下来的部件 —— 候选一的版式里没有 Bento 的位置，
  * 所以它们住在这里，但仍然是「打开就想看一眼」的东西。
+ * 系统资源原来也在这里，2026-10-30 搬到侧栏底部常驻（`SideNav.vue`）：
+ * 它是"随时瞥一眼"的东西，不该要先切到一个视图才看得到。
  */
 const { now } = useClock()
 const w = useWidgets()
 
 /** 键名沿用 settings.rs 里已定义的 `ui.widgetOrder`，不再另起一个同义键。 */
 const ORDER_KEY = 'ui.widgetOrder'
-type WidgetKey = 'countdowns' | 'stickies' | 'pins' | 'system'
+type WidgetKey = 'countdowns' | 'stickies' | 'pins'
 const LABELS: Record<WidgetKey, string> = {
   countdowns: '倒计时',
   stickies: '便签',
   pins: '常用速达',
-  system: '系统资源',
 }
-const DEFAULTS: WidgetKey[] = ['countdowns', 'stickies', 'pins', 'system']
+const DEFAULTS: WidgetKey[] = ['countdowns', 'stickies', 'pins']
 
 const order = ref<WidgetKey[]>([...DEFAULTS])
 const hidden = ref<WidgetKey[]>([])
@@ -130,23 +131,11 @@ function onType(slot: number, el: Event) {
 
 const slots = [1, 2]
 
-// ---- 系统资源 ----
-
-const memUsedPct = computed(() => {
-  const l = w.load.value
-  if (!l || !l.memTotal) return null
-  return Math.round(((l.memTotal - l.memAvail) / l.memTotal) * 100)
-})
-const gib = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`
-
-let loadTimer = 0
 let flushBlur: (() => void) | null = null
 let flushVis: (() => void) | null = null
 
 onMounted(async () => {
   await Promise.all([w.loadAll(), api.resourcesList().then((r) => (resources.value = r)), loadOrder()])
-  void w.pollLoad()
-  loadTimer = window.setInterval(() => void w.pollLoad(), 1000)
 
   // 防抖窗口里的字不能因为切视图/失焦/收进托盘而丢
   flushBlur = () => void w.flushAll()
@@ -158,7 +147,6 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  window.clearInterval(loadTimer)
   if (flushBlur) window.removeEventListener('blur', flushBlur)
   if (flushVis) document.removeEventListener('visibilitychange', flushVis)
   void w.flushAll()
@@ -258,33 +246,6 @@ onBeforeUnmount(() => {
             <span class="tn">{{ r.name }}</span>
             <span class="tu">用过 {{ r.useCount }} 次</span>
           </button>
-        </div>
-      </WidgetCard>
-
-      <!-- 系统资源 -->
-      <WidgetCard
-        v-if="k === 'system' && visible('system')"
-        title="系统资源"
-        :first="order[0] === 'system'"
-        :last="order[order.length - 1] === 'system'"
-        @up="move('system', -1)"
-        @down="move('system', 1)"
-        @hide="hide('system')"
-      >
-        <div class="res">
-          <div class="row">
-            <span class="k">CPU</span>
-            <div class="track"><i :style="{ width: (w.load.value?.cpuPercent ?? 0) + '%' }"></i></div>
-            <span class="v">{{ w.load.value?.cpuPercent == null ? '采样中' : w.load.value.cpuPercent.toFixed(0) + '%' }}</span>
-          </div>
-          <div class="row">
-            <span class="k">内存</span>
-            <div class="track"><i :style="{ width: (memUsedPct ?? 0) + '%' }"></i></div>
-            <span class="v">{{ memUsedPct == null ? '—' : memUsedPct + '%' }}</span>
-          </div>
-          <p class="foot">
-            {{ w.load.value ? `物理内存 ${gib(w.load.value.memTotal - w.load.value.memAvail)} / ${gib(w.load.value.memTotal)} 已用` : '第一次采样要等一秒' }}
-          </p>
         </div>
       </WidgetCard>
     </template>
@@ -461,47 +422,6 @@ h2 {
   color: var(--t1);
 }
 .tile .tu {
-  font-size: 10.5px;
-  color: var(--t3);
-  font-variant-numeric: tabular-nums;
-}
-.res {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.row {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 11.5px;
-}
-.row .k {
-  width: 30px;
-  color: var(--t3);
-  font-weight: 700;
-}
-.row .v {
-  width: 46px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  color: var(--t2);
-}
-.track {
-  flex: 1;
-  height: 5px;
-  border-radius: 3px;
-  background: rgba(128, 140, 135, 0.2);
-  overflow: hidden;
-}
-.track i {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  transition: width 160ms linear;
-}
-.foot {
-  margin: 0;
   font-size: 10.5px;
   color: var(--t3);
   font-variant-numeric: tabular-nums;

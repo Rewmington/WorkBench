@@ -85,6 +85,10 @@ pub const KEY_MEDICINE_EMAIL: &str = "linked.medicine.email";
 pub const KEY_WDAV_EMAIL: &str = "webdav.email";
 pub const KEY_BACKUP_ENABLED: &str = "backup.enabled";
 pub const KEY_HOTKEYS: &str = "hotkeys";
+/// 手机同步的状态（上次同步时间 / 最近一次失败 / 远端设备 listing）。
+/// 唯一读写处是 `sync::relay::record` 与 `sync::relay::stored_state` ——
+/// 界面与开机调度都从这一份念，不落第二份账（PLAN-MOBILE §6 M11b）。
+pub const KEY_SYNC_STATE: &str = "sync.state";
 
 #[cfg(test)]
 mod tests {
