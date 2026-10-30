@@ -438,6 +438,45 @@ export interface StatsReport {
   hasActivity: boolean
 }
 
+/**
+ * 课表的一行 = 一个「星期 × 节次 × 周次集合」，**不是一门课**（PLAN §6.7）。
+ * 同一门课在不同周次段可以在不同教室，所以它在库里天然可能是好几行，界面按名字归组。
+ */
+export interface ClassRow {
+  name: string
+  teacher: string
+  room: string
+  /** 1 = 周一 … 7 = 周日，与 Rust 的 `days::weekday` 同一约定 */
+  day: number
+  /** 本地分钟数 0–1439。判断"现在是不是在上课"要能比大小，所以不存字符串 */
+  startMin: number
+  endMin: number
+  /** 节次标签原样（如「第一大节 [01-02]节」），界面直接显示，不自己编号 */
+  period: string
+  /** 规范化后的周次集合，如 `1-10,12-16` */
+  weeks: string
+}
+
+export interface TimetableState {
+  term: string | null
+  /** ISO `yyyy-mm-dd`。null = 还没设 —— 界面要要求填，不能自己猜一个 */
+  week1Monday: string | null
+  /** 没设开学日 / 还没开学 / 学期已结束 → null（不是 0） */
+  currentWeek: number | null
+  /** 从各课周次集合的最大端推的默认值 */
+  totalWeeks: number | null
+  rows: number
+  courses: number
+}
+
+export interface TimetableImportReport {
+  term: string
+  rows: number
+  courses: number
+  /** 导完了但还算不出"今天第几周"：界面拿这个去提示填开学日 */
+  needsWeek1: boolean
+}
+
 export interface Api {
   paths(): Promise<PathsView>
   deviceId(): Promise<string>
@@ -555,8 +594,16 @@ export interface Api {
   /** 返回被挪走的笔记数：0 也要报，界面据此区分「空目录已删除」与「N 篇已挪到上一层」 */
   folderDelete(id: string): Promise<number>
 
-  hotkeysList(): Promise<HotkeyItem[]>
-  /** 换绑。注册失败时 Rust 侧已回滚，这里抛错、前端只显示那句话 */
+  /** ---- M9 课表：导入即整学期替换，课不进 todos（§6.7） ---- */
+  timetableState(): Promise<TimetableState>
+  /** 设第 1 周的周一。空串 = 清掉，回到"没设"并要求重填 */
+  timetableSetWeek1(date: string): Promise<TimetableState>
+  /** 某一天的课。`week` 传 null = 当前周；算不出当前周时返回空列表而不是猜 */
+  timetableWeek(week: number | null): Promise<ClassRow[]>
+  /** 弹原生对话框选 CSV；取消返回 null。不是 UTF-8 会抛那句可执行的提示 */
+  timetableImport(): Promise<TimetableImportReport | null>
+
+  hotkeysList(): Promise<HotkeyItem[]>  /** 换绑。注册失败时 Rust 侧已回滚，这里抛错、前端只显示那句话 */
   hotkeysSet(action: string, combo: string): Promise<HotkeyItem>
   hotkeysReset(action: string): Promise<HotkeyItem>
   autostartGet(): Promise<boolean>

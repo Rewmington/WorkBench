@@ -3,6 +3,7 @@ import type {
   BackupLogRow,
   BackupOutcome,
   BackupStatus,
+  ClassRow,
   Countdown,
   CountdownMode,
   DashSummary,
@@ -26,9 +27,12 @@ import type {
   TodoDraft,
   TodoPatch,
   TodoZone,
+  TimetableImportReport,
+  TimetableState,
   Zone,
 } from './types'
 import { DEFAULT_COMBO, sameCombo } from '../lib/combo'
+import { weekOf } from '../lib/timetable'
 
 /**
  * 只在浏览器里跑（`npm run dev` + `?mock=1`）时用的实现。
@@ -198,6 +202,7 @@ interface Store {
   medicine: MedicineSeed
   stickies: Sticky[]
   countdowns: Countdown[]
+  timetable: TimetableSeed
   notes: Note[]
   folders: NoteFolder[]
 }
@@ -426,7 +431,7 @@ function seedCountdowns(): Countdown[] {
 
 function freshStore(): Store {
   if (EMPTY) {
-    return { todos: [], resources: [], zones: [], secrets: {}, settings: {}, backup: { email: null, hasPass: false, log: [], remote: [] }, medicine: freshMedicine(), stickies: [], countdowns: [], notes: [], folders: [] }
+    return { todos: [], resources: [], zones: [], secrets: {}, settings: {}, backup: { email: null, hasPass: false, log: [], remote: [] }, medicine: freshMedicine(), timetable: freshTimetable(), stickies: [], countdowns: [], notes: [], folders: [] }
   }
   return {
     todos: seedTodos(),
@@ -436,6 +441,7 @@ function freshStore(): Store {
     settings: SEEDED_HOTKEY ? { [SETTINGS_HOTKEYS]: { [HOTKEY_ACTION]: SEEDED_HOTKEY } } : {},
     backup: freshBackup(),
     medicine: freshMedicine(),
+    timetable: freshTimetable(),
     stickies: seedStickies(),
     countdowns: seedCountdowns(),
     ...seedNotes(),
@@ -1447,6 +1453,23 @@ export const mockApi: Api = {
     return inside.length
   },
 
+  timetableState: async () => mockTimetableState(),
+  timetableSetWeek1: async (date) => {
+    const trimmed = date.trim()
+    if (trimmed && !/^d{4}-d{2}-d{2}$/.test(trimmed)) throw new Error('开学日要用 yyyy-mm-dd 这种写法')
+    store.timetable.week1Monday = trimmed || null
+    save()
+    return mockTimetableState()
+  },
+  timetableWeek: async (week) => {
+    const st = mockTimetableState()
+    const w = week ?? st.currentWeek
+    if (w == null) return []
+    return store.timetable.rows.filter((r) => weeksInclude(r.weeks, w)).map((r) => ({ ...r }))
+  },
+  // 浏览器里没有原生对话框：与 resourcePick 同一套路，返回 null 表示"这里演不了"
+  timetableImport: async (): Promise<TimetableImportReport | null> => null,
+
   hotkeysList: async () => [mockHotkey(HOTKEY_ACTION, comboOf())],
   hotkeysSet: async (action, combo) => {
     const next = assertCombo(combo)
@@ -1551,5 +1574,54 @@ function medicineFixture(): SnapshotView {
     status: 'ok',
     detail: medicineDetail(),
     payloadJson: JSON.stringify(payload),
+  }
+}
+
+/* ==== M9 课表：浏览器里演状态机。课程名全是假的 —— 仓库里不留任何人的真实课表 ==== */
+
+interface TimetableSeed {
+  week1Monday: string | null
+  rows: ClassRow[]
+}
+
+/** 与真导出同形状的假数据：同一门课两段不同周次、有重叠、有空档 */
+function freshTimetable(): TimetableSeed {
+  const at = (name: string, teacher: string, room: string, day: number, s: number, e: number, weeks: string, period: string): ClassRow => ({
+    name, teacher, room, day, startMin: s, endMin: e, period, weeks,
+  })
+  return {
+    week1Monday: null,
+    rows: [
+      at('编译原理', '张老师', '一教 101', 1, 480, 580, '1-10,12-16', '第一大节 [01-02]节'),
+      at('编译原理', '张老师', '一教 101', 1, 600, 700, '2-16', '第二大节 [03-04]节'),
+      at('算法设计', '李老师', '三教 202', 2, 480, 580, '1-8', '第一大节 [01-02]节'),
+      at('算法设计', '助教', '机房 B305', 2, 600, 700, '9-16', '第二大节 [03-04]节'),
+      at('线性代数', '王老师', '一教 105', 3, 840, 940, '1-16', '第三大节 [05-06]节'),
+      at('英语读写', 'Brown', '外院 305', 4, 480, 580, '1-12', '第一大节 [01-02]节'),
+      at('体育课', '赵老师', '北操场', 5, 960, 1060, '1-16', '第四大节 [07-08]节'),
+    ],
+  }
+}
+
+/** 与 Rust 的 weeks_include 同口径（mock 是镜像，不是第二套生产实现） */
+function weeksInclude(spec: string, week: number): boolean {
+  return spec.split(',').some((part) => {
+    const t = part.trim()
+    const [a, b] = t.split('-')
+    if (b === undefined) return Number(t) === week
+    return Number(a) <= week && week <= Number(b)
+  })
+}
+
+function mockTimetableState(): TimetableState {
+  const t = store.timetable
+  const total = t.rows.reduce((max, r) => Math.max(max, ...r.weeks.split(',').map((p) => Number(p.split('-').at(-1)))), 0)
+  return {
+    term: t.rows.length ? '2026-2027-1' : null,
+    week1Monday: t.week1Monday,
+    currentWeek: weekOf(t.week1Monday, Date.now(), t.rows.length ? total : null),
+    totalWeeks: t.rows.length ? total : null,
+    rows: t.rows.length,
+    courses: new Set(t.rows.map((r) => r.name)).size,
   }
 }

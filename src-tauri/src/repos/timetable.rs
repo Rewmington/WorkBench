@@ -277,9 +277,6 @@ pub fn import(conn: &Connection, now: &dyn Now, device: &str, text: &str) -> Res
     })
 }
 
-/// 空档至少这么长才算"有空"。界面上要把这个数写出来（§2 原则 5：不藏着门槛）。
-pub const MIN_GAP_MINUTES: i32 = 30;
-
 /// 今天在第几周。开学日没设 / 还没开学 / 学期已结束 → `None`，
 /// 而不是回一个 0 或者硬猜 —— 猜错会把一整个学期的课表显示成另一周的样子。
 pub fn week_of(week1_monday_day: i32, today_day: i32, total_weeks: i32) -> Option<i32> {
@@ -302,26 +299,6 @@ fn weeks_high(spec: &str) -> Option<i32> {
 /// 学期总周数：CSV 里没有这一项，从各课周次集合的最大端推一个默认值（界面允许改）。
 fn max_week(specs: impl Iterator<Item = String>) -> Option<i32> {
     specs.filter_map(|s| weeks_high(&s)).max()
-}
-
-/// 当前时间之后、长度 ≥ `MIN_GAP_MINUTES` 的第一段空档。
-///
-/// 课表页与待办「今天」档顶部那行**必须调这一个函数**（§8.8 第 8 条）：
-/// 两处各写一遍，迟早给出两个"最近的空档"。
-pub fn next_free_gap(rows: &[ClassRow], now_min: i32) -> Option<(i32, i32)> {
-    let mut ends: Vec<(i32, i32)> = rows.iter().map(|r| (r.start_min, r.end_min)).collect();
-    ends.sort_unstable();
-    let mut cursor = now_min;
-    for (start, end) in ends {
-        if end <= cursor {
-            continue; // 已经上完的课不该把游标推回去
-        }
-        if start - cursor >= MIN_GAP_MINUTES {
-            return Some((cursor, start));
-        }
-        cursor = cursor.max(end);
-    }
-    None
 }
 
 #[derive(Debug, Serialize)]
@@ -591,56 +568,8 @@ mod tests {
         assert_eq!(week_of(20260907, 20270201, 19), None, "学期结束了也不该继续编号");
     }
 
-    #[test]
-    fn the_free_gap_waits_for_a_real_thirty_minutes() {
-        let at = |day: i32, s: i32, e: i32| ClassRow {
-            name: "课".into(),
-            teacher: String::new(),
-            room: String::new(),
-            day,
-            start_min: s,
-            end_min: e,
-            period: String::new(),
-            weeks: "1-16".into(),
-        };
-        let rows = vec![at(1, 480, 580), at(1, 600, 700), at(1, 710, 800)];
-        // 第一节之前那段是真空档
-        assert_eq!(next_free_gap(&rows, 400), Some((400, 480)));
-        // 正在上课 → 跳过；下一节只有 10 分钟 → 不算；课后没有下一节 → 不编空档
-        assert_eq!(next_free_gap(&rows, 600), None);
-        assert_eq!(next_free_gap(&rows, 700), None);
-        assert_eq!(next_free_gap(&rows, 800), None, "最后一节之后不该凭空造一段");
-        assert_eq!(
-            next_free_gap(&[at(1, 480, 500), at(1, 600, 700)], 500),
-            Some((500, 600)),
-            "刚好 60 分钟该算"
-        );
-        assert_eq!(
-            next_free_gap(&[at(1, 480, 500), at(1, 520, 700)], 500),
-            None,
-            "20 分钟不算空档（界面上要把门槛写出来）"
-        );
-    }
-
-    #[test]
-    fn overlapping_classes_do_not_fabricate_a_gap() {
-        let at = |s: i32, e: i32| ClassRow {
-            name: "课".into(),
-            teacher: String::new(),
-            room: String::new(),
-            day: 1,
-            start_min: s,
-            end_min: e,
-            period: String::new(),
-            weeks: "1-16".into(),
-        };
-        // 调课常见：两节时间重叠。游标必须取 max(end)，否则会算出一段不存在的空档
-        assert_eq!(next_free_gap(&[at(480, 700), at(500, 800)], 480), None);
-        assert_eq!(next_free_gap(&[at(480, 500), at(490, 800)], 480), None);
-    }
-
     /// 2026-10-30 上午十点（本地）。周次算的是本地日，所以从日整数反推毫秒，
-    /// 不用裸常量 —— `FixedNow(1.7e12)` 其实是 2023-11-14，写测试时很容易记错。
+    /// 不用裸常量 —— `FixedNow(1_700_000_000_000)` 其实是 2023-11-14，写测试时很容易记错。
     fn at_oct_30() -> crate::time::FixedNow {
         crate::time::FixedNow(crate::time::days::day_start_ms(20261030) + 10 * 3_600_000)
     }

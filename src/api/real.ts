@@ -4,6 +4,7 @@ import type {
   Api,
   BackupOutcome,
   BackupStatus,
+  ClassRow,
   Countdown,
   DashSummary,
   HotkeyItem,
@@ -21,6 +22,8 @@ import type {
   Sticky,
   Suggestion,
   SysLoad,
+  TimetableImportReport,
+  TimetableState,
   Todo,
   Zone,
 } from './types'
@@ -121,6 +124,11 @@ export const realApi: Api = {
   folderRename: (id, name) => invoke<NoteFolder>('folder_rename', { id, name }),
   folderMove: (id, parentId) => invoke<NoteFolder>('folder_move', { id, parentId }),
   folderDelete: (id) => invoke<number>('folder_delete', { id }),
+
+  timetableState: () => invoke<TimetableState>('timetable_state'),
+  timetableSetWeek1: (date) => invoke<TimetableState>('timetable_set_week1', { date }),
+  timetableWeek: (week) => invoke<ClassRow[]>('timetable_week', { week }),
+  timetableImport: () => invoke<TimetableImportReport | null>('timetable_import'),
 
   hotkeysList: () => invoke<HotkeyItem[]>('hotkeys_list'),
   hotkeysSet: (action, combo) => invoke<HotkeyItem>('hotkeys_set', { action, combo }),
