@@ -64,6 +64,7 @@
 | `docs/` | 计划、状态记录、精选截图 |
 | `design/` | 决策前后的 HTML 对比稿与美术源 |
 | `tools/` | 截图、逐图核对、WebDAV 桩等取证脚本 |
+| `.github/workflows/` | 推 `v*` tag 时自动构建桌面安装包与 Android APK |
 | `shots/` | 本机取证截图（**不入库**，README 用 `docs/images/` 那两张） |
 
 ## 快速开始
@@ -99,6 +100,24 @@ npm run lint:style       # 设计令牌与反网页感静态检查
 cd src-tauri && cargo test
 cd mobile && flutter test && flutter analyze
 ```
+
+## 发布
+
+推一个 `v*` tag 就会触发 [.github/workflows/release.yml](.github/workflows/release.yml)：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+工作流会并行构建并挂到同一个 GitHub Release：
+
+- `Anvil-<tag>-x64-setup.exe`（Windows NSIS）
+- `Anvil-<tag>-android.apk`（Android，通用 APK）
+
+在 Actions 页面手动运行同一工作流是**干跑**：只产出 workflow artifacts，不建 Release。
+
+> 目前产物**未做发布签名**：Windows 首次运行会弹 SmartScreen；APK 使用 debug 签名（仅自用/侧载）。应用内自动更新不在当前范围。
 
 ## 数据与隐私
 
