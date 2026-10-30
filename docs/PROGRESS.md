@@ -681,3 +681,19 @@ M11c 在状态表里还是 🟡，欠的三块是手机侧 SQLite、快照/合�
 - 签名现状：桌面未做发布签名（会弹 SmartScreen），APK 用 debug 签名；应用内自动更新不在范围内。
 
 **干跑已验**（run `41098082471`，6m31s，2026-10-31）：两个 job 全绿，publish 按设计跳过；artifact 实测 desktop 3.8 MB、android 24 MB。还没有创建任何公开 Release —— 等 tag 决定。
+
+## 修 v0.1.0 正式包无网络 + 药箱独立账号（2026-10-31 凌晨）
+
+**症状**：真机装 v0.1.0 Release APK 后，同步与药箱都报
+`Failed host lookup: 'dav.jianguoyun.com' (OS Error: No address associated with hostname, errno = 7)`；
+同一套代码的 debug 包在前面模拟器上是能发请求的（当时拿到的是真实 401）。
+
+**根因**：Flutter 模板只把 `INTERNET` 权限放在 `android/app/src/debug/AndroidManifest.xml` 与 `profile/`，
+`main/` 里没有；release 构建不合并前两份，于是正式包连 DNS 都出不去。与坚果云账号、应用密码无关。
+
+**修复**：
+- `main/AndroidManifest.xml` 补 `<uses-permission android:name="android.permission.INTERNET"/>`；顺带把启动器名从 `anvil_mobile` 改成 `Anvil`。用 `aapt dump badging` 验证新 release APK 里有这条权限。
+- 网络失败收成一句人话：DNS 失败 → 「连不上坚果云：域名解析失败，检查手机网络后再试」；不再把 `ClientException` 与 URI 甩到设置页（`sync/net_error.dart`，同步与药箱共用）。
+- **药箱账号可与同步账号不同**：新增设置页「药箱账号」行与 `Anvil/medicine-webdav` Keystore 条目；邮箱留空 = 回退同步那组，填了但没密码不会悄悄回退。服务层、Store、设置页与测试同步改。
+- 测试从 75 条增至 **81 条**（独立账号、回退、DNS 文案、设置页新行），`flutter analyze` 干净；本地 release APK 已重建并确认 `INTERNET` 在包里。
+- **v0.1.0 的 Release APK 仍是有问题的版本**，需要发 v0.1.1 或让用户先装本地新包；离线环境无法在真机复验 401，等用户在真机上确认。

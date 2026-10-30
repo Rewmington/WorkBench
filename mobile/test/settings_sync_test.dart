@@ -6,6 +6,7 @@ library;
 import 'package:anvil_mobile/app.dart';
 import 'package:anvil_mobile/credentials.dart';
 import 'package:anvil_mobile/db.dart';
+import 'package:anvil_mobile/medicine_service.dart';
 import 'package:anvil_mobile/repo.dart';
 import 'package:anvil_mobile/store.dart';
 import 'package:anvil_mobile/sync/service.dart';
@@ -74,6 +75,58 @@ void main() {
     await tester.tap(find.text('立即同步'));
     await tester.pumpAndSettle();
     expect(find.text('与电脑备份用的是同一组凭据'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('药箱有独立账号入口：留空就用上面那组', (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final store = await tester.runAsync(() async {
+      final db = await openMemoryDatabase(databaseFactoryFfi);
+      final repo = await PhoneRepo.open(db, now: DateTime.now().millisecondsSinceEpoch);
+      final sync = SyncService(
+        db: db,
+        repo: repo,
+        vault: MemoryPasswordVault(),
+        nowMs: () => DateTime.now().millisecondsSinceEpoch,
+        base: 'http://127.0.0.1:1/dav/workbench-sync/',
+      );
+      final med = MedicineService(
+        repo: repo,
+        vault: MemoryPasswordVault(),
+        fallbackVault: MemoryPasswordVault(),
+        nowMs: () => DateTime.now().millisecondsSinceEpoch,
+        base: 'http://127.0.0.1:1/dav/medicine-sync/',
+      );
+      return Store.load(
+        repo,
+        clock: Clock.live(),
+        syncer: sync,
+        medicineService: med,
+      );
+    });
+    await tester.pumpWidget(AnvilApp(
+      store: store!,
+      initialPage: 'settings',
+      forcedBrightness: Brightness.dark,
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(find.text('药箱账号'), 200,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.text('药箱账号'), findsOneWidget);
+    expect(find.text('同上方'), findsOneWidget);
+    expect(find.text('先填药箱账号（或用上面那组）'), findsOneWidget);
+    expect(tester.takeException(), isNull, reason: '360 宽下不能溢出');
+
+    await tester.tap(find.text('药箱账号'));
+    await tester.pumpAndSettle();
+    expect(find.text('药箱在另一个坚果云账号时填这里；邮箱留空 = 用上面那组'), findsOneWidget);
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);

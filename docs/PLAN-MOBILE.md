@@ -101,6 +101,7 @@ Anvil 手机端 ──PROPFIND + GET（只读）──▶ 同一目录
 - **只读在类型层，不靠自觉**：`sync/medicine_sync.dart` 的 `MedicineCloud` 只有 `PROPFIND` 与 `GET`，没有 `MKCOL/PUT/DELETE`；base 只认 `/medicine-sync/` 结尾，拒绝 `workbench-sync` / `workbench-backup`。测试断言桩侧收到的动词集合就是这两个。
 - **不读同机药箱的本地库**：药箱的 SQLite 在它自己的 Android 沙箱里（`getApplicationSupportDirectory()`），Anvil 是另一个包，读不到；也不去读它存在 `shared_preferences.json` 的明文密码。
 - **凭据复用 `Anvil/webdav`**：坚果云应用密码是账号级的，任一把都能读；手机上不新增密码条目，也不向 medicine-sync 写任何东西。
+- **药箱账号可以与工作台不同**：`medicine.email` + Keystore 里的 `Anvil/medicine-webdav`；邮箱留空才回退到同步那组。应用密码是账号级的 —— 同一个坚果云账号换一把应用密码也能读，**不同账号必须单独填**。
 - **合并规则照药箱**：同 id 取 `updated_at` 更新的行；平票取发布更晚的那份、再按设备号（只读视图必须与读取顺序无关）；墓碑行不显示；`published_at` 取各文件最大者。两张表：`medicines` / `dose_logs`。
 - **新鲜度 = 药箱上次发布**，不是此刻：卡片写「药箱 12:03」，详情写「药箱发布于 12:03 · 读取于 12:05」。断网/401 时保留上一次的视图，并单独记一句「这次没读到」。
 - **缓存**：合并后的视图落 settings `medicine.view`（本机、不上云）；失败不覆盖旧视图；开关关掉即停（不发请求、不画卡片）。

@@ -119,9 +119,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _row(
                   context,
                   key: '读取手机药箱',
-                  sub: '用同一组坚果云凭据，只读 medicine-sync；打卡仍回药箱',
+                  sub: '默认用上面那组；药箱是另一个账号时在下面单独填。打卡仍回药箱',
                   value: store.medicineEnabled ? '开' : '关',
                   onTap: _toggleMedicine,
+                ),
+                _row(
+                  context,
+                  key: '药箱账号',
+                  sub: '留空 = 用上面那组；独立账号的应用密码也进本机 Keystore',
+                  value: store.medicineAccountEmail ?? '同上方',
+                  onTap: _editMedicineAccount,
                 ),
                 _row(
                   context,
@@ -182,24 +189,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await store.setMedicineEnabled(false);
       return;
     }
-    if (!store.accountSaved) {
-      await _editAccount();
-      if (!store.accountSaved) return;
+    if (!store.medicineConfigured) {
+      await _editMedicineAccount();
+      if (!store.medicineConfigured) return;
     }
     await store.setMedicineEnabled(true);
   }
 
   Future<void> _readMedicine() async {
-    if (!store.accountSaved) {
-      await _editAccount();
-      if (!store.accountSaved) return;
+    if (!store.medicineConfigured) {
+      await _editMedicineAccount();
+      if (!store.medicineConfigured) return;
     }
     await store.refreshMedicine();
   }
 
   String _medicineSub() {
-    if (!store.accountSaved) return '先填上面的坚果云账号，再读药箱';
     if (!store.medicineEnabled) return '已关；打开后才会再读';
+    if (!store.medicineConfigured) return '先填药箱账号（或用上面那组）';
     final err = store.medicineError;
     if (err != null) return err;
     final published = store.medicine?.publishedAt;
@@ -212,9 +219,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _editAccount() async {
     final syncer = store.syncer;
     if (syncer == null) return;
-    _email.text = store.accountEmail ?? '';
+    final saved = await _showAccountDialog(
+      title: '坚果云账号',
+      subtitle: '与电脑备份用的是同一组凭据',
+      initialEmail: store.accountEmail ?? '',
+    );
+    if (saved != true) return;
+
+    if (_email.text.trim().isEmpty) {
+      _snack('邮箱不能为空');
+      return;
+    }
+    await syncer.saveAccount(_email.text, _password.text);
     _password.clear();
-    final saved = await showDialog<bool>(
+    await store.reload();
+    if (!mounted) return;
+    if (!store.accountSaved) {
+      _snack('还差应用密码，同步暂时不会跑');
+      return;
+    }
+    await _syncNow();
+  }
+
+  /// 药箱独立账号：邮箱留空并保存 = 清掉独立账号，回到工作台那组。
+  Future<void> _editMedicineAccount() async {
+    final med = store.medicineService;
+    if (med == null) return;
+    final saved = await _showAccountDialog(
+      title: '药箱账号',
+      subtitle: '药箱在另一个坚果云账号时填这里；邮箱留空 = 用上面那组',
+      initialEmail: store.medicineAccountEmail ?? '',
+    );
+    if (saved != true) return;
+    final email = _email.text.trim();
+    await med.saveAccount(email, _password.text);
+    _password.clear();
+    await store.reload();
+    if (!mounted) return;
+    _snack(email.isEmpty ? '已改用上面那组账号' : '药箱账号已保存');
+    if (store.medicineEnabled) await store.refreshMedicine();
+  }
+
+  Future<bool?> _showAccountDialog({
+    required String title,
+    required String subtitle,
+    required String initialEmail,
+  }) {
+    _email.text = initialEmail;
+    _password.clear();
+    return showDialog<bool>(
       context: context,
       builder: (ctx) {
         final s = skinOf(ctx);
@@ -230,14 +283,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('坚果云账号',
+                Text(title,
                     style: TextStyle(
                         fontSize: 17, fontWeight: FontWeight.w700, color: s.t1)),
                 const SizedBox(height: 4),
-                Text('与电脑备份用的是同一组凭据',
-                    style: TextStyle(fontSize: 12, color: s.t3)),
+                Text(subtitle, style: TextStyle(fontSize: 12, color: s.t3)),
                 const SizedBox(height: 14),
-                _field(ctx, controller: _email, hint: '注册邮箱', keyboardType: TextInputType.emailAddress),
+                _field(ctx,
+                    controller: _email,
+                    hint: '注册邮箱',
+                    keyboardType: TextInputType.emailAddress),
                 const SizedBox(height: 10),
                 _field(
                   ctx,
@@ -276,21 +331,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       },
     );
-    if (saved != true) return;
-
-    if (_email.text.trim().isEmpty) {
-      _snack('邮箱不能为空');
-      return;
-    }
-    await syncer.saveAccount(_email.text, _password.text);
-    _password.clear();
-    await store.reload();
-    if (!mounted) return;
-    if (!store.accountSaved) {
-      _snack('还差应用密码，同步暂时不会跑');
-      return;
-    }
-    await _syncNow();
   }
 
   Widget _field(

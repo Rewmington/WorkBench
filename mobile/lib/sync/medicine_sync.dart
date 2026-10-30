@@ -14,6 +14,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import 'dav_xml.dart';
+import 'net_error.dart';
 import '../medicine.dart';
 
 const medicineSegment = '/medicine-sync/';
@@ -92,7 +93,7 @@ class MedicineCloud {
     try {
       return await client.send(req).timeout(timeout);
     } catch (e) {
-      throw MedicineCloudException(_networkError(e));
+      throw MedicineCloudException(cloudNetworkError(e));
     }
   }
 
@@ -167,8 +168,3 @@ class MedicineCloud {
   void close() => client.close();
 }
 
-String _networkError(Object e) {
-  final s = e.toString();
-  if (s.contains('TimeoutException')) return '连接坚果云超时：检查网络，或稍后再试';
-  return '连不上坚果云：$s';
-}

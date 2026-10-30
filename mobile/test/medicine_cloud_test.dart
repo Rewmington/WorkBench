@@ -154,4 +154,70 @@ void main() {
     expect(err.error, isNotNull);
     expect(err.error!.contains('\n'), isFalse, reason: '状态必须是一行话');
   });
+
+  test('药箱独立账号：用自己的邮箱+密码，不拿同步那把去猜', () async {
+    final stub = await DavStub.start(
+      user: 'med@example.com',
+      pass: 'med-pass',
+      segment: '/dav/medicine-sync/',
+    );
+    addTearDown(stub.close);
+    stub.dirExists = true;
+    stub.files['device-phone-a.json'] = utf8.encode(docJson('phone-a', 200));
+
+    final db = await openMemoryDatabase(databaseFactoryFfi);
+    await writeSetting(db, 'device.id', 'phone-a', fixedNow, 'phone-a');
+    final repo = await PhoneRepo.open(db, now: fixedNow);
+    await repo.saveEmail('sync@example.com', fixedNow);
+    await repo.saveMedicineEmail('med@example.com', fixedNow);
+    final medVault = MemoryPasswordVault('med-pass');
+    final service = MedicineService(
+      repo: repo,
+      vault: medVault,
+      fallbackVault: MemoryPasswordVault('sync-pass'),
+      nowMs: () => fixedNow,
+      base: stub.base,
+    );
+
+    expect(await service.configured, isTrue);
+    expect((await service.refresh())?.medicines.single.name, '钙片');
+  });
+
+  test('填了药箱邮箱但没密码：不配齐，也不悄悄回退同步账号', () async {
+    final db = await openMemoryDatabase(databaseFactoryFfi);
+    await writeSetting(db, 'device.id', 'phone-a', fixedNow, 'phone-a');
+    final repo = await PhoneRepo.open(db, now: fixedNow);
+    await repo.saveEmail('sync@example.com', fixedNow);
+    await repo.saveMedicineEmail('med@example.com', fixedNow);
+    final service = MedicineService(
+      repo: repo,
+      vault: MemoryPasswordVault(),
+      fallbackVault: MemoryPasswordVault('sync-pass'),
+      nowMs: () => fixedNow,
+      base: 'http://127.0.0.1:1/dav/medicine-sync/',
+    );
+
+    expect(await service.configured, isFalse);
+    expect(await service.refresh(), isNull);
+  });
+
+  test('留空邮箱保存 = 清掉独立账号，回退同步那组', () async {
+    final db = await openMemoryDatabase(databaseFactoryFfi);
+    await writeSetting(db, 'device.id', 'phone-a', fixedNow, 'phone-a');
+    final repo = await PhoneRepo.open(db, now: fixedNow);
+    await repo.saveEmail('sync@example.com', fixedNow);
+    await repo.saveMedicineEmail('med@example.com', fixedNow);
+    final medVault = MemoryPasswordVault('med-pass');
+    final service = MedicineService(
+      repo: repo,
+      vault: medVault,
+      fallbackVault: MemoryPasswordVault('sync-pass'),
+      nowMs: () => fixedNow,
+    );
+
+    await service.saveAccount('', '');
+    expect(await repo.medicineEmail(), isNull);
+    expect(await medVault.read(), isNull);
+    expect(await service.configured, isTrue, reason: '回退到工作台那组');
+  });
 }

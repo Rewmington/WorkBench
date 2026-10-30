@@ -39,15 +39,17 @@ void main() async {
     db,
     now: DateTime.now().millisecondsSinceEpoch,
   );
+  const syncVault = SecurePasswordVault();
   final service = SyncService(
     db: db,
     repo: repo,
-    vault: const SecurePasswordVault(),
+    vault: syncVault,
     nowMs: () => DateTime.now().millisecondsSinceEpoch,
   );
   final medicine = MedicineService(
     repo: repo,
-    vault: const SecurePasswordVault(),
+    vault: const SecurePasswordVault(key: SecurePasswordVault.medicineKey),
+    fallbackVault: syncVault,
     nowMs: () => DateTime.now().millisecondsSinceEpoch,
   );
   final store = await Store.load(

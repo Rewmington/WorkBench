@@ -14,6 +14,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import 'dav_xml.dart';
+import 'net_error.dart';
 
 export 'dav_xml.dart' show DavEntry, DavParseException;
 
@@ -118,7 +119,7 @@ class WebDavRemote {
     } on WebDavException {
       rethrow;
     } catch (e) {
-      throw WebDavException(_networkError(e));
+      throw WebDavException(cloudNetworkError(e));
     }
   }
 
@@ -218,8 +219,3 @@ class WebDavRemote {
   static String ourFileName(String device) => fileNameFor(device);
 }
 
-String _networkError(Object e) {
-  final s = e.toString();
-  if (s.contains('TimeoutException')) return '连接坚果云超时：检查网络，或稍后再试';
-  return '连不上坚果云：$s';
-}

@@ -97,6 +97,12 @@ class Store extends ChangeNotifier {
   String? medicineError;
   int? medicineErrorAt;
 
+  /// 药箱单独填的邮箱；null = 用同步那组
+  String? medicineAccountEmail;
+
+  /// 药箱凭据是否配齐（独立账号或回退同步账号）
+  bool medicineConfigured = false;
+
   Store({
     required this.clock,
     this.repo,
@@ -146,6 +152,9 @@ class Store extends ChangeNotifier {
       accountSaved = s != null && await s.configured;
       medicineEnabled = await r.medicineEnabled();
       medicine = await r.medicineView();
+      medicineAccountEmail = await r.medicineEmail();
+      medicineConfigured =
+          medicineService != null && await medicineService!.configured;
       final err = await r.medicineError();
       medicineError = err.error;
       medicineErrorAt = err.at;
@@ -343,6 +352,9 @@ class Store extends ChangeNotifier {
     if (r != null) {
       medicineEnabled = await r.medicineEnabled();
       medicine = await r.medicineView();
+      medicineAccountEmail = await r.medicineEmail();
+      medicineConfigured =
+          medicineService != null && await medicineService!.configured;
       final err = await r.medicineError();
       medicineError = err.error;
       medicineErrorAt = err.at;

@@ -30,6 +30,9 @@ const keyMedicineView = 'medicine.view';
 const keyMedicineError = 'medicine.lastError';
 const keyMedicineErrorAt = 'medicine.lastErrorAt';
 
+/// 药箱可能是另一个坚果云账号；没填时回退同步那组。
+const keyMedicineEmail = 'medicine.email';
+
 Future<Object?> readSetting(Database db, String key) async {
   final rows = await db.query(
     'settings',
@@ -238,4 +241,13 @@ class PhoneRepo {
     await writeSetting(db, keyMedicineError, error, at, deviceId);
     await writeSetting(db, keyMedicineErrorAt, at, at, deviceId);
   }
+
+  /// 药箱专用邮箱；null = 没单独填，药箱回退用同步那组。
+  Future<String?> medicineEmail() async {
+    final v = await readSetting(db, keyMedicineEmail);
+    return v is String && v.trim().isNotEmpty ? v.trim() : null;
+  }
+
+  Future<void> saveMedicineEmail(String email, int now) =>
+      writeSetting(db, keyMedicineEmail, email.trim(), now, deviceId);
 }

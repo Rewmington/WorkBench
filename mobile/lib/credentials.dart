@@ -15,12 +15,21 @@ abstract interface class PasswordVault {
 }
 
 /// 真机实现。v11 默认就是 Keystore 支撑的 AES-GCM（API 23+），不需要再开旧版开关。
+///
+/// 两个条目分开存：工作台同步用 [syncKey]，药箱用 [medicineKey]。
+/// 药箱可能是另一个坚果云账号，Anvil 不能拿同步那把去猜。
 class SecurePasswordVault implements PasswordVault {
   /// 与桌面 Windows 凭据管理器里的目标名同一个名字，出问题时好对照。
-  static const key = 'Anvil/webdav';
+  static const syncKey = 'Anvil/webdav';
+  static const medicineKey = 'Anvil/medicine-webdav';
 
+  final String key;
   final FlutterSecureStorage storage;
-  const SecurePasswordVault([this.storage = const FlutterSecureStorage()]);
+
+  const SecurePasswordVault({
+    this.key = syncKey,
+    this.storage = const FlutterSecureStorage(),
+  });
 
   @override
   Future<String?> read() async {

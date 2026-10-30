@@ -1,6 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 正式包也要联网：Flutter 模板只在 debug/profile 清单里给了 INTERNET，
+         release 构建不会合并那两份，于是手机会在 DNS 阶段就失败（Failed host lookup）。 -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
-        android:label="anvil_mobile"
+        android:label="Anvil"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
