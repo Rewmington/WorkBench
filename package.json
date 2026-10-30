@@ -2,6 +2,7 @@
   "name": "anvil",
   "private": true,
   "version": "0.1.0",
+  "description": "Anvil — local-first personal workbench (Tauri + Vue + Rust)",
   "type": "module",
   "scripts": {
     "dev": "vite",

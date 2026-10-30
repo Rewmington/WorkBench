@@ -491,3 +491,181 @@ native-tls: unable to find any user-specified roots in the final cert chain
 查到的事实（`openssl s_client` 实测，不是猜）：站点在 Cloudflare 后面，叶子证书由 **Google Trust Services WE1** 签发，链到 **GTS Root R4**，而那条链最后是**已过期的 GlobalSign Root CA 交叉签**。Windows 的受信任根存储里没有 GTS 的根（Google 从未把自家根送进 Microsoft 的存储），Edge/Chrome 自带根程序所以浏览器打得开，走 Schannel 的 `native-tls` 打不开。对照：`dav.jianguoyun.com` 的链是 Sectigo → USERTrust，两个都在 Windows 存储里 —— 所以**备份与药箱不受影响，只有博客这一条路是死的**。
 
 后果要说白：**M10b 的前提（线上是主源）在这台机器上目前不成立**，博客页会永远显示那句 amber 降级。诚实性达标了，新鲜度没达标。四条出路记在 PLAN §6.8 的"已知阻塞"里，等用户挑。
+
+---
+
+## 2026-10-30 晚：那条「证书链堵死」是误诊，线上这条路真的通了（M10d）
+
+上面那段结论作废，但留着 —— 它记的实测都是真的，判错的是最后一跳。
+
+**误诊在哪**：`native-tls: unable to find any user-specified roots in the final cert chain` 这句不是"Windows 存储里缺 GTS 的根"，而是 **ureq 自己的配置**：它的默认 `root_certs` 是 `WebPki`（自带那份 Mozilla 根集），配上 Schannel 后端会 `disable_built_in_roots(true)`，然后要求链上**逐字节等于** bundle 里的某个根 —— 末端是交叉签的站（Cloudflare/GTS 就是）全部握手失败，而 Windows 自己是信的。解法是 `RootCerts::PlatformVerifier`（见 `src-tauri/src/net.rs`），零内置根、零换 CA。判据当时就在手里：`curl` 与浏览器都通而 ureq 不通 —— 该先怀疑客户端配置，不是先怀疑 CA。
+
+**但修好 TLS 之后博客页还是降级**，于是这轮把剩下两处一起挖了出来：
+
+1. **线上 URL 拼错了名字**。`fetch_normalized_with` 用 `{BASE}{kind}.json`，而 `KINDS` 表里 `repos` 这一类的文件是 `github-repos.json` —— 站点没有 `/content/repos.json`，Next.js 回退成一整页 404 HTML。后果不是报错，是**只有仓库这一类永远退回本机 checkout**，而横幅说的是"线上没够到"，看着像网络问题。实测：`curl` 打 `repos.json` 得 404/44 KB HTML，打 `github-repos.json` 得 200/1.4 KB JSON。现在 URL 只能由那张表给（`content_url(file)`），并有一条测试逐个 kind 断言地址用的是自己的文件名。
+2. **七个清单并发抓是错的**。真机在原生窗口里量到：`std::thread::scope` 开七条线程各建一条连接，`timeout_connect` 3 s 下有**五条**报 `timeout: connect`，界面就是五条 amber 横幅 + 项目列表整片退回旧 checkout。同一时刻手动 `curl -4` / `curl -6` 都是 0.2 s 连上 —— 不是站点慢，是同一时刻多条新连接被排队。改成串行复用同一条连接后七个清单全通（真窗口里干净一轮 10 s，冷启那一轮 63 s），另加：单请求预算 20 s、整轮 45 s 封顶（超了写「整轮预算用完，没轮到 X」而不是静默缺席）、第一趟没够到的补第二趟（偶发一次握手失败不该把整页降级）。
+
+**还有第三处，是「软件对不上网页」里跟网络无关的那一半**：站点的 `src/lib/projects.ts` 是**仓库为主源、`projects.json` 只是覆盖表**（覆盖改显示名/简介/标签/状态，不顶掉仓库行，所以那张卡照样有语言与 ★）；工作台做的是"手写在前 + 同 url 的仓库整条删掉"。标题和条目数看着一样，被覆盖那张 `Rewmington Desk` 就是少了网页上明晃晃有的 TypeScript / ★ / 最近动过。现在 `src/lib/blog.ts` 逐字段照抄站点规则，判同 key 也跟站点一样用 url 末段的仓库名而不是整条 url。
+
+**验证**：`cargo test`（90 lib + 各集成）全绿；`cargo test --lib linking::blog_online -- --ignored` 连跑多轮打印七个清单全通与整轮耗时；`npx vitest run` 78 条全绿（含新写的站点口径断言）；`npm run typecheck`、`lint:style` 过；浏览器那一条腿拍了 `shots/m10d-blogmerge-1400-dark.png`。
+
+**端到端也在真实窗口里拍了**（用户批准关掉 20:03 那个 release 实例 —— 托盘常驻挡住了优雅关闭，用的是强制结束 —— 再起 `npm run tauri:dev`）：点一次「重新读取」，等这一轮落地，**amber 横幅没有了**，第一张卡是 `Rewmington Desk · 编码中 · Next.js · React · Tailwind CSS · TypeScript · 2026-10-30` —— 那个日期就是判据：本机 checkout 里 `github-repos.json` 写的是 2026-10-22，只有线上那份才是 10-30。干净一轮 10 s（`shots/m10d-bloground-native-real.png`），窗口刚起来撞冷启那一轮 63 s（`shots/m10d-blogfixed-native-real.png`）。而更早那两张 `m10d-blog-native-real.png` / `m10d-blog32-native-real.png` 是修复前 release 窗口的现场，留着对照：那上面就是五条降级 + 卡片缺语言与星数。
+
+**顺手收掉的一处重复**（同日）：「打开软件自动拉一次」这件事其实 M10b 就做了（`App.vue` 挂载时 `refreshBlog()` + 每 10 分钟一次），但 `Blog.vue` 的 `onMounted` 又挂了同一次 —— 启动那轮还在跑的时候进博客页就会并发第二条连接，正是上面判死的那个排队模式。删掉视图自己那一次，拉取归应用，视图只渲染缓存。冷启动实测：不点任何按钮，进博客页就是 `项目 4` + 第一张卡带 `TypeScript · 2026-10-30`、无降级横幅（`shots/m10d-autostart-native-real.png`）。
+
+## 2026-10-30 晚：系统资源从「进行中」搬到侧栏底部常驻
+
+你指着「进行中」里那张卡说该常驻 —— 对，它是"随时瞥一眼"的东西，不该要先切视图才看得到。PLAN §4 那句"M5 定它们最终落点"到这里才算真的定下来。
+
+- **落点**：侧栏底部那一叠（`.y-sidefoot`），在「坚果云备份」**上面**。那里本来就是 flex 列 + 8px 间距，加第二张 `.y-picker` 不用新版式。窗口最小 800px，侧栏不会被收成 56px 图标轨，所以它是真的常驻。
+- **208px 里的形状**：标签 26px + 条子吃剩下的宽 + 数字 34px 右对齐，底下小字给「物理内存 18.7 GB / 31.3 GB」。原来那一版是整屏宽的长条，塞进侧栏会挤成一团。
+- **轮询**：从 1 秒一次改成 **5 秒一次**，而且 `document.hidden`（最小化 / 收进托盘）就不采、回到前台立刻补一次 —— 常驻不等于每秒都在跑，跟 §8.8.1「失焦要真停」是同一条纪律。采样函数与 `load` 状态都还在 `useWidgets` 里，没另起一份读数算法。
+- **删掉的那份**：`Progress.vue` 里的 `system` 部件（键、标签、默认顺序、模板、`.res/.row/.track/.foot` 样式、1 秒定时器）一并删。存盘的 `ui.widgetOrder` 里那条 `system` 不用迁移 —— `loadOrder` 本来就按 `DEFAULTS` 过滤，读到时自然丢掉。
+
+**验证**：`typecheck` / `vitest` 78 条 / `lint:style` + 令牌冻结表都过。浏览器那条腿拍了 `shots/m11-sysres-{1400,760}-dark.png`（侧栏底部两张卡、进行中最剩三个部件）；原生那条腿直接起 `target/debug/anvil.exe` 连 9222，读到的是真机数字 `CPU 12% · 内存 60% · 物理内存 18.7 GB / 31.3 GB`（`shots/m11-native-native-real.png`）。
+
+**release 重出并真机验过**（同日 21:27）：`npm run tauri:build` 2m09s 出 `target/release/anvil.exe` + `bundle/nsis/Anvil_0.1.0_x64-setup.exe`（3.67 MiB）。直接起这个 release 二进制连 9222：一次都没点，进博客页就是 `项目 4` + 第一张卡 `TypeScript · 2026-10-30`（本机那份是 10-22）、无降级横幅；侧栏两张常驻卡读数是真的（`CPU 23% · 内存 85% · 26.6 GB / 31.3 GB`）。截图 `shots/m11-release-native-real.png`。
+（一个测量自己的坑要说：我那段轮询写的是"等 `.cards .card` 里出现线上那个日期"，可博客卡只有进了博客视图才在 DOM 里 —— 所以 `自动拉取落地秒 = -1` 是探测条件错，不是没拉。反证很硬：那一轮里博客视图从没打开过，点进去却已经是线上那份。）
+
+## M11a 手机端数据层 —— 开工第一天就把两颗雷挖出来了（2026-10-30 夜）
+
+手机端从"定稿未开工"进到 **M11a 全绿**。做的顺序按计划 §6：先数据层，传输层（M11b）留到后面 —— 这个顺序的收益马上兑现了：**Argon2 的选型不用等真机，靠桌面实测就能定**。
+
+**1. `dirty` 这一列（§3.4）** —— 迁移 `0006_sync_dirty.sql`。列默认 0，但**存量行在迁移里置 1**：它们从没上过云，初始化成 0 等于谎报"已经传出去了"，而 §3.2 那句"没有本地写入就跳过 PUT"会让它们**永远**留在家里。写路径一共 9 处（`repos/todos.rs` 七处 + `seed.rs` 种子行 + 提醒盖章），漏一处不报错、只是那一行再也不出门，所以测试写成「清脏 → 走一条写路径 → 数它脏了几行」把每条都过一遍。`todos.dirty` 不进 `COLS`、不进快照、不进前端 —— 它是本机的欠账，不是数据。
+
+**2. 合并框架（§3.3）** —— `sync/snapshot.rs`（线格式）+ `sync/merge.rs`（LWW 并入 / 清脏 / 计数）。计划里没写、动手才发现的两处：
+
+- **`INSERT OR REPLACE` 不能用。** 它是先删后插，而 `parent_id REFERENCES todos(id)` 在本机是开着的 —— 合并一个有子项的父待办会在删除那一刻撞外键。改成「有则 UPDATE 全列、无则 INSERT」，同样是整行替换但不经过删除这一跳，并有一条测试专门建父子两行来钉它。
+- **快照是 JSON 对象行，不是按位置的数组。** 两端版本不可能永远一致：数组错一位会静默把数据写歪，对象则看得见"对面没有这一列"。列清单由 `PRAGMA table_info` 现取，`dirty` 排除在外。对端多发的列被忽略、少发的列由建表 DEFAULT 兜，两个方向都有测试。
+- 对端发来的 `classes` **整表拒绝**（§3.1 课表单向），拒绝的理由写在函数入口而不是靠调用方记得过滤。
+
+**3. Argon2 实测把 §8 那条待定终结了** —— `mobile/test/argon2_bench_test.dart`（本机 Dart VM、纯 Dart `package:cryptography` 2.9）：
+
+| 成本档 | 单次派生 | 一次同步（两次派生） |
+|---|---|---|
+| 64 MiB/3/1（日备那把） | 632 ms | ~1.26 s |
+| **16 MiB/3/1（同步这档）** | **129 ms** | **~0.26 s** |
+| 8 MiB/3/1 | 62 ms | ~0.12 s |
+
+§7 第 1 条的门槛是 1 s，踩线的是日备那档 → **同步信封单独一档 16 MiB**，不引 FFI。关键约束随之从"两端参数要相同"换成**"手机开 PC 那份时别被迫用 64 MiB"**：参数写在头部、`open` 照文件里的值派生，所以 PC 发同步快照也必须用同步这档（已写进 M11b 的验收）。真机要剩的只有一句话：这台手机上 16 MiB 两次加起来多少毫秒。
+
+**4. 跨语言向量双向各一条**（§6 M11a 验收）—— 沿用 M4 `GOLDEN_BLOB` 的做法：冻 base64 常量、重新产出的命令写在文件头上。Rust seal→Dart open 在 `mobile/test/envelope_test.dart`，Dart seal→Rust open 在 `src-tauri/tests/envelope.rs`，两头都验过魔数/版本/头部里那档 m_cost。**顺带修正了一次实现错误**：Dart 的 `decrypt` 要的是 `SecretBox` 而不是散开的参数，第一次跑就编译不过 —— 这种错正是"两份实现"要付出的代价，向量冻住之后它只可能在改布局的那天出现，而不是在坚果云上。
+
+**验证**：`cargo test` **107 lib + 各集成全绿**（新增 25 条 sync 相关），`cargo clippy --all-targets` 干净；`flutter test --exclude-tags bench` 9 条绿、`dart analyze` 零 issue。快照与合并的测试都是内存库真 SQL，没连坚果云、没碰手机。
+
+**下一步 M11b**：`sync::relay`（`/dav/workbench-sync/` 的 MKCOL/PROPFIND/GET/PUT + 三向目录钉子）+ 设置页那块「上次同步于 X · N 条待上传」。计划已经把三条硬要求写进验收，省得回头补。
+
+## M11b + M11c 并行推完（2026-10-30 深夜）
+
+M11a 之后按你选的"两条一起推"：M11b（PC 中转 + 界面同步块）交给一个隔离 worktree 的 agent，M11c（Flutter 两屏）我在线程上做。目录按归属切开 —— 它只碰 `src-tauri/**` 与 `src/**`，`mobile/**` 全程归我，所以没有互相覆盖。
+
+### M11b：合回主树之前先验了它
+
+它报"全绿"，我在主树重跑了一遍才算数：`cargo test` 117 lib + 各集成全过、`cargo clippy --all-targets -- -D warnings` 干净、`npm run typecheck` 干净、`npx vitest run` 86 条（它加了 8 条文案钉子）、`lint:style` + 令牌冻结表过。M11a 那七个文件与主树逐字节一致，所以合并是干净的；`net.rs` **跳过没取**（它按 0be2856 基线又把 `PlatformVerifier` 加了一遍，而主树那份未提交的 M10d 修法已经有了）；`src/api/mock.ts` 两边都动过 → 取它的 delta 之后把主树独有的那两行博客夹具改动原样贴回（覆盖用户已改的东西是踩过一次的坑）。
+
+它挖出来两件我没想到的事：
+
+1. **换机还原会让新机器"永不发布"**（真缺口，我随后补了）：`todos.dirty` 的语义是"**这台**机器还没传出去"，而整文件还原带回来的是**源机器那一刻**的值。源机器当时若同步干净 → 新机 pending=0 → §3.2 那句"没有本地写入就跳过 PUT"会让它在用户改第一条待办之前永远不发 `device-*.enc`，手机端于是永远看不到 PC 的数据，而界面还显示"0 条待上传"。修法就是 `restore_with` 换库之后补一句 `UPDATE todos SET dirty = 1`（`backup/mod.rs`，有测试 `a_restored_machine_owes_every_row_it_just_got`）。
+2. **计划里那句"设置页"是错的**：这个应用的坚果云备份是独立一页 `Backup.vue`，`Settings.vue` 只有外观/快捷键/关于与隐私。同步状态块落在备份页，机制说明才进 Settings 的「关于与隐私」。已按现状改 PLAN-MOBILE §6。
+
+### M11c：两屏 + 桌面直系皮肤，数字是量的不是看的
+
+`mobile/lib/`：`palette.dart`（皮肤 ① 的令牌，暗亮两套，值全部来自对比稿）、`timetable.dart`（桌面 `src/lib/timetable.ts` 的 1:1 移植，含 `nextFreeGap` 那三条注释里的规矩）、`reltime.dart`（措辞与桌面一字不差）、`todo.dart`（分区规则）、`store.dart`、`ui/{parts,today_screen,timetable_screen,settings_screen}.dart`、`demo.dart`（对比稿同一批假数据 + 冻住的 12:34）。
+
+验收口径是 §6 那一行，所以写成断言而不是"看着像"：`mobile/test/layout_spec_test.dart` 在 360×800 的逻辑框上量正文 15px、行高 ≥54、勾选点击区 48×48、7 日条每格 ≥48、撤销条与输入条的矩形不相交、空档摘要两屏同一句、空态两句话不共用。**测试逼出来的三个真问题**（不是我先想好的）：
+
+- **7 日条第一版每格 43.4dp**。360 宽下它跟着页边距缩进去就不够 48；负 padding 又被 Flutter 断言拦下（`Padding must not be negative`）。最后把横向内边距从 ListView 挪到每个子项自己带，7 日条只留 2dp 边 → 每格 49.1dp。§5.4 写的那句"每格实测 48.6dp"原来是有道理的，不是装饰。
+- **勾选后那条"凭空消失"**：滑走的行被追加到区尾，而 ListView 是懒建的，区尾常常已经在屏幕外 —— 于是"留在原位划掉"变成"点一下它没了"。改成滑走期间冻住切换前那份**顺序**、内容取当前值。
+- **同一句话说了两遍**：首次未同步时同步状态行和空态那句都是「还没同步过 · 这里可能是空的」。同步行改成短的「还没同步过」，长那句留给空态。
+
+三处**已知偏离**，都记在 §6 的 M11c 行里：勾选点击区 48 与"文字离卡片 41"放不下（文字挪到 54）；导航图标 `☑`/`▦` 在 Windows/Android 会渲染成彩色 emoji（截图里真的是一颗蓝紫方块），换成 Material 图标；设置页**没有**「立即同步」与「远端设备」两行 —— 手机侧传输层还没接，画一个按下去什么都不做的按钮比少一行更糟。
+
+取证链路：`flutter run --screenshot` 在这个 Flutter 版本不存在，窗口截图又会把 360×800 挤掉几十像素，所以加了 `lib/shot.dart` —— `--dart-define=ANVIL_SHOT=<路径>` 时用 `RepaintBoundary` 把界面约束成正好 360×800 拍一张然后退出。九张 `shots/m11c-*.png` 实测全是 720×1600（@2x）。
+
+**M11c 还欠的**（都在 M11d 之前）：手机侧 SQLite 落库、快照与合并的 Dart 移植、凭据进 Keystore（`flutter_secure_storage`）。**没跑过的**：Android 真机（本机没连设备，`flutter doctor` 报 Android 许可证未接受 + maven 不可达），以及真坚果云往返。
+
+### 等你拍的三件
+
+1. **PC 侧"什么时候同步"**：agent 实现成开机后 60 秒试一次、失败不重试（上限写在注释里）。计划只把"后台定时同步"判死在**手机**侧，PC 侧没拍板 —— 要不要像日备那样"dirty 非零就补传"。
+2. **锁纪律**：仓库里现在两种形态并存（`backup_now` 在 spawn_blocking 里持库锁跨网络 / `linked_refresh_blog` 先放锁后 IO）。同步的形状必须 IO 与库交替，它照了 backup 那一支。哪天要统一，不是这次的事。
+3. **提交与 worktree**：M11a/b/c 全在工作区未提交（`git status` 里还叠着 M10d 那批未提交的改动）；agent 的 worktree 也留着没删。要不要我分几个 commit 落下来、以及先提交哪一批，等你说。
+
+## M11c 收尾：手机侧落库、同步客户端与 Android 首跑（2026-10-31 凌晨）
+
+M11c 在状态表里还是 🟡，欠的三块是手机侧 SQLite、快照/合并的 Dart 移植、凭据进 Keystore。这轮全补上，另外挖出一个**计划里没写的缺口**。
+
+### 先补的缺口：手机拿不到「开学第一周」
+
+`Store` 里写着「手机上这两个值跟着快照来」，但快照只有 `todos` / `classes` 两张表，而 `timetable.week1Monday` 存在 PC 的 `settings` 里，那张表按约定**不同步**（每台机器自己的 UX）。于是手机即使拿到整张课表，`weekOf` 也只会返回 null —— 课表屏会是空的。`term` 同理：旧学期与新学期的行都在库里，手机不按学期过滤就会混着显示。
+
+修法：快照加白名单 `meta`（`timetable.term`、`timetable.week1Monday`），PC 从 settings 取，手机收到后写进自己的 settings。旧快照没有这个对象 → 读成空表，不报错。两端各一条测试（Rust：`the_class_baseline_travels_with_the_rows_and_nothing_else_does`、`a_snapshot_without_meta_is_still_readable`），并断言主题这类本机 UX 不会混进来。
+
+### 数据层与同步移植
+
+- `mobile/lib/db.dart`：只建手机真会用的三张表（`todos` / `classes` / `settings`），列与 PC 迁移后的表对齐；`PRAGMA foreign_keys=ON`；`singleInstance:false` 是为了测试每个用例一份干净内存库。
+- `repo.dart`：设备 id 生成一次（`phone-…`）；两条写路径（勾选、新建）都标 `dirty=1`。勾选只 UPDATE 六列，**模型里没有的列**（`remind_at`、`done_day`、`created_day/hour`）原样保留 —— 有测试钉住，否则一次勾选就会把提醒悄悄抹掉。
+- `sync/snapshot.dart` + `merge.dart`：Rust 那批规则逐条搬（整行覆盖、平票按设备 id、墓碑不复活、整批一个事务、清脏比快照戳、手机接受 classes 而拒绝别的表）。Dart 侧 13 条测试全绿。
+- **跨语言钉子**：`mobile/tool/emit_xlang_snapshot.dart` 产出一份 Dart 冻快照，base64 原样冻进 `snapshot.rs` 的 `XLANG_DART_SNAPSHOT`，Rust 解开并合并进空库。重产命令写在测试头上。
+- `sync/webdav.dart` + `engine.dart`：MKCOL / PROPFIND / GET / PUT、三向目录钉子、`pending==0` 跳过 PUT、断网与 401 各一句人话。测试里起一个进程内 WebDAV 桩（`test/support/dav_stub.dart`），跑通「拉取合并 → 上传 → 清脏 → 第二次跳过 PUT」整条链。
+- 设置页接真同步：账号表单（密码留空 = 沿用已存那条）、立即同步、远端设备 listing；打开 app 时自动同步一次。没配凭据时 `run()` 返回 null，不写失败记录。
+
+### 凭据与一个工具链的坑
+
+`flutter_secure_storage` 11 的 Windows 实现要 ATL（`atlstr.h`），本机没有，直接把 `flutter run -d windows` 的截图链挡死。处理：`mobile/third_party/flutter_secure_storage_windows` 放同一版本的本地副本，**只删 C++ 插件、保留 Dart FFI 实现**，`dependency_overrides` 指过去；Android 侧仍用主包的 Keystore 实现。另外 sqlite3 的原生资产钩子改成 `windows/android: system` —— 测试依赖在 App 构建时不该去 GitHub 下载二进制。
+
+### Android 上真跑了一遍（API 35 / x86_64 模拟器）
+
+- `flutter build apk --debug` 成功（含 sqflite / secure_storage 插件）。
+- 装到 `HBP AL00`（Android 15，1080×1920）：首启建库成功，空态两句话正确；新建一条 → 强制停止 → 重开，数据还在（SQLite 真的落盘）。
+- 设置页三行（账号 / 立即同步 / 远端设备）在真机 1080 宽下排版正常，账号表单也能开。
+- 用假账号保存后自动同步 → 请求真的到了坚果云，返回 401，界面显示「坚果云拒绝了凭据……」。这一趟同时证明 Keystore 写入/读回成功（`accountSaved` 为真才会发请求）、HTTPS 出网正常。
+- 截图：`shots/m11d-android-{first-run,portrait,created,relaunch,settings,account-dialog,sync-fail}.png`；桌面 360×800 的 `m11c-today/settings/tt` 也重拍过。
+
+### 还没验的
+
+- **真手机**：上面那台是 Android 15 x64 模拟器，不是实体机；Keystore 的厂商差异、国产 ROM 杀后台都还没碰。
+- **真坚果云账号往返**：只验到 401，成功路径（MKCOL/PROPFIND/PUT 真文件）仍要真账号。
+- **Android 上的 Argon2 耗时**：release/AOT 在 Android 15 x86_64 模拟器上实测 16MiB 一次同步 ≈ 302 ms（seal 215 / open 87）、64MiB ≈ 742 ms，往返一致；已回填 §4。模拟器数值只当参考，实体机仍要量。
+- 配额实测一周（§3.5）。
+
+### 验证
+
+`flutter analyze` 零 issue；Dart 测试全绿（48 条：布局 10、合并 13、同步 e2e 7、仓库 5、凭据 3、设置页 1、信封 8、Argon2 1）；`cargo test` 全绿（含新增 meta 与跨语言向量）；debug APK 构建通过。
+
+## M11e：手机药箱只读视图（2026-10-31）
+
+你拍板：**平时只用手机药箱记录并同步，电脑上的药箱不用**，所以手机端不该经过 PC 中转，直接读药箱自己发布的那份，只读。
+
+### 为什么不读同机药箱的库
+
+药箱的 SQLite 在 `getApplicationSupportDirectory()` 的私有目录里，Anvil 是另一个应用，Android 沙箱直接挡住；药箱把应用密码明文放在 `shared_preferences.json`，Anvil 也不该去读。能走通的只有它发布到 `/dav/medicine-sync/device-<药箱设备号>.json` 的那份全量快照。凭据用手机上已经填的同一组坚果云账号（应用密码是账号级的），不再多要一条。
+
+### 做了什么
+
+- `mobile/lib/sync/medicine_sync.dart`：只读客户端，**类型上只有 PROPFIND/GET**（没有 MKCOL/PUT），base 只认 `/medicine-sync/`，拒绝工作台的两个目录；解析两份 JSON，坏文件点名是哪一个。
+- `mobile/lib/medicine.dart`：规则逐条照药箱 `models.dart` / `app.dart` 搬 —— 库存天数、`times` 解析与回退、打卡「就近优先」匹配槽位、0 剂量=没吃、今日分母扣没吃、过了 30 分钟=待记。多设备按 `updated_at` 合并，平票按发布更晚/设备号（只读视图必须与读取顺序无关），墓碑行不显示。
+- `medicine_service.dart` + settings 缓存：成功写 `medicine.view`，失败保留旧视图并记 `medicine.lastError`；开关关掉即停（不发请求、卡片收起）。
+- 今天屏卡片（空档摘要下、待办区上）：`今天 2/4 次` + `下一次 20:00 · 钙片` / `待记 …`，库存两段分开着色（`已用完：X` 红、`Y 剩 N 天` 琥珀）。点开是只读详情：来源时间、每种药每格状态、余量用量，底部「这里只读；回药箱打卡并同步后才会更新」。**没有打卡按钮**。
+- 设置页新增「药箱（只读）」：开关与上次读取；没填账号时那两行说「先填上面的坚果云账号」，不开一个按下去没反应的开关。
+
+### 验证
+
+- Dart 测试 **75 条全绿**（新增 18 条药箱规则、5 条只读客户端、4 条卡片）；`flutter analyze` 零 issue；debug APK 构建通过。
+- 360×800 截图 `shots/m11e-medicine-360-dark.png`：三种状态（已服 / 未到 / 已用完 / 偏低）同屏，没有溢出。
+- **没验到的**：真药箱账号往返（本机没有那份凭据）；Android 设备在本轮中途被外部关掉（设备列表里消失，不是我们停的），所以卡片还没在这台模拟器上拍过。上一轮 M11c 的 Android 安装、落库、持久化证据仍然有效。
+
+### 一个措辞上的取舍
+
+卡片第一行写「药箱 12:03」，详情写「药箱发布于 12:03 · 读取于 12:05」—— 不做「已同步」这种无法验证的词。断网时旧数据留着，但错误单独一句，不假装实时。
+
+## 仓库整理（准备推送 GitHub，2026-10-31）
+
+给仓库做了一次「能给别人看」的整理，**没动任何代码与目录名**：
+
+- 新增根 [README.md](../README.md)：是什么、两张手机截图、架构与三条目录边界、仓库结构、两端怎么跑、测试命令、隐私说明。
+- 新增 [docs/README.md](README.md)（文档索引与阅读顺序）、[design/README.md](../design/README.md)（每版对比稿在回答什么问题）、[tools/README.md](../tools/README.md)（取证脚本索引）；`mobile/README.md` 从 Flutter 默认模板换成本项目的说明。
+- README 截图用 `docs/images/` 里精选的两张（手机今天屏含用药卡、课表屏），**演示数据**；73 MB 的 `shots/` 继续留在本机、不推。
+- `.gitignore` 补上 `.qoder/`、`mobile/build/`、`mobile/.dart_tool/`、`*.apk`、`*.abackup`、编辑器文件；三个构建产物目录原本就已忽略。`.qoder/worktrees/` 里那个 M11b 遗留 worktree（6.6 GB）被忽略，**没有删**——要不要清理、以及要不要分几个 commit 推，等 GitHub 地址和你的意见。
+- 元数据：`package.json` 加英文描述；`mobile/pubspec.yaml` 的描述改成真话、版本从 `1.0.0+1` 对齐到 `0.1.0+1`。
+- 验证：`npm run typecheck` 干净、前端 86 条测试全绿、手机 75 条全绿；README 内相对链接逐条检查过。
+- 未做：`LICENSE` 没有擅自加（许可方式是你的决定）；个人绝对路径、`design/refs/` 里的第三方参考图是否要处理，等仓库公开范围定了再说。

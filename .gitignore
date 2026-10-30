@@ -1,10 +1,31 @@
+# 依赖与构建产物
 node_modules/
 dist/
 src-tauri/target/
 src-tauri/gen/
+mobile/build/
+mobile/.dart_tool/
+*.apk
+
+# 本机取证截图（73 MB，不进仓库）。README 用 docs/images/ 里精选过的那几张。
+shots/
+
+# 本地 WebDAV 桩的数据目录
 tools/.webdav-root/
+tools/.webdav-sync-root/
+
+# 本机数据库备份件（可能含有个人数据）
+*.abackup
+
+# 编辑器 / 代理工具
+.qoder/
+.idea/
+*.iml
+
+# 杂项
 *.log
 .DS_Store
 Thumbs.db
 
-shots/
+# 设计参考图（来源/授权未定，不随仓库发布）
+design/refs/yics-knowledge-os*.png
