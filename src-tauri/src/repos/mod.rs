@@ -8,4 +8,5 @@ pub mod settings;
 pub mod stickies;
 pub mod stats;
 pub mod tags;
+pub mod timetable;
 pub mod todos;

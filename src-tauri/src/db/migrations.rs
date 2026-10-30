@@ -26,6 +26,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "0004_remind_fired",
         sql: include_str!("../../migrations/0004_remind_fired.sql"),
     },
+    Migration {
+        name: "0005_timetable",
+        sql: include_str!("../../migrations/0005_timetable.sql"),
+    },
 ];
 
 pub fn migrate(conn: &mut Connection) -> Result<u32> {
