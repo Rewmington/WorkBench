@@ -110,6 +110,26 @@
   --card-2: #0f1315;
 }
 
+/* 预设轴原来只写了暗色那一版。`[data-preset]` 与 `[data-mode='light']` 特异度相同
+   又写在亮色块**后面**，于是「亮色 + 苔绿 / 墨黑」实际还是黑的 —— 三轴各自独立
+   这句话要成立，亮色也得有自己的阶梯（只换表面色相，文字与强调色沿用亮色那版）。 */
+[data-mode='light'][data-preset='moss'] {
+  --bg: #e9f0ea;
+  --panel: #f5f9f5;
+  --card: #ffffff;
+  --card-2: #eef4ef;
+  --line: rgba(18, 38, 24, 0.1);
+  --line-2: rgba(18, 38, 24, 0.17);
+}
+[data-mode='light'][data-preset='ink'] {
+  --bg: #eceff2;
+  --panel: #f7f9fb;
+  --card: #ffffff;
+  --card-2: #f0f3f6;
+  --line: rgba(18, 24, 36, 0.1);
+  --line-2: rgba(18, 24, 36, 0.17);
+}
+
 /* ---- 强调色轴：只动强调色与语义蓝，表面不动 ---- */
 [data-accent='blue'] {
   --accent: #4c9dfa;

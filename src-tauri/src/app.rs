@@ -170,6 +170,7 @@ pub fn run() {
             commands::backup::backup_now,
             commands::backup::backup_save_credentials,
             commands::backup::backup_clear_credentials,
+            commands::backup::backup_clear_log,
             commands::backup::backup_list_remote,
             commands::backup::backup_test_connection,
             commands::backup::backup_restore,

@@ -2,6 +2,7 @@ import { ref } from 'vue'
 
 import { api } from '../api'
 import type { BackupOutcome, BackupStatus, RemoteFile } from '../api/types'
+import { errText } from '../lib/err'
 
 /**
  * 备份的读模型 + 四个动作。
@@ -33,7 +34,7 @@ export function useBackup() {
     try {
       remote.value = await api.backupListRemote()
     } catch (e) {
-      error.value = String(e)
+      error.value = errText(e)
       remote.value = []
     } finally {
       busy.value = { ...busy.value, remote: false }
@@ -49,7 +50,7 @@ export function useBackup() {
       if (!result.value.ok) error.value = result.value.error
       await load()
     } catch (e) {
-      error.value = String(e)
+      error.value = errText(e)
     } finally {
       busy.value = { ...busy.value, run: false }
     }
@@ -64,7 +65,7 @@ export function useBackup() {
       notice.value = `凭据可用，远端目录里列出 ${n} 份快照（只列目录，没写任何东西）`
       await refreshRemote()
     } catch (e) {
-      error.value = String(e)
+      error.value = errText(e)
     } finally {
       busy.value = { ...busy.value, test: false }
     }
@@ -77,7 +78,7 @@ export function useBackup() {
       await refreshRemote()
       return true
     } catch (e) {
-      error.value = String(e)
+      error.value = errText(e)
       return false
     }
   }
@@ -89,6 +90,16 @@ export function useBackup() {
     result.value = null
   }
 
+  /** 清的是这张列表，不是备份：远端文件与本地暂存副本一个都不动 */
+  async function clearLog() {
+    error.value = null
+    try {
+      status.value = await api.backupClearLog()
+    } catch (e) {
+      error.value = errText(e)
+    }
+  }
+
   async function restore(name: string) {
     busy.value = { ...busy.value, restore: true }
     error.value = null
@@ -96,7 +107,7 @@ export function useBackup() {
       result.value = await api.backupRestore(name)
       return result.value.ok
     } catch (e) {
-      error.value = String(e)
+      error.value = errText(e)
       return false
     } finally {
       busy.value = { ...busy.value, restore: false }
@@ -109,7 +120,7 @@ export function useBackup() {
     try {
       return await api.backupSelfTest(email, password)
     } catch (e) {
-      error.value = String(e)
+      error.value = errText(e)
       return false
     }
   }
@@ -127,6 +138,7 @@ export function useBackup() {
     testConnection,
     saveCredentials,
     clearCredentials,
+    clearLog,
     restore,
     selfTest,
   }

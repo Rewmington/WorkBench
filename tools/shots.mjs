@@ -27,6 +27,12 @@ const opt = (name, dflt) => {
 const slug = opt('as', view)
 const extra = opt('then', '')
 /**
+ * --preset=moss|ink|graphite 先经设置页那个真开关换预设，再回到要拍的视图。
+ * 买的是「三轴组合都要能验」：直接写 data-preset 会把"切了不生效"拍成一张好看的照片。
+ */
+const preset = opt('preset', '')
+const PRESET_LABEL = { graphite: '石墨', moss: '苔绿', ink: '墨黑' }
+/**
  * --attach=9222 直连已开远程调试的 WebView2（原生 anvil.exe），用来验真后端：
  *   WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 npm run tauri:dev
  * 附身模式不改视口也不重新导航 —— 要看的就是那个真实窗口现在的样子。
@@ -76,6 +82,10 @@ function clickNav(v) {
 }
 
 async function main() {
+  if (preset && !PRESET_LABEL[preset]) {
+    console.error(`--preset 只认 ${Object.keys(PRESET_LABEL).join(' / ')}`)
+    process.exit(1)
+  }
   mkdirSync(join(ROOT, 'shots'), { recursive: true })
   const wsUrl = attach
     ? await pollPage(Number(attach), { urlIncludes: ':1420', tries: 8 })
@@ -105,6 +115,22 @@ async function main() {
         const nav = await cdp.eval(clickNav(view))
         if (nav !== 'ok') throw new Error(nav)
         // 每个视图的根都是 section.y-view；等 h2 会漏掉「待办」这类没有 h2 的视图
+        await cdp.until(`!!document.querySelector('.y-view')`, 5000)
+      }
+      // 预设轴也走真开关：先经设置页点一下，再回到要拍的视图
+      if (!raw && preset) {
+        await cdp.eval(clickNav('设置'))
+        await cdp.until(`!!document.querySelector('.y-view .s')`, 5000)
+        const picked = await cdp.eval(`(function(){
+          const all = [...document.querySelectorAll('.y-view .s')];
+          const hit = all.find(b => (b.textContent || '').trim().startsWith('${PRESET_LABEL[preset]}'));
+          if (!hit) return 'no-preset:' + all.map(b => b.textContent.trim()).join('|');
+          hit.click();
+          return 'ok';
+        })()`)
+        if (picked !== 'ok') throw new Error(picked)
+        await cdp.until(`document.documentElement.dataset.preset === '${preset}'`, 3000)
+        await cdp.eval(clickNav(view))
         await cdp.until(`!!document.querySelector('.y-view')`, 5000)
       }
       // --then 用来演「点一下才出现」的状态：内联确认、未配凭据、选中详情

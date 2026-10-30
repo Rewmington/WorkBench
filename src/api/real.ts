@@ -89,6 +89,7 @@ export const realApi: Api = {
   backupSaveCredentials: (email, password) =>
     invoke<BackupStatus>('backup_save_credentials', { email, password }),
   backupClearCredentials: () => invoke<BackupStatus>('backup_clear_credentials'),
+  backupClearLog: () => invoke<BackupStatus>('backup_clear_log'),
   backupListRemote: () => invoke<RemoteFile[]>('backup_list_remote'),
   backupTestConnection: () => invoke<number>('backup_test_connection'),
   backupRestore: (name) => invoke<BackupOutcome>('backup_restore', { name }),

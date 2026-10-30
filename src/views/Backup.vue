@@ -24,6 +24,7 @@ const saved = ref(false)
 const keptExisting = ref(false)
 const selfTestMsg = ref<string | null>(null)
 const confirming = ref<string | null>(null)
+const clearing = ref(false)
 const testing = ref(false)
 let unlisten: (() => void) | null = null
 
@@ -105,6 +106,11 @@ async function selfTest() {
     ? '本机 KDF + AES-GCM 往返通过：同样的邮箱 + 应用密码能解开同一份文件。这只证明算法链路，不证明凭据可用 —— 要试凭据点「测试连接」。'
     : null
   testing.value = false
+}
+
+async function clearNow() {
+  clearing.value = false
+  await backup.clearLog()
 }
 
 async function restore(name: string) {
@@ -268,7 +274,18 @@ onBeforeUnmount(() => unlisten?.())
     </div>
 
     <div class="blk">
-      <h3>流水 <span class="n">{{ okCount }}/{{ log.length }} 成功</span></h3>
+      <h3>
+        流水 <span class="n">{{ okCount }}/{{ log.length }} 成功</span>
+        <button v-if="log.length && !clearing" type="button" class="y-ghost btn tiny end" @click="clearing = true">
+          清空
+        </button>
+      </h3>
+      <p v-if="clearing" class="askline">
+        只清这张列表 —— 远端的快照与本地暂存副本一个都不动。清完之后今天会被视作「还没备过」，
+        下次心跳会重新备一份。
+        <button type="button" class="y-ghost btn tiny" @click="clearNow">确认清空</button>
+        <button type="button" class="y-ghost btn tiny" @click="clearing = false">取消</button>
+      </p>
       <ul v-if="log.length" class="list">
         <li v-for="(l, i) in log" :key="`${l.at}-${i}`" class="lg">
           <i class="dot" :class="l.ok ? 'y' : 'r'"></i>
@@ -442,6 +459,18 @@ h2 {
   height: 25px;
   padding: 0 8px;
   font-size: 11px;
+}
+.btn.end {
+  margin-left: auto;
+}
+.askline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--t3);
+  margin: 0;
 }
 .spin {
   animation: rot 1.1s linear infinite;

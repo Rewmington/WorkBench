@@ -122,6 +122,13 @@ fn record(conn: &Connection, out: &Outcome, kind: &str) {
     );
 }
 
+/// 清空本机流水。**远端文件与本地暂存副本一个都不动** ——
+/// 清的是「这张列表」，不是备份本身；判"今天要不要再备一次"的是 `last_success`，
+/// 它读的是同一张表，所以清完之后当天会重新备一份（这是对的，不是 bug）。
+pub fn clear_log(conn: &Connection) -> Result<usize> {
+    Ok(conn.execute("DELETE FROM backup_log", [])?)
+}
+
 /// 坚果云的注册邮箱。应用密码只进凭据管理器，邮箱不是秘密，留在 settings 里
 /// 才能解释凭据条目属于谁（也才让「换机重填」这件事说得清楚）。
 pub(crate) fn webdav_email(conn: &Connection) -> Result<String> {
@@ -452,6 +459,49 @@ mod tests {
         );
 
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// 界面上那个「清空流水」清的是这张列表，不是备份。
+    #[test]
+    fn clearing_the_log_removes_rows_and_touches_nothing_else() {
+        let conn = fresh_db();
+        for i in 0..3 {
+            record(
+                &conn,
+                &Outcome {
+                    at: 1_793_000_000_000 + i,
+                    ok: i != 1,
+                    bytes: Some(1024),
+                    remote_path: Some(format!("anvil-{i}.abackup")),
+                    error: if i == 1 { Some(" dns error".into()) } else { None },
+                    skipped: false,
+                },
+                "manual",
+            );
+        }
+        let todos = || -> i64 {
+            conn.query_row("SELECT count(*) FROM todos WHERE deleted_at IS NULL", [], |r| r.get(0))
+                .unwrap()
+        };
+        crate::repos::todos::create(
+            &conn,
+            &crate::time::FixedNow(1_793_000_000_000),
+            "pc-t",
+            crate::model::TodoDraft {
+                title: "清流水不该动它".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let before = todos();
+
+        assert_eq!(clear_log(&conn).unwrap(), 3, "报告删掉了几行");
+        let left: i64 = conn
+            .query_row("SELECT count(*) FROM backup_log", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(left, 0);
+        assert_eq!(todos(), before, "待办一行都不该少");
+        assert!(schedule::last_success(&conn).is_none(), "清完就是「没备过」，别拿旧记忆骗人");
     }
 
     /// 新机器第一次还原：本机一项设置都还没有，就不该往库里塞空值。

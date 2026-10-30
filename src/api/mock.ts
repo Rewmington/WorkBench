@@ -1049,15 +1049,21 @@ export const mockApi: Api = {
   },
   backupSaveCredentials: async (email, password): Promise<BackupStatus> => {
     if (!email.trim()) throw new Error('邮箱不能为空')
-    if (!password.trim()) throw new Error('应用密码不能为空')
+    // 与 Rust 的 keep_or_set 同口径：框里空着 = 沿用已存那条，不是清空
+    if (password.trim()) store.backup.hasPass = true
+    else if (!store.backup.hasPass) throw new Error('应用密码不能为空')
     store.backup.email = email.trim()
-    store.backup.hasPass = true
     save()
     return mockApi.backupStatus()
   },
   backupClearCredentials: async (): Promise<BackupStatus> => {
     store.backup.email = null
     store.backup.hasPass = false
+    save()
+    return mockApi.backupStatus()
+  },
+  backupClearLog: async (): Promise<BackupStatus> => {
+    store.backup.log = []
     save()
     return mockApi.backupStatus()
   },

@@ -122,6 +122,14 @@ pub fn backup_clear_credentials(state: State<'_, AppState>) -> Result<BackupStat
     read_status(&conn, &state)
 }
 
+/// 清空本机流水。远端与本地暂存副本都不动 —— 清的是这张列表。
+#[tauri::command]
+pub fn backup_clear_log(state: State<'_, AppState>) -> Result<BackupStatus, Error> {
+    let conn = state.lock();
+    backup::clear_log(&conn)?;
+    read_status(&conn, &state)
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteFile {

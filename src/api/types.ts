@@ -551,6 +551,8 @@ export interface Api {
   /** 邮箱进 settings（它不是秘密，且要解释凭据条目属于谁），应用密码只进凭据管理器 */
   backupSaveCredentials(email: string, password: string): Promise<BackupStatus>
   backupClearCredentials(): Promise<BackupStatus>
+  /** 只清这张列表：远端文件与本地暂存副本都不动 */
+  backupClearLog(): Promise<BackupStatus>
   backupListRemote(): Promise<RemoteFile[]>
   /** 只列目录，不写任何东西 */
   backupTestConnection(): Promise<number>

@@ -79,7 +79,11 @@ function shift(delta: number) {
 
 const monthOf = (ms: number) => new Date(anchor.value).getMonth() === new Date(ms).getMonth()
 const isToday = (ms: number) => sameDay(ms, now.value)
-const isOverdue = (ms: number) => ms < startOfDay(now.value)
+/**
+ * 红只标「这天堆着过了截止还没做的事」。原来判的是"日子在过去"，
+ * 于是空月份里 29 个红数字一起喊，今天反而是唯一不红的 —— 今天就没得看了。
+ */
+const isOverdue = (ms: number) => ms < startOfDay(now.value) && (byDay.value.get(ms)?.length ?? 0) > 0
 const dayLabel = (ms: number) => `${new Date(ms).getMonth() + 1}/${new Date(ms).getDate()}`
 </script>
 
@@ -102,7 +106,7 @@ const dayLabel = (ms: number) => `${new Date(ms).getMonth() + 1}/${new Date(ms).
           <ChevronRight :size="14" />
         </button>
       </div>
-      <button type="button" class="y-ghost today" @click="anchor = startOfDay(now)">回到今天</button>
+      <button type="button" class="y-ghost goto-today" @click="anchor = startOfDay(now)">回到今天</button>
     </div>
 
     <div class="wkrow">
@@ -116,7 +120,10 @@ const dayLabel = (ms: number) => `${new Date(ms).getMonth() + 1}/${new Date(ms).
         class="cell"
         :class="{ dim: mode === 'month' && !monthOf(day), today: isToday(day), over: isOverdue(day) }"
       >
-        <div class="ch">{{ dayLabel(day) }}</div>
+        <div class="ch">
+          {{ dayLabel(day) }}
+          <span v-if="isToday(day)" class="now">今天</span>
+        </div>
         <button
           v-for="todo in byDay.get(day)?.slice(0, mode === 'week' ? 12 : 3)"
           :key="todo.id"
@@ -174,7 +181,10 @@ const dayLabel = (ms: number) => `${new Date(ms).getMonth() + 1}/${new Date(ms).
   background: var(--card);
   color: var(--t1);
 }
-.today {
+/* 原来这个类叫 .today，与格子上表示"这是今天"的 `.cell.today` 撞了 ——
+   于是今天那一格被按按钮的样子排版：height 26px、width auto、margin-left auto，
+   整格缩成一小块。撞名的 class 在 scoped 样式里也会互相串味，改名是唯一稳的修法。 */
+.goto-today {
   margin-left: auto;
   flex: none;
   width: auto;
@@ -220,12 +230,29 @@ const dayLabel = (ms: number) => `${new Date(ms).getMonth() + 1}/${new Date(ms).
   opacity: 0.42;
 }
 .cell.today {
-  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--card), var(--accent) 7%);
 }
 .ch {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   font-size: 10.5px;
   color: var(--t3);
   font-variant-numeric: tabular-nums;
+}
+.cell.today .ch {
+  color: var(--t1);
+  font-weight: 800;
+}
+/* 文字标记，不只靠颜色（§2 原则 3）：色盲或截图压色时也认得出哪格是今天 */
+.now {
+  font-size: 9.5px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 20px;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 .cell.over .ch {
   color: var(--red);
