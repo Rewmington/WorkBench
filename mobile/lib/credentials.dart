@@ -1,0 +1,51 @@
+/// 坚果云应用密码的存放处：Android Keystore（`flutter_secure_storage`）。
+///
+/// 邮箱不是秘密，进 settings 表；**应用密码不进库、不进日志**（PLAN-MOBILE §4）。
+/// 与桌面共用同一把凭据：同一个邮箱 + 同一个应用密码，KDF secret 是 `邮箱:密码`。
+///
+/// 界面上的约定（与桌面一致）：密码框留空 = 沿用已存那条，不是「清空密码」。
+library;
+
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+abstract interface class PasswordVault {
+  Future<String?> read();
+  Future<void> write(String password);
+  Future<void> clear();
+}
+
+/// 真机实现。v11 默认就是 Keystore 支撑的 AES-GCM（API 23+），不需要再开旧版开关。
+class SecurePasswordVault implements PasswordVault {
+  /// 与桌面 Windows 凭据管理器里的目标名同一个名字，出问题时好对照。
+  static const key = 'Anvil/webdav';
+
+  final FlutterSecureStorage storage;
+  const SecurePasswordVault([this.storage = const FlutterSecureStorage()]);
+
+  @override
+  Future<String?> read() async {
+    final v = await storage.read(key: key);
+    return (v != null && v.trim().isNotEmpty) ? v : null;
+  }
+
+  @override
+  Future<void> write(String password) => storage.write(key: key, value: password);
+
+  @override
+  Future<void> clear() => storage.delete(key: key);
+}
+
+/// 测试用：不碰平台通道。
+class MemoryPasswordVault implements PasswordVault {
+  String? _value;
+  MemoryPasswordVault([this._value]);
+
+  @override
+  Future<String?> read() async => _value;
+
+  @override
+  Future<void> write(String password) async => _value = password;
+
+  @override
+  Future<void> clear() async => _value = null;
+}

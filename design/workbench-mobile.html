@@ -1,0 +1,837 @@
+<!doctype html>
+<html lang="zh-CN" data-mode="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>手机端对比 · Anvil v2</title>
+<style>
+/* ===== 令牌：逐条抄自 src/style.css 的冻结表，不新增 ===== */
+:root {
+  --bg: #080b0a; --panel: #0d1110; --card: #131816; --card-2: #0f1413;
+  --line: rgba(255,255,255,.07); --line-2: rgba(255,255,255,.12);
+  --t1: #f1f5f3; --t2: #a3ada8; --t3: #6b7571;
+  --accent: #2ee27a; --accent-2: #10b981; --accent-ink: #04240f; --accent-soft: rgba(46,226,122,.14);
+  --blue: #60a5fa; --amber: #fbbf24; --red: #f87171; --violet: #a78bfa;
+  --card-sel: #f6faf7; --sel-ink: #0d1211; --sel-muted: #4b5450; --sel-delta: #059669;
+  --r: 14px; --r-sm: 10px; --r-xs: 8px;
+  --dur-1: 120ms; --dur-2: 160ms; --ease: cubic-bezier(.2,.7,.3,1);
+  --glow-opacity: .5;
+}
+[data-mode='light'] {
+  --bg: #eef1f0; --panel: #f8faf9; --card: #ffffff; --card-2: #f2f5f4;
+  --line: rgba(20,30,26,.09); --line-2: rgba(20,30,26,.16);
+  --t1: #101614; --t2: #57615d; --t3: #8a938e;
+  --accent: #059669; --accent-2: #10b981; --accent-ink: #ffffff; --accent-soft: rgba(5,150,105,.12);
+  --blue: #2563eb; --amber: #b45309; --red: #b91c1c; --violet: #7c3aed;
+  --card-sel: #ffffff; --sel-ink: #101614; --sel-muted: #57615d; --sel-delta: #059669;
+  --glow-opacity: .34;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--t1);
+  font: 13px/1.5 "Inter", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+a { color: var(--accent); }
+
+/* ===== 对比稿外壳 ===== */
+.pick {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+  position: sticky; top: 0; z-index: 20;
+}
+.pick .lab { font-size: 11px; color: var(--t3); letter-spacing: .08em; font-weight: 800; }
+.pick button.tab {
+  padding: 5px 11px; border-radius: 999px; font-size: 12px; font-weight: 700;
+  color: var(--t2); border: 1px solid var(--line);
+}
+.pick button.tab[aria-selected='true'] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.pick .mode { margin-left: auto; font-size: 11.5px; color: var(--t2); border: 1px solid var(--line-2); padding: 4px 10px; border-radius: 999px; }
+.pick .mode:hover { border-color: var(--accent); }
+
+.page { padding: 18px 20px 40px; max-width: 1180px; margin: 0 auto; }
+.page h1 { font-size: 21px; font-weight: 850; letter-spacing: -.02em; margin: 0 0 4px; }
+.page .sub { font-size: 12px; color: var(--t3); margin: 0 0 14px; }
+.note { font-size: 12px; color: var(--t2); line-height: 1.7; border-left: 2px solid var(--accent); padding-left: 10px; margin: 0 0 16px; }
+.pinned { margin: 12px 20px 0; padding: 9px 13px; border: 1px solid var(--accent); border-radius: var(--r-sm); background: var(--accent-soft); color: var(--t1); font-size: 12px; line-height: 1.7; }
+.pinned b { color: var(--accent); }
+.note b { color: var(--t1); }
+.note.warn { border-left-color: var(--amber); }
+.note.bad { border-left-color: var(--red); }
+h2.sec { font-size: 13px; font-weight: 800; letter-spacing: .02em; margin: 22px 0 9px; color: var(--t1); display: flex; align-items: center; gap: 8px; }
+h2.sec .n { font-size: 10px; color: var(--t3); font-weight: 700; letter-spacing: .1em; }
+
+/* ===== 决策表 ===== */
+table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.cmp th, table.cmp td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; line-height: 1.6; }
+table.cmp thead th { background: var(--card-2); font-size: 11.5px; font-weight: 800; color: var(--t1); }
+table.cmp thead th.rec { background: var(--accent-soft); color: var(--accent); }
+table.cmp tbody th { background: var(--panel); font-weight: 700; color: var(--t2); width: 168px; font-size: 11.5px; }
+table.cmp td { color: var(--t2); }
+table.cmp td b { color: var(--t1); font-weight: 750; }
+table.cmp td.yes { color: var(--accent); }
+table.cmp td.no { color: var(--red); }
+table.cmp td.mid { color: var(--amber); }
+table.cmp td.tbd { color: var(--t3); font-style: italic; }
+table.cmp tr:hover td { background: var(--card-2); }
+
+/* ===== 借鉴 / 回避 卡 ===== */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px,1fr)); gap: 11px; }
+.c { border: 1px solid var(--line); border-radius: var(--r); background: var(--card); padding: 12px 13px; }
+.c.take { border-left: 2px solid var(--accent); }
+.c.avoid { border-left: 2px solid var(--red); }
+.c .k { font: 800 9.5px/1 ui-monospace, Consolas, monospace; letter-spacing: .13em; color: var(--t3); margin-bottom: 7px; }
+.c.take .k { color: var(--accent); }
+.c.avoid .k { color: var(--red); }
+.c h3 { margin: 0 0 6px; font-size: 13.5px; font-weight: 750; line-height: 1.4; }
+.c p { margin: 0 0 7px; font-size: 12px; color: var(--t2); line-height: 1.7; }
+.c p b { color: var(--t1); }
+.c .src { font-size: 10.5px; color: var(--t3); }
+.c .cost { font-size: 11.5px; color: var(--amber); line-height: 1.6; margin-top: 7px; padding-top: 7px; border-top: 1px dashed var(--line-2); }
+
+/* ===== 手机框 ===== */
+.phones { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
+.pwrap { width: 360px; flex: none; }
+.pwrap > .cap { font-size: 12.5px; font-weight: 800; margin-bottom: 3px; display: flex; align-items: center; gap: 7px; }
+.pwrap > .cap .badge { font-size: 9.5px; font-weight: 800; letter-spacing: .1em; padding: 2px 6px; border-radius: 5px; background: var(--accent-soft); color: var(--accent); }
+.pwrap > .cap .badge.alt { background: var(--card-2); color: var(--t3); }
+.pwrap > .why { font-size: 11.5px; color: var(--t2); line-height: 1.65; margin: 0 0 9px; min-height: 54px; }
+.pwrap > .why b { color: var(--t1); }
+.pwrap > .why .cost { color: var(--amber); }
+
+/* 360×800dp：Android 最常见的逻辑宽度，不是 iPhone 的 390 */
+.phone {
+  width: 360px; height: 800px; border-radius: 30px; border: 1px solid var(--line-2);
+  background: var(--bg); overflow: hidden; display: flex; flex-direction: column; position: relative;
+}
+/* 手机上的字号基线是 15px，不是桌面的 13px —— 这是刻意的偏离，见页内说明 */
+.phone { font-size: 15px; line-height: 1.45; }
+.sbar { height: 30px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; font-size: 11.5px; font-weight: 700; color: var(--t2); font-variant-numeric: tabular-nums; }
+.sbar .r { display: flex; gap: 5px; align-items: center; opacity: .8; }
+.pbody { flex: 1; min-height: 0; overflow-y: auto; padding: 0 14px 12px; }
+.pbody::-webkit-scrollbar { width: 3px; }
+.pbody::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 3px; }
+
+/* 手机顶栏 */
+.phead { padding: 4px 0 10px; }
+.phead .d { font-size: 11.5px; color: var(--t3); font-weight: 700; letter-spacing: .04em; }
+.phead h2 { margin: 1px 0 0; font-size: 24px; font-weight: 850; letter-spacing: -.03em; }
+.phead .kpi { display: flex; gap: 14px; margin-top: 8px; }
+.phead .kpi div { font-size: 11px; color: var(--t3); font-weight: 700; }
+.phead .kpi b { display: block; font-size: 21px; font-weight: 800; letter-spacing: -.04em; color: var(--t1); font-variant-numeric: tabular-nums; line-height: 1.15; }
+.phead .kpi b.over { color: var(--red); }
+.phead .kpi b.ok { color: var(--accent); }
+
+/* 同步状态条：诚实契约的落点 */
+.sync { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--t3); padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--r-xs); background: var(--card-2); margin-bottom: 11px; min-height: 34px; }
+.sync .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--t3); flex: none; }
+.sync.ok .dot { background: var(--accent); }
+.sync.warn { color: var(--amber); border-color: rgba(251,191,36,.28); }
+.sync.warn .dot { background: var(--amber); }
+.sync .pend { margin-left: auto; font-weight: 800; color: var(--amber); font-variant-numeric: tabular-nums; }
+.sync .act { margin-left: auto; font-weight: 750; color: var(--t2); border: 1px solid var(--line-2); border-radius: 999px; padding: 3px 9px; font-size: 11px; min-height: 26px; }
+
+/* 分区标题 */
+.zhead { display: flex; align-items: center; gap: 7px; font-size: 11.5px; font-weight: 800; color: var(--t2); letter-spacing: .03em; padding: 12px 2px 6px; }
+.zhead .n { margin-left: auto; font-size: 11px; color: var(--t3); font-weight: 700; font-variant-numeric: tabular-nums; }
+.zhead.late { color: var(--red); }
+.zhead .fold { font-size: 10px; color: var(--t3); }
+
+/* 待办行：触控目标 48px（Android 最小 48dp，不是 iOS 的 44） */
+.trow { display: flex; align-items: center; gap: 11px; min-height: 48px; padding: 6px 2px; border-top: 1px solid var(--line); }
+.trow:first-of-type { border-top: none; }
+.tcb { width: 22px; height: 22px; flex: none; border-radius: 7px; border: 1.5px solid var(--line-2); display: grid; place-items: center; font-size: 13px; font-weight: 900; color: var(--accent-ink); }
+.trow.done .tcb { background: var(--accent); border-color: transparent; }
+.tmain { min-width: 0; flex: 1; }
+.ttl { font-size: 15px; font-weight: 600; color: var(--t1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trow.done .ttl { color: var(--t3); text-decoration: line-through; font-weight: 450; }
+.tsub { font-size: 11.5px; color: var(--t3); margin-top: 1px; display: flex; gap: 7px; align-items: center; }
+.tsub.over { color: var(--red); font-weight: 700; }
+.tsub .pri { font-size: 9.5px; font-weight: 800; padding: 1px 5px; border-radius: 4px; background: var(--card-2); border: 1px solid var(--line); color: var(--t3); }
+.tsub .pri.p0 { background: rgba(248,113,113,.16); border-color: transparent; color: var(--red); }
+.tsub .pri.p1 { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+.unsent { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); flex: none; }
+
+/* 时间形状（候选 B） */
+.band { display: grid; grid-template-columns: 52px 1fr; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); align-items: center; min-height: 48px; }
+.band:first-of-type { border-top: none; }
+.band .hr { font: 700 11.5px/1.3 ui-monospace, Consolas, monospace; color: var(--t3); font-variant-numeric: tabular-nums; }
+.band.next .hr { color: var(--accent); }
+.band .in { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.cls { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 5px; background: rgba(96,165,250,.16); color: var(--blue); flex: none; }
+.free { font-size: 11.5px; color: var(--accent); font-weight: 750; }
+.gapline { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--t2); padding: 9px 11px; border: 1px dashed var(--line-2); border-radius: var(--r-xs); margin-bottom: 4px; }
+.gapline b { color: var(--accent); font-variant-numeric: tabular-nums; }
+
+/* 底部：常驻输入条 vs FAB vs 导航 */
+.pfoot { flex: none; border-top: 1px solid var(--line); background: var(--panel); }
+.inbar { display: flex; align-items: center; gap: 9px; padding: 9px 12px; }
+.inbar .fld { flex: 1; min-height: 48px; display: flex; align-items: center; padding: 0 13px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--card); color: var(--t3); font-size: 14px; }
+.inbar .send { width: 48px; height: 48px; flex: none; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-size: 19px; font-weight: 800; }
+.pnav { display: flex; }
+.pnav button { flex: 1; min-height: 54px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 10.5px; font-weight: 700; color: var(--t3); }
+.pnav button .i { font-size: 17px; line-height: 1; }
+.pnav button.on { color: var(--accent); }
+.fab { position: absolute; right: 16px; bottom: 72px; width: 56px; height: 56px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-size: 27px; font-weight: 400; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+
+/* 撤销条 */
+.undo { position: absolute; left: 12px; right: 12px; bottom: 68px; display: flex; align-items: center; gap: 10px; padding: 11px 13px; border-radius: var(--r-sm); background: var(--card-sel); color: var(--sel-ink); font-size: 13px; font-weight: 650; }
+/* 有常驻输入条时撤销条要让到它上面，否则两个底部部件叠在一起互相挡 */
+.undo.up { bottom: 130px; }
+.undo button { margin-left: auto; font-weight: 800; color: var(--sel-delta); font-size: 13px; min-height: 48px; padding: 0 8px; }
+
+/* 空态 */
+.empty { border: 1px dashed var(--line-2); border-radius: var(--r-sm); padding: 18px 14px; text-align: center; color: var(--t3); font-size: 12.5px; line-height: 1.7; }
+.empty b { display: block; color: var(--t2); font-size: 13.5px; font-weight: 750; margin-bottom: 3px; }
+
+/* ===== 课表：压缩周网格 ===== */
+.ttbar { display: flex; align-items: center; gap: 8px; padding: 2px 0 9px; }
+.ttbar .wk { font-size: 13px; font-weight: 800; }
+.ttbar .nav { display: flex; gap: 4px; margin-left: auto; }
+.ttbar .nav button { width: 48px; height: 48px; border-radius: var(--r-xs); border: 1px solid var(--line); color: var(--t2); display: grid; place-items: center; font-size: 15px; }
+.ttgrid { display: grid; grid-template-columns: 26px repeat(7, minmax(0,1fr)); gap: 2px; }
+.ttgrid .h { font-size: 10.5px; font-weight: 750; color: var(--t3); text-align: center; padding: 3px 0; }
+.ttgrid .h.today { color: var(--accent); }
+.ttgrid .per { font: 700 9.5px/1.25 ui-monospace, Consolas, monospace; color: var(--t3); display: flex; flex-direction: column; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
+.cell { min-height: 62px; border-radius: 6px; background: var(--card-2); border: 1px solid transparent; padding: 3px 2px; display: flex; flex-direction: column; gap: 2px; align-items: center; justify-content: center; text-align: center; overflow: hidden; }
+.cell.emptycell { background: transparent; border: 1px dashed var(--line); }
+.cell .cn { font-size: 11px; font-weight: 750; color: var(--t1); line-height: 1.2; word-break: break-all; }
+.cell .cr { font-size: 9px; color: var(--t3); line-height: 1.2; }
+.cell.has { background: rgba(96,165,250,.14); }
+.cell.has .cn { color: var(--blue); }
+.cell.dim { opacity: .38; }
+.cell.todaycol { border-color: var(--accent-soft); }
+.cell.nextclass { border-color: var(--accent); border-width: 1.5px; }
+.ttlegend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 10.5px; color: var(--t3); padding: 9px 2px 0; }
+.ttlegend span { display: flex; align-items: center; gap: 5px; }
+.ttlegend i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+
+/* 单日竖列 */
+.daystrip { display: flex; gap: 3px; padding: 2px 0 10px; }
+.daystrip button { flex: 1; min-height: 48px; border-radius: var(--r-xs); border: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; font-size: 10px; color: var(--t3); font-weight: 700; }
+.daystrip button .dd { font-size: 13px; color: var(--t2); font-variant-numeric: tabular-nums; }
+.daystrip button.on { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+.daystrip button.on .dd { color: var(--accent); }
+.daystrip button .dotc { width: 4px; height: 4px; border-radius: 50%; background: var(--blue); }
+.prow { display: grid; grid-template-columns: 56px 1fr; gap: 11px; padding: 10px 0; border-top: 1px solid var(--line); min-height: 62px; align-items: center; }
+.prow:first-of-type { border-top: none; }
+.prow .pt { font: 700 11px/1.35 ui-monospace, Consolas, monospace; color: var(--t3); font-variant-numeric: tabular-nums; }
+.prow.next .pt { color: var(--accent); }
+.prow .pn { font-size: 15px; font-weight: 700; color: var(--t1); }
+.prow .pm { font-size: 11.5px; color: var(--t3); margin-top: 2px; }
+.prow.next { background: var(--accent-soft); border-radius: var(--r-xs); padding-left: 8px; padding-right: 8px; margin: 0 -8px; }
+.prow.free .pn { font-size: 13px; font-weight: 650; color: var(--t3); }
+
+/* ===== 文案候选 ===== */
+.lines { display: grid; grid-template-columns: 1fr; gap: 9px; max-width: 620px; align-items: start; }
+@media (min-width: 900px) { .lines { grid-template-columns: 1fr 1fr; max-width: none; } }
+.line { border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--card); padding: 11px 13px; }
+.line .say { font-size: 13px; color: var(--t1); font-weight: 650; margin-bottom: 5px; }
+.line .why { font-size: 11.5px; color: var(--t2); line-height: 1.65; }
+.line .why b { color: var(--t1); }
+.line.no { border-left: 2px solid var(--red); }
+.line.no .say { color: var(--t3); text-decoration: line-through; }
+.line.yes { border-left: 2px solid var(--accent); }
+
+.srcs { font-size: 11px; color: var(--t3); line-height: 1.9; margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); }
+.srcs a { color: var(--t2); }
+.measure { font-size: 11.5px; color: var(--t3); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div class="pick">
+  <span class="lab">ANVIL 手机端 · 先定模型再看版式</span>
+  <button class="tab" role="tab" aria-selected="true" data-v="v1">① 走哪条路</button>
+  <button class="tab" role="tab" aria-selected="false" data-v="v2">② 别人怎么做的</button>
+  <button class="tab" role="tab" aria-selected="false" data-v="v3">③ 今天这一屏</button>
+  <button class="tab" role="tab" aria-selected="false" data-v="v4">④ 课表在窄屏</button>
+  <button class="tab" role="tab" aria-selected="false" data-v="v5">⑤ 同步怎么说</button>
+  <button class="mode iconbtn" id="mode" title="切到亮色">切亮/暗</button>
+</div>
+<div class="pinned">已定（2026-10-30 用户拍板）：<b>路线 A</b>（Flutter + 坚果云中转）· <b>今天屏 A</b>（清单 + 常驻输入条）· <b>课表屏 B</b>（单日竖列）。本页保留为调研取证，不改写；其中我的倾向与已定冲突的两处（① 倾向 D、④ 倾向周网格）以 <b>PLAN §6.3 / §8.10</b> 为准，课表选 B 的代价已记录在案。</div>
+
+<!-- ================= ① 走哪条路 ================= -->
+<div class="page view" id="v1">
+  <h1>四条路，不是三条</h1>
+  <p class="sub">前提已定：只跑 Android · 手机上能看、能勾选、能新建待办 · 不做统计页</p>
+  <p class="note"><b>PLAN §6.3 漏了一条。</b>原计划把"局域网直连"和"PWA"绑在一起，于是背上了本地 CA + 信任根证书那颗雷。但<b>原生 app 发 HTTP 请求不需要安全上下文</b> —— 你自己药箱里 <code>lib/sync/lan_server.dart</code> 就是这么跑的：<code>HttpServer.bind(anyIPv4, 8765)</code> + 可选 <code>x-sync-key</code>，一行证书代码都没有。所以局域网这条可以单独活下来。</p>
+
+  <table class="cmp">
+    <thead>
+      <tr>
+        <th style="width:168px"></th>
+        <th>A · 原生 + 坚果云</th>
+        <th>B · 网页 + 坚果云</th>
+        <th>C · 网页 + 局域网</th>
+        <th class="rec">D · 原生 + 局域网</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <th>形态</th>
+        <td>Flutter APK<br><span class="measure">你药箱就是这套</span></td>
+        <td>PWA，Chrome 加到主屏</td>
+        <td>PWA，Chrome 加到主屏</td>
+        <td>Flutter APK</td>
+      </tr>
+      <tr>
+        <th>要不要 HTTPS / 证书</th>
+        <td class="yes">不要（坚果云本身是 HTTPS）</td>
+        <td class="no">要。离线要 Service Worker，SW 要安全上下文 → 得找个公网 HTTPS 托管</td>
+        <td class="no">要。本地 CA 签证书 + 手机装根证书，<b>PLAN §6.6 那颗雷</b></td>
+        <td class="yes">不要。原生 app 走明文 HTTP，只需开 cleartext 白名单</td>
+      </tr>
+      <tr>
+        <th>电脑必须开着吗</th>
+        <td class="yes">不必。坚果云是中转，两边各自读写</td>
+        <td class="yes">不必</td>
+        <td class="no">必须，且必须同一 Wi-Fi</td>
+        <td class="no">必须，且必须同一 Wi-Fi</td>
+      </tr>
+      <tr>
+        <th>电脑关着时<br>手机新建的那条会丢吗</th>
+        <td class="yes">不丢，先存本机 + 标脏，下次同步推上去</td>
+        <td class="yes">不丢（前提是 SW 真注册上了）</td>
+        <td class="mid">不丢，但<b>一直传不出去</b>，直到电脑开机且同网</td>
+        <td class="mid">不丢，但<b>一直传不出去</b>，直到电脑开机且同网</td>
+      </tr>
+      <tr>
+        <th>数据出不出家门</th>
+        <td class="mid">出。加密后上坚果云（备份已经这么干了）</td>
+        <td class="mid">出。而且网页本身也要托管在公网</td>
+        <td class="yes">不出</td>
+        <td class="yes">不出</td>
+      </tr>
+      <tr>
+        <th>同步什么时候发生</th>
+        <td>打开时 + 手动按钮<br><span class="measure">药箱 app.dart:82 就是这样</span></td>
+        <td>打开时 + 手动</td>
+        <td class="yes">可以秒级（WebSocket 推）</td>
+        <td class="yes">可以秒级（长连或轮询）</td>
+      </tr>
+      <tr>
+        <th>你已经写过多少</th>
+        <td class="yes">传输层全套跑通：MKCOL → PROPFIND → GET → 合并 → PUT，双端真机验过</td>
+        <td class="mid">Rust 端 WebDAV 有，前端要重写一遍 Vue → 网页</td>
+        <td class="no">axum 服务、本地 CA、配对、防火墙规则全要从零写</td>
+        <td class="yes">服务端 + 客户端<b>两边都有现成 Dart 代码</b>，Rust 端照 §6.4 起一个 axum 即可</td>
+      </tr>
+      <tr>
+        <th>改一次代码怎么到手机</th>
+        <td>重新构建 APK，手动装</td>
+        <td class="yes">推一次部署，刷新即新</td>
+        <td class="yes">电脑端一起更新</td>
+        <td>重新构建 APK，手动装</td>
+      </tr>
+      <tr>
+        <th>坚果云配额 / 限流</th>
+        <td class="mid">免费 <b>1GB 上 / 3GB 下每月</b>；<b>600 次请求 / 30 分钟</b>（付费 1500）；单文件 500M、单次 750 项。全量快照每天几次够用，但<b>别做成"保存即推"</b></td>
+        <td class="mid">同 A，而且网页每次冷启都要拉一遍</td>
+        <td class="yes">不涉及</td>
+        <td class="yes">不涉及</td>
+      </tr>
+      <tr>
+        <th>Android 后台能不能定时同步</th>
+        <td class="no">别指望。WorkManager 周期<b>最小 15 分钟</b>，Doze 会延后，国产 ROM 还会杀后台</td>
+        <td class="no">更差。Periodic Sync 要已安装 + 互动分 &gt; 0 + 旧网络，时机不可控</td>
+        <td class="no">同 A</td>
+        <td class="no">同 A</td>
+      </tr>
+      <tr>
+        <th>找到对方靠什么</th>
+        <td>不需要找，公网固定域名</td>
+        <td>不需要找</td>
+        <td class="mid">平台 getaddrinfo 自 2021-11 支持 .local，但 <b>Chrome 走不走系统解析器查不到</b>（不编）</td>
+        <td class="yes">NSD 插件走 DNS-SD，<b>不依赖 .local 解析</b>；退路是二维码带 IP:端口（药箱现在就是手输）</td>
+      </tr>
+      <tr>
+        <th>明文 HTTP 发得出去吗</th>
+        <td class="yes">不涉及（坚果云是 HTTPS）</td>
+        <td class="no">不行，SW 要安全上下文</td>
+        <td class="no">不行。<b>W3C 的 potentially trustworthy 不含私网 IP</b>，localhost 有豁免、192.168.x.x 没有</td>
+        <td class="yes">可以。targetSdk 28+ 默认禁，开 <code>cleartextTrafficPermitted=true</code> 即可，<b>一个 manifest 开关</b></td>
+      </tr>
+      <tr>
+        <th>局域网权限<br><span class="measure">这条是新出现的</span></th>
+        <td>不涉及</td>
+        <td>不涉及</td>
+        <td class="no"><b>Chrome 142 起</b>公网页面访问局域网要 LNA 权限，而 <b>HTTP 页面拿不到</b> —— 双重死锁</td>
+        <td class="mid"><b>Android 17（API 37）起默认拦局域网</b>，要 <code>ACCESS_LOCAL_NETWORK</code> 运行时授权。一次弹窗可长期授予，但这是 D 第一天要验的那颗雷</td>
+      </tr>
+      <tr>
+        <th>加到主屏是不是真 app</th>
+        <td class="yes">是，真 APK</td>
+        <td class="mid"><b>要有 GMS 才铸 WebAPK</b>，否则只是个浏览器书签。国产 ROM 很多没 GMS</td>
+        <td class="mid">同 B</td>
+        <td class="yes">是，真 APK</td>
+      </tr>
+      <tr>
+        <th>谁是权威副本</th>
+        <td class="mid"><b>对等</b>。各设备只覆盖自己的 device-*.json，合并完整表发布（药箱就是这么干的）</td>
+        <td class="mid">同 A，但离线写路径更难写对</td>
+        <td class="yes"><b>PC 单点</b>。手机提交变更、PC 校验 rev 后落库，冲突面最小</td>
+        <td class="yes"><b>PC 单点</b>，同 C。手机要 outbox 兜住"电脑没开"那段时间</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 class="sec"><span class="n">已经从你代码里挖出来的</span>三个坑，四条路都躲不开</h2>
+  <p class="note bad"><b>1 · 增量游标会永久漏记录。</b>原 PLAN §6.4 写的是 <code>GET /api/snapshot?since=&lt;seq&gt;</code>（2026-10-30 已按本条改为全量快照）。你药箱 <code>sync_service.dart:65</code> 把 <code>since</code> <b>固定成 0 全量拉</b>，注释是"时间戳游标取的是对端时钟，换主机或时钟有偏差就会永久漏记录"；<code>:112</code> 又写了一遍"表现就是手机满勤、电脑一堆遗漏"。<b>这条协议得改</b>：要么全量（待办量级几百行，代价可忽略），要么游标由服务端发号而不是比墙钟。</p>
+  <p class="note bad"><b>2 · 清脏标记不能用本机 now。</b><code>db.dart:246</code>：必须用<b>行自己的</b> <code>updated_at</code> 比对，否则对端时钟超前时，拉来的行时间戳大于本机 now，于是永远清不掉、每次都被重复推回去。</p>
+  <p class="note warn"><b>3 · "PC 是唯一权威写入端"这句要分路线看。</b>我一开始说它"已经不成立"，那是说过头了 —— <b>手机能新建 ≠ 手机是对等副本</b>。走 C/D 时 PC 依然可以是单点：手机提交变更、PC 校验 rev 后落库，冲突面最小。走 A/B 时才真的变成对等，而药箱 <code>sync_service.dart:200</code> 的注释已经给出了那条路的答案：<b>合并完整表发布自己那份，各设备只覆盖自己的文件，不存在谁持有权威副本</b>。Anvil 的 <code>sync/lww.rs:50</code> 比药箱还多一个设备 id 平票裁决，地基是够的 —— 缺的是 <code>dirty</code>/outbox 那一列（药箱有，Anvil 五列同步字段里没有）和"应用对端变更"的框架。</p>
+  <p class="note bad"><b>4 · 墓碑能不能清，两条路不一样。</b>A/B 靠全量快照传播删除，所以<b>墓碑永远不能清</b> —— 清掉之后一台旧设备的全量快照会把已删的行复活。C/D 按序号增量下发，理论上可以清，但前提是序号由 <b>PC 发号</b>而不是比墙钟（见坑 1）。个人量级下最简单的做法是<b>一律不清</b>，几千行墓碑不值当为它写一套回收逻辑。</p>
+
+  <h2 class="sec"><span class="n">结论</span>倾向 D，退路 A</h2>
+  <p class="note"><b>C 可以划掉了</b>，而且是双重死锁：SW 要安全上下文而私网 IP 不算，Chrome 142 的 LNA 权限又只发给安全上下文页面 —— 两条规则互相把对方锁死。它背上最吓人的证书雷，换来的"数据不出家门"D 也有，而 D 的服务端客户端你都已经写过。<b>B 也基本出局</b>：国产 ROM 没 GMS 就铸不出 WebAPK，"加到主屏"退化成一个浏览器书签，离线还得靠 SW 在坚果云之外再找一个公网 HTTPS 托管。</p>
+  <p class="note"><b>A 与 D 之间才是真正的选择，而且不是技术优劣，是你更怕哪件事：</b><br>
+  · 选 <b>A</b> = 你怕"电脑关着就同步不了"。代价：数据出家门（密文）、吃坚果云配额与限流、冲突面变成对等合并、密钥还要分发到手机。<br>
+  · 选 <b>D</b> = 你怕"数据出家门"。代价：电脑必须开机且同一 Wi-Fi、手机要有 outbox 兜住离线那段时间、Android 17 多一次局域网授权弹窗。<br>
+  我倾向 <b>D</b>：它与你桌面 §1「本地优先」和 §2 原则 5「联动诚实」是同一条血脉，而且"电脑没开"这件事<b>可以在界面上直说</b>（⑤ 已经写了那句话），不构成假同步。A 的"数据出家门"则是不可逆的 —— 传上去就收不回来。</p>
+
+  <h2 class="sec"><span class="n">第一天只验一个假设</span>验不过就退 A</h2>
+  <p class="note warn"><b>假设：你那台 Android 授予局域网权限后，纯 HTTP 能连到 PC 的 axum 端口，跑通"手机新建 → PC 落库 → 手机看到新 rev"。</b><br>
+  这是 D 唯一的生死点。Android 17 起默认拦局域网，要 <code>ACCESS_LOCAL_NETWORK</code> 运行时授权；你的机型是不是 17、国产 ROM 有没有额外加锁，都得真机说了算，查文档查不出来。<br>
+  <b>验不过就退 A</b>：outbox 与 LWW 代码原样复用，只换传输层 —— 这正是先写数据层、后写传输层的好处。<b>发现不了对方就固定二维码带 IP:端口</b>，药箱现在就是手输地址，不丢人。</p>
+  <p class="note">还有一个要盯但不阻塞的：<b>Android 侧载政策在变</b> —— 2026-09-30 起部分地区要求开发者验证（免费"有限分发"≤20 台），2027 推向全球。自己装一台目前不受影响，但这条要记进 PLAN 的待定项，别等哪天 APK 装不上了才发现。</p>
+
+  <div class="srcs">
+    <b>来源</b>（查不到、没有编的项：Chrome Android 的 .local 解析行为、Flutter 官方 Android 最小 APK 数字、坚果云是否支持 PUT 条件写 If-Match。另：<code>developer.android.com</code> / <code>developer.chrome.com</code> 本机不可达，官方内容取自其官方镜像 <code>.google.cn</code>）<br>
+    <a href="https://developer.android.google.cn/developer-verification?hl=en">Android 开发者验证（侧载新规）</a> ·
+    <a href="https://developer.android.google.cn/about/versions/17/behavior-changes-17?hl=en">Android 17 行为变更：ACCESS_LOCAL_NETWORK</a> ·
+    <a href="https://docs.flutter.dev/platform-integration/android/local-network-permission">Flutter 本地网络权限</a> ·
+    <a href="https://developer.chrome.google.cn/blog/local-network-access?hl=en">Chrome 142 LNA 权限</a> ·
+    <a href="https://w3c.github.io/webappsec-secure-contexts/">W3C Secure Contexts（私网 IP 不算）</a> ·
+    <a href="https://developer.android.google.cn/privacy-and-security/security-config?hl=en">Android 网络安全配置（cleartext / 用户 CA）</a> ·
+    <a href="https://web.dev/learn/pwa/installation">web.dev：WebAPK 铸造需 GMS</a> ·
+    <a href="https://pub.dev/packages/nsd">nsd 插件（DNS-SD）</a> ·
+    <a href="https://developer.android.google.cn/develop/background-work/services/alarms?hl=en">WorkManager 最小 15 分钟</a> ·
+    <a href="https://dontkillmyapp.com/">Don't kill my app（厂商杀后台）</a> ·
+    <a href="https://developer.chrome.google.cn/docs/capabilities/periodic-background-sync?hl=en">Chrome Periodic Background Sync</a> ·
+    <a href="https://help.jianguoyun.com/?p=29">坚果云：免费 1GB 上 / 3GB 下每月</a> ·
+    <a href="https://help.jianguoyun.com/?p=2064">坚果云：600 次 / 30 分钟、单文件 500M</a> ·
+    <a href="https://content.jianguoyun.com/1112.html">坚果云：PROPFIND 403 与微信二次验证</a>
+  </div>
+</div>
+
+<!-- ================= ② 别人怎么做的 ================= -->
+<div class="page view" id="v2" hidden>
+  <h1>别人怎么做的</h1>
+  <p class="sub">滴答清单 / Microsoft To Do / Todoist / Things · 超级课程表 / WakeUp 课程表 / Sleepy</p>
+  <p class="note">只挑能引出"借鉴 / 回避"判断的，不做功能罗列。<b>最关键的一条跟我的预设相反</b>：我以为手机上该把周网格拆成单日竖列，查完发现事实标准是反过来的。</p>
+
+  <h2 class="sec"><span class="n">借鉴</span>五件</h2>
+  <div class="cards">
+    <div class="c take">
+      <div class="k">课表 · 最重要</div>
+      <h3>WakeUp 手机主界面就是 7 列周网格</h3>
+      <p>左右滑切周、左上角周数 + "今天是星期X"、非今天日期淡化、非本周课程半透明、<b>空档就是透明格子</b>；看的是别的周时显示"非本周"并给一键回当前周。<b>单日视图只做成桌面小部件</b>，不是主界面。</p>
+      <p>→ 你桌面那条"不做竖着堆 7 天的假响应式"（§8.8.7）<b>与事实标准一致</b>。手机上的正确答案是压缩周网格，不是拆成单日。</p>
+      <div class="cost">代价：360dp 宽下每列只有实测 41px，中文课名放不下，必须用简称 + 点击看全名。见 ④。</div>
+      <div class="src">来源：WakeUp 官方文档 主界面 / 6.1.40 更新日志</div>
+    </div>
+    <div class="c take">
+      <div class="k">捕获</div>
+      <h3>最快的是不进 app</h3>
+      <p>Microsoft To Do 的<b>小组件直接输入</b>进"我的一天"、长按图标拖出"添加任务"快捷方式；滴答清单安卓有<b>通知栏快速添加</b>与悬浮球；Todoist Quick Add 用自然语言解析日期。</p>
+      <p>→ 系统级入口才是"掏出手机就记下"的真答案，app 内的输入条只是保底。</p>
+      <div class="cost">代价：小组件 / 通知栏写入必须走离线队列，且撞国产 ROM 后台限制；自然语言解析是个无底洞，v2 不做。</div>
+      <div class="src">来源：微软支持 Android 小组件 / 主画面快捷方式；滴答清单多平台攻略</div>
+    </div>
+    <div class="c take">
+      <div class="k">勾选</div>
+      <h3>延迟消失 + 撤销条</h3>
+      <p>Todoist 完成后条目离开列表，左下角弹数秒撤销窗；Things 完成即移入 Logbook。</p>
+      <p>→ 窄屏上<b>划线常驻是最容易连点误操作的</b>：它占着行高、看着还像能点。延迟消失 + 撤销条最防误触。</p>
+      <div class="src">来源：Todoist 任务文档（撤销窗 / 滑动完成）；Things Today/Anytime/Logbook</div>
+    </div>
+    <div class="c take">
+      <div class="k">今天屏</div>
+      <h3>过期独立成区，无截止时间的不混进来</h3>
+      <p>Todoist 把过期任务置顶成独立区，2024 起移动端日历布局把"已排时间"与"全天（无时间）"分区；Things 把无日期任务放 <b>Anytime 而不是 Today</b>。</p>
+      <p>→ 与你桌面 §8.8.8 已定的"有截止的按时间排、没有的落在「随时」"是同一条，手机上照搬。</p>
+      <div class="src">来源：Todoist 2024 更新说明；Things 官方支持</div>
+    </div>
+    <div class="c take">
+      <div class="k">空态</div>
+      <h3>空 = 成就，不是失败</h3>
+      <p>Todoist 官方把清空今天叫 <b>"Todoist Zero"</b>，是个正向目标。</p>
+      <p>→ 我们的空态文案该往这个方向写，而不是"暂无数据"。<b>但必须区分"真的没有"与"还没同步到"</b>（见下面回避第 2 条）。</p>
+      <div class="src">来源：Todoist 今天视图指南</div>
+    </div>
+  </div>
+
+  <h2 class="sec"><span class="n">回避</span>四件</h2>
+  <div class="cards">
+    <div class="c avoid">
+      <div class="k">范围</div>
+      <h3>超级课程表把社交 / 二手 / 超市塞进课表 app</h3>
+      <p>体积 86MB。一个查课表的需求被养成平台。</p>
+      <p>→ 你手机端只有<b>看 + 勾选 + 新建</b>三件事，底部导航<b>两项就够</b>（今天 / 课表），别凑五项。这条与 PLAN §1「范围克制」同源。</p>
+      <div class="src">来源：超级课程表 更新日志 / 应用介绍</div>
+    </div>
+    <div class="c avoid">
+      <div class="k">假空态</div>
+      <h3>To Do 小组件说"此列表没有任何任务"，app 里却有数据</h3>
+      <p>同步没跟上，小组件就报空。用户看到的是"我的任务没了"。</p>
+      <p>→ <b>这是 §2 原则 5「联动诚实」在手机上最容易翻的车</b>。空态必须能说出"这是真没有，还是我没拿到"。见 ⑤。</p>
+      <div class="src">来源：微软社区问答（iOS To Do 小组件空列表）</div>
+    </div>
+    <div class="c avoid">
+      <div class="k">同步沉默</div>
+      <h3>四家都静默同步，主界面不写"上次同步于 X"</h3>
+      <p>失败只体现在支持文档和差评里 —— 有 Todoist 用户因为同步失败断掉 60 周连续记录。</p>
+      <p>→ <b>反过来这是你的差异化机会，而且没有现成模板可抄</b>。你桌面已经因为药箱云端快照学会了"用了哪份、对方发布于多久以前必须写在脸上"（§6.2 末），手机上同一条纪律。</p>
+      <div class="src">来源：Todoist 中国区评论；各家官方支持文档</div>
+    </div>
+    <div class="c avoid">
+      <div class="k">密度</div>
+      <h3>把桌面密度硬塞进窄屏</h3>
+      <p>你桌面候选一是 6 个视觉区（KPI + 队列 + 3D 环 + 时间轴 + 详情 + 建议），§8.8.6 已经把它升级成硬约束"一屏只允许一个视觉重心"。</p>
+      <p>→ 手机上<b>3D 环、完成时间轴、常驻详情面板三样都不该出现</b>：环在 360dp 下每张卡只剩几十像素，时间轴要 60 天数据才有形状，详情面板改成整屏推入。</p>
+      <div class="cost">还有一条硬偏离：<b>桌面 13px 基线在手机上不适用</b>，下面手机框里正文用的是 15px、触控目标 48px（Android 最小 48dp）。这不是令牌被改了，是同一套令牌在另一种设备上的另一组基线 —— 要写进 PLAN。</div>
+    </div>
+  </div>
+
+  <div class="srcs">
+    <b>来源</b>（查不到的项没有编：各家空态逐字文案、快速捕获的官方最少点击数、WakeUp 的"当前节次指示线"、"底部导航超 5 项"的具体点名案例，均未找到可靠出处）<br>
+    <a href="https://www.wakeup.fun/doc/main_interface.html">WakeUp 主界面官方文档</a> ·
+    <a href="https://m.xda.cn/soft/385947.html">WakeUp 6.1.40 更新日志（日视图小部件）</a> ·
+    <a href="https://www.todoist.com/zh-CN/help/articles/whats-new-january-december-2024-cueCuXy76">Todoist 2024 更新</a> ·
+    <a href="https://culturedcode.com/things/support/articles/4001304/">Things Today/Anytime/Logbook</a> ·
+    <a href="https://www.todoist.com/zh-CN/help/articles/plan-your-day-with-the-today-view-UVUXaiSs">Todoist 今天视图（Todoist Zero）</a> ·
+    <a href="https://www.todoist.com/help/todoist/features/introduction-to-tasks-080OAXric">Todoist 任务文档</a> ·
+    <a href="https://support.microsoft.com/zh-hk/office/11392322-b3b9-451f-84ba-a70f540909f2">To Do Android 小组件</a> ·
+    <a href="https://support.microsoft.com/zh-hk/office/c300f098-1f16-433a-9e4f-d592e8b7f1a7">To Do 主画面快捷方式</a> ·
+    <a href="https://learn.microsoft.com/zh-cn/answers/questions/4608241/ios-to-do">To Do 小组件假空态</a> ·
+    <a href="https://github.com/lingion/sleepy">Sleepy 课程表</a> ·
+    <a href="https://m.xiazaiba.com/mfxz/330845.html">超级课程表（日/周视图、体积）</a>
+  </div>
+</div>
+
+<!-- ================= ③ 今天这一屏 ================= -->
+<div class="page view" id="v3" hidden>
+  <h1>今天这一屏</h1>
+  <p class="sub">同一份演示数据 · 两种摆法 · 360×800dp（Android 最常见逻辑宽度）· 正文 15px / 触控 48px</p>
+  <p class="note">两版都遵守同一套已定规则：<b>过期独立成区</b>、<b>无截止时间的落在「随时」不混进今天</b>、<b>课不进待办列表</b>（只以空档摘要出现）、<b>勾选后延迟消失 + 撤销条</b>。差别只在"今天要不要有时间的形状"和"记一条的入口放哪"。</p>
+  <div class="phones" id="phones-today"></div>
+  <p class="measure" style="margin-top:12px">浏览器实测：手机框 360×800 · 正文 15px · 待办行高 53.5px · 输入框/发送/撤销/切天/切周按钮均 48px · 底部导航 54px · 加号 56px（Android 最小触控目标 48dp，全部达标）</p>
+  <p class="note warn" style="margin-top:18px"><b>我倾向 A。</b>理由不是它好看：你桌面 §8.8.8 之所以把今天档改成时间形状，是因为桌面那一屏要同时回答"几点有空"和"今天要做完什么"，而<b>手机上这两件事被底部导航分到了两个页</b>（今天 / 课表）。既然课表页专门回答"几点有空"，今天页就不必再背一次 —— 让它回到扫得最快的清单，把省下的地方给常驻输入条。<b>B 的时间形状在手机上不是错，是重复。</b></p>
+</div>
+
+<!-- ================= ④ 课表在窄屏 ================= -->
+<div class="page view" id="v4" hidden>
+  <h1>课表在窄屏</h1>
+  <p class="sub">同一份演示课表（假课程名）· 今天周五 · 现在 12:34 · 第 9 周</p>
+  <p class="note">这一页是本次调研<b>唯一推翻我预设</b>的地方。我原以为手机上该拆成单日竖列，WakeUp 的官方文档证明事实标准是<b>压缩周网格</b>，单日只做小部件。两版都画出来，代价写在各自下面。<b>决定性量值（浏览器实测，不是估算）</b>：360dp 宽减去节次列 26px 与间隙，每列 <b>41.4px</b>；"高等数学"四个汉字在 11px 下宽 <b>44px</b>、13px 下 <b>52px</b> —— 都塞不进去，所以简称不是风格选择，是算术结果。</p>
+  <div class="phones" id="phones-tt"></div>
+  <p class="note warn" style="margin-top:18px"><b>我倾向 A（周网格），但必须接受简称。</b>周网格回答的是"这周哪几天空"，这是课表最有用的一个问题，单日竖列要滑 7 次才能拼出同一个答案。代价是 41px 列宽下"高等数学"四个字必须缩成"高数"，全名靠点格子出整屏详情 —— <b>这是 §8.6 的 13px 基线在手机上第二次被迫偏离</b>（格子里 11px）。B 放得下全文，但它把"找空档"从一眼变成七次滑动，而且你桌面已经明确拒绝过这种拆法。</p>
+</div>
+
+<!-- ================= ⑤ 同步怎么说 ================= -->
+<div class="page view" id="v5" hidden>
+  <h1>同步怎么说</h1>
+  <p class="sub">这一页与走哪条路无关 —— A/B/C/D 四条路都需要它</p>
+  <p class="note">竞品调研里最有用的一条是<b>反向</b>的：四家都静默同步、主界面不写"上次同步于 X"，失败只在差评里爆发（有人断掉 60 周连续记录）。而你桌面已经因为药箱云端快照学会了这条纪律（§6.2 末：用了哪份、对方发布于多久以前必须写在脸上）。<b>手机上照搬，而且没有现成模板可抄。</b></p>
+
+  <h2 class="sec"><span class="n">留着</span>五句能验证的话</h2>
+  <div class="lines">
+    <div class="line yes">
+      <div class="say">上次同步于 12:03 · 2 条待上传</div>
+      <div class="why">两个都是<b>可数的真事实</b>：时间来自最后一次成功同步，条数来自 outbox 里 <code>dirty=1</code> 的行。用户据此知道"我刚记的那条还没出去"。这一条是整页的核心。</div>
+    </div>
+    <div class="line yes">
+      <div class="say">没连上电脑 · 显示的是 12:03 那份</div>
+      <div class="why">走局域网（C/D）时的离线态。<b>不伪装实时</b>，明说手上这份是旧的、旧到什么时候。§2 原则 5。</div>
+    </div>
+    <div class="line yes">
+      <div class="say">行末一个小黄点 = 这条还没传出去</div>
+      <div class="why">行级而不是全局：用户勾选了一条，黄点消失就是"这条出去了"。比一句全局"同步中"有用得多，因为它<b>指向具体那一条</b>。</div>
+    </div>
+    <div class="line yes">
+      <div class="say">今天没有待办 —— 上次同步于 12:03</div>
+      <div class="why"><b>真空态必须带同步时间</b>，否则它和"没同步到"长得一模一样。这正是 To Do 小组件翻的车（说"此列表没有任何任务"而 app 里有数据）。</div>
+    </div>
+    <div class="line yes">
+      <div class="say">还没同步过 · 这里可能是空的</div>
+      <div class="why">首次装好、一次都没同步成功时的空态。<b>与上一句是两种状态，不能共用一句话</b>。</div>
+    </div>
+  </div>
+
+  <h2 class="sec"><span class="n">删掉</span>三句会说谎的话</h2>
+  <div class="lines">
+    <div class="line no">
+      <div class="say">已同步</div>
+      <div class="why">PLAN §6.8 已经为博客源定过这条纪律：<b>不自造"已同步"这种词</b>。它没有时间、没有条数，用户无法验证，而且下一次写入之后它立刻变成谎话。</div>
+    </div>
+    <div class="line no">
+      <div class="say">同步中…（转圈）</div>
+      <div class="why">§8.6 反网页感清单：<b>原生软件从不转圈</b>。而且坚果云一条 PUT 可能要几秒，转圈会让用户以为卡死。改成"上次同步于 X"留在原地，成功了再更新时间。</div>
+    </div>
+    <div class="line no">
+      <div class="say">你的数据只属于你</div>
+      <div class="why">§8.9 已经否过这类营销腔：<b>没有信息量，而且做不到绝对</b>（走 A/B 时坚果云上有密文）。要换成可验证的那句：说"加密后才上传"，就要能打开坚果云看到那个文件确实是密文。</div>
+    </div>
+  </div>
+
+  <h2 class="sec"><span class="n">机制说明搬去哪</span>不占主屏</h2>
+  <p class="note">"手机能改什么、不能改什么、冲突了谁赢、数据走哪条路"这些是<b>机制说明</b>，按 §8.9 的三类话纪律，收进手机端的设置页，主屏只留上面那一句状态。<b>但有一条必须在主屏</b>：走局域网时"电脑没开 / 不在同一 Wi-Fi"这个事实，因为它决定用户现在能不能指望同步 —— 那是操作提示，不是机制说明。</p>
+</div>
+
+<script>
+/* ===== 一份演示数据。课程名全是假的，仓库里不留任何人的真实课表。 ===== */
+const NOW = '12:34'
+const TODAY_DOW = 5 // 周五
+
+const CLASSES = [
+  { dow: 1, per: 1, name: '高等数学', short: '高数', room: '三教201', teacher: '张老师', weeks: '1-16' },
+  { dow: 1, per: 2, name: '大学英语', short: '英语', room: '外院305', teacher: '李老师', weeks: '1-16' },
+  { dow: 2, per: 1, name: '数据结构', short: '数构', room: '实验楼A302', teacher: '王老师', weeks: '1-14' },
+  { dow: 2, per: 3, name: '离散数学', short: '离散', room: '三教107', teacher: '赵老师', weeks: '1-16' },
+  { dow: 3, per: 1, name: '高等数学', short: '高数', room: '三教201', teacher: '张老师', weeks: '1-16' },
+  { dow: 3, per: 4, name: '体育', short: '体育', room: '北操场', teacher: '陈老师', weeks: '1-12' },
+  { dow: 4, per: 2, name: '大学英语', short: '英语', room: '外院305', teacher: '李老师', weeks: '1-16' },
+  { dow: 4, per: 3, name: '毛概', short: '毛概', room: '一教101', teacher: '刘老师', weeks: '1-16' },
+  { dow: 5, per: 2, name: '离散数学', short: '离散', room: '三教107', teacher: '赵老师', weeks: '1-16' },
+  { dow: 5, per: 3, name: '线性代数', short: '线代', room: '三教201', teacher: '孙老师', weeks: '1-16' },
+  { dow: 5, per: 5, name: '数据结构', short: '数构', room: '实验楼A302', teacher: '王老师', weeks: '1-14' },
+]
+const PERIODS = [
+  { n: 1, t: '08:00', e: '09:40' },
+  { n: 2, t: '10:00', e: '11:40' },
+  { n: 3, t: '14:00', e: '15:40' },
+  { n: 4, t: '16:00', e: '17:40' },
+  { n: 5, t: '19:00', e: '20:40' },
+]
+const DOW = ['一', '二', '三', '四', '五', '六', '日']
+/* 12:34 落在两节课之间的空档里：此刻没有课，只有"下一节"。
+   把下一节标成"此刻"是错的 —— 空档摘要和格子高亮必须说同一件事。 */
+const curPer = PERIODS.find(p => p.t <= NOW && NOW <= p.e) || null
+const nextPer = PERIODS.find(p => p.t > NOW) || null
+/* 本周周一到周日的真实日期：2026-10-26 … 10-31，然后跨到 11-01 */
+const WEEK_DATES = [26, 27, 28, 29, 30, 31, 1]
+
+const TODOS = [
+  { zone: 'late', title: '回复房东的微信', pri: 1, when: '逾期 1 天', over: 1, unsent: 0 },
+  { zone: 'late', title: '统计视图的图先定选型', pri: 1, when: '逾期 4 天', over: 1, unsent: 0 },
+  { zone: 'today', title: '把 M2 的验收跑完', pri: 2, when: '今天 18:00', hr: '18:00', over: 0, unsent: 0, pin: 1 },
+  { zone: 'today', title: '重写数据位置这块文案', pri: 1, when: '今天 23:00', hr: '23:00', over: 0, unsent: 1 },
+  { zone: 'any', title: '写周报', pri: 2, when: '没定日子', over: 0, unsent: 0 },
+  { zone: 'any', title: '学一下 3D 环的降级写法', pri: 3, when: '没定日子', over: 0, unsent: 0 },
+  { zone: 'done', title: '倒垃圾', pri: 2, when: '3 小时前', over: 0, done: 1, unsent: 0 },
+]
+const PRI = ['最急', '高', '中', '低']
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+
+/* ---- 共用零件 ---- */
+const sbar = () => `<div class="sbar"><span>${NOW}</span><span class="r">▮▮▮ ᯤ 87%</span></div>`
+const syncOk = () => `<div class="sync ok"><span class="dot"></span>上次同步于 12:03<span class="pend">1 条待上传</span></div>`
+const syncOff = () => `<div class="sync warn"><span class="dot"></span>没连上电脑 · 显示的是 12:03 那份<span class="act">重试</span></div>`
+const nav = (on) => `<div class="pnav">
+  <button class="${on === 'today' ? 'on' : ''}"><span class="i">≡</span>今天</button>
+  <button class="${on === 'tt' ? 'on' : ''}"><span class="i">▦</span>课表</button>
+  <button><span class="i">⚙</span>设置</button>
+</div>`
+const trow = (t) => `<div class="trow${t.done ? ' done' : ''}">
+  <span class="tcb">${t.done ? '✓' : ''}</span>
+  <div class="tmain">
+    <div class="ttl">${esc(t.title)}</div>
+    <div class="tsub${t.over ? ' over' : ''}"><span class="pri p${t.pri}">${PRI[t.pri]}</span>${esc(t.when)}${t.pin ? ' · 置顶' : ''}</div>
+  </div>
+  ${t.unsent ? '<span class="unsent" title="这条还没传出去"></span>' : ''}
+</div>`
+const zhead = (label, n, cls) => `<div class="zhead ${cls || ''}">${label}<span class="n">${n}</span></div>`
+
+/* ---- ③ 今天这一屏：A 清单 + 常驻输入条 ---- */
+function todayA() {
+  const late = TODOS.filter(t => t.zone === 'late')
+  const today = TODOS.filter(t => t.zone === 'today')
+  const any = TODOS.filter(t => t.zone === 'any')
+  const done = TODOS.filter(t => t.zone === 'done')
+  return `<div class="phone">
+    ${sbar()}
+    <div class="pbody">
+      <div class="phead">
+        <div class="d">10 月 30 日 · 周五 · 第 9 周</div>
+        <h2>今天</h2>
+        <div class="kpi">
+          <div><b class="over">${late.length}</b>逾期</div>
+          <div><b>${today.length}</b>今天</div>
+          <div><b class="ok">${done.length}</b>已完成</div>
+        </div>
+      </div>
+      ${syncOk()}
+      <div class="gapline">▦ 今天 3 节课 · 最近的空档 <b>12:34–14:00</b></div>
+      ${zhead('逾期', late.length, 'late')}
+      ${late.map(trow).join('')}
+      ${zhead('今天', today.length)}
+      ${today.map(trow).join('')}
+      ${zhead('随时', any.length)}
+      ${any.map(trow).join('')}
+      ${zhead('已完成', done.length)}
+      ${done.map(trow).join('')}
+    </div>
+    <div class="pfoot">
+      <div class="inbar"><span class="fld">记一条…</span><span class="send">↑</span></div>
+      ${nav('today')}
+    </div>
+    <div class="undo up">已完成「倒垃圾」<button>撤销</button></div>
+  </div>`
+}
+
+/* ---- ③ 今天这一屏：B 时间形状 + FAB ---- */
+function todayB() {
+  const today = TODOS.filter(t => t.zone === 'today')
+  const late = TODOS.filter(t => t.zone === 'late')
+  const any = TODOS.filter(t => t.zone === 'any')
+  const cls = CLASSES.filter(c => c.dow === TODAY_DOW)
+  const bands = []
+  cls.forEach(c => {
+    const p = PERIODS.find(p => p.n === c.per)
+    const isNext = nextPer && c.per === nextPer.n
+    bands.push({ hr: p.t, sort: p.t, html: `<div class="band${isNext ? ' next' : ''}">
+      <span class="hr">${p.t}<br>${p.e}</span>
+      <div class="in"><span class="cls">课</span><div class="tmain"><div class="ttl">${esc(c.name)}</div><div class="tsub">${esc(c.room)} · ${esc(c.teacher)}${isNext ? ' · 下一节' : ''}</div></div></div>
+    </div>` })
+  })
+  today.forEach(t => bands.push({ hr: t.hr, sort: t.hr, html: `<div class="band">
+    <span class="hr">${t.hr}</span>
+    <div class="in"><span class="tcb"></span><div class="tmain"><div class="ttl">${esc(t.title)}</div><div class="tsub${t.over ? ' over' : ''}"><span class="pri p${t.pri}">${PRI[t.pri]}</span>${esc(t.when)}</div></div>${t.unsent ? '<span class="unsent"></span>' : ''}</div>
+  </div>` }))
+  bands.sort((a, b) => a.sort.localeCompare(b.sort))
+  return `<div class="phone">
+    ${sbar()}
+    <div class="pbody">
+      <div class="phead">
+        <div class="d">10 月 30 日 · 周五 · 第 9 周</div>
+        <h2>今天</h2>
+      </div>
+      ${syncOk()}
+      <div class="gapline">▦ 今天 3 节课 · 最近的空档 <b>12:34–14:00</b></div>
+      ${zhead('逾期', late.length, 'late')}
+      ${late.map(trow).join('')}
+      ${zhead('按时间', today.length + cls.length)}
+      ${bands.map(b => b.html).join('')}
+      <div class="band"><span class="hr">随时</span><div class="in"><div class="tmain"><div class="tsub">${any.length} 条没定日子的事</div></div></div></div>
+    </div>
+    <div class="pfoot">${nav('today')}</div>
+    <div class="fab">+</div>
+  </div>`
+}
+
+/* ---- ④ 课表：A 压缩周网格 ---- */
+function ttA() {
+  const heads = DOW.map((d, i) => `<div class="h${i + 1 === TODAY_DOW ? ' today' : ''}">${d}</div>`).join('')
+  const rows = PERIODS.map(p => {
+    const cells = DOW.map((_, i) => {
+      const dow = i + 1
+      const c = CLASSES.find(x => x.dow === dow && x.per === p.n)
+      const isToday = dow === TODAY_DOW
+      const isNext = isToday && nextPer && p.n === nextPer.n
+      if (!c) return `<div class="cell emptycell${isToday ? ' todaycol' : ''}"></div>`
+      return `<div class="cell has${isToday ? ' todaycol' : ''}${isNext ? ' nextclass' : ''}">
+        <span class="cn">${esc(c.short)}</span><span class="cr">${esc(c.room.replace(/[^0-9A-Za-z]/g, ''))}</span>
+      </div>`
+    }).join('')
+    return `<div class="per">${p.n}<span style="font-size:9px;opacity:.7">${p.t.slice(0, 5)}</span></div>${cells}`
+  }).join('')
+  return `<div class="phone">
+    ${sbar()}
+    <div class="pbody">
+      <div class="phead"><div class="d">10 月 30 日 · 周五</div><h2>课表</h2></div>
+      ${syncOk()}
+      <div class="ttbar">
+        <span class="wk">第 9 周</span>
+        <span class="measure">今天周五</span>
+        <span class="nav"><button>‹</button><button>›</button></span>
+      </div>
+      <div class="ttgrid"><div class="h"></div>${heads}${rows}</div>
+      <div class="ttlegend">
+        <span><i style="background:rgba(96,165,250,.5)"></i>有课</span>
+        <span><i style="border:1px dashed var(--line-2)"></i>空闲</span>
+        <span><i style="border:1.5px solid var(--accent)"></i>下一节（${nextPer ? nextPer.t : '—'}）</span>
+      </div>
+      <div class="gapline" style="margin-top:12px">最近的空档 <b>12:34–14:00</b> · 下午第 3 大节前</div>
+      <div class="empty" style="margin-top:10px"><b>点格子看全名</b>格子里只有简称（每列实测 41px，放不下四个汉字）</div>
+    </div>
+    <div class="pfoot">${nav('tt')}</div>
+  </div>`
+}
+
+/* ---- ④ 课表：B 单日竖列 ---- */
+function ttB() {
+  const cls = CLASSES.filter(c => c.dow === TODAY_DOW)
+  const strip = DOW.map((d, i) => {
+    const dow = i + 1
+    const n = CLASSES.filter(c => c.dow === dow).length
+    return `<button class="${dow === TODAY_DOW ? 'on' : ''}"><span>${d}</span><span class="dd">${WEEK_DATES[i]}${WEEK_DATES[i] === 1 ? '<span style="font-size:8px;opacity:.7">月</span>' : ''}</span>${n ? '<span class="dotc"></span>' : ''}</button>`
+  }).join('')
+  const rows = PERIODS.map(p => {
+    const c = cls.find(x => x.per === p.n)
+    const isNext = nextPer && p.n === nextPer.n
+    if (!c) return `<div class="prow free${isNext ? ' next' : ''}">
+      <span class="pt">${p.t}<br>${p.e}</span>
+      <div><div class="pn">空闲</div><div class="pm">第 ${p.n} 大节${isNext ? ' · 下一节' : ''}</div></div>
+    </div>`
+    return `<div class="prow${isNext ? ' next' : ''}">
+      <span class="pt">${p.t}<br>${p.e}</span>
+      <div><div class="pn">${esc(c.name)}</div><div class="pm">${esc(c.room)} · ${esc(c.teacher)} · ${esc(c.weeks)} 周${isNext ? ' · 下一节' : ''}</div></div>
+    </div>`
+  }).join('')
+  return `<div class="phone">
+    ${sbar()}
+    <div class="pbody">
+      <div class="phead"><div class="d">10 月 30 日 · 周五</div><h2>课表</h2></div>
+      ${syncOk()}
+      <div class="ttbar"><span class="wk">第 9 周</span><span class="measure">左右滑切天</span><span class="nav"><button>‹</button><button>›</button></span></div>
+      <div class="daystrip">${strip}</div>
+      ${rows}
+      <div class="gapline" style="margin-top:12px">最近的空档 <b>12:34–14:00</b></div>
+    </div>
+    <div class="pfoot">${nav('tt')}</div>
+  </div>`
+}
+
+/* ---- 装框 ---- */
+function wrap(cap, badge, why, inner, alt) {
+  return `<div class="pwrap">
+    <div class="cap">${cap}<span class="badge${alt ? ' alt' : ''}">${badge}</span></div>
+    <p class="why">${why}</p>
+    ${inner}
+  </div>`
+}
+document.getElementById('phones-today').innerHTML =
+  wrap('A · 清单 + 底部常驻输入条', '我倾向这个',
+    '扫得最快，首屏看得见 <b>6 条</b>待办标题。<b>记一条 0 步</b>：输入条常驻底部，不用先点加号。<span class="cost">代价：输入条 + 导航吃掉 121px，第 7 条要滑 79px 才露出来；它不回答"几点有空"（交给课表页）。</span>',
+    todayA()) +
+  wrap('B · 时间形状 + 右下加号', '桌面那套搬过来',
+    '课和待办排在同一条时间轴上，一眼看出"18:00 之前有空"，而且<b>不用滑</b>。<span class="cost">代价：待办只看得见 <b>4 条</b>标题，「随时」那 2 条被压成一行汇总；课占了 3 行；记一条要先点加号（多一步）；而"几点有空"课表页已经回答过一次。</span>',
+    todayB(), true)
+
+document.getElementById('phones-tt').innerHTML =
+  wrap('A · 压缩周网格', 'WakeUp 就是这么做的',
+    '一眼看出"这周哪几天空"。今天列描边、<b>下一节</b>加粗描边（12:34 在空档里，此刻没有课）、<b>空档就是虚线空格</b>。<span class="cost">代价：每列实测 41px，"高等数学"必须缩成"高数"，格子里字号 11px —— 低于桌面 13px 基线，全名靠点格子。</span>',
+    ttA()) +
+  wrap('B · 单日竖列 + 顶部切天', '放得下全名',
+    '每节一行，课名 / 教室 / 教师 / 周次全放得下，正文 15px 不破基线。<span class="cost">代价：看不出周形状，"这周哪天空"要滑 7 次；你桌面 §8.8.7 已经明确拒绝过这种拆法（"不做竖着堆 7 天那种假响应式"）。</span>',
+    ttB(), true)
+
+/* ---- 切换 ---- */
+const views = document.querySelectorAll('.view')
+const tabs = document.querySelectorAll('.pick .tab')
+function show(id) {
+  views.forEach(v => (v.hidden = v.id !== id))
+  tabs.forEach(t => t.setAttribute('aria-selected', String(t.dataset.v === id)))
+  window.scrollTo(0, 0)
+}
+tabs.forEach(t => t.addEventListener('click', () => show(t.dataset.v)))
+const modeBtn = document.getElementById('mode')
+modeBtn.onclick = () => {
+  const r = document.documentElement
+  r.dataset.mode = r.dataset.mode === 'dark' ? 'light' : 'dark'
+  modeBtn.title = r.dataset.mode === 'dark' ? '切到亮色' : '切到暗色'
+}
+show('v1')
+</script>
+</body>
+</html>

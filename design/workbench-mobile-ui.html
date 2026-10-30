@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="zh-CN" data-mode="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anvil 手机端 · 四版视觉，同一版式</title>
+<style>
+/* ── 对比稿外壳：用桌面已冻结的令牌（§8.5），让取证稿与产品同源 ── */
+:root{
+  --bg:#080b0a; --panel:#0d1110; --card:#131816; --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.13);
+  --t1:#f1f5f3; --t2:#a3ada8; --t3:#6b7571; --accent:#2ee27a; --accent-soft:rgba(46,226,122,.14);
+  --r:14px; --r-sm:10px; --r-xs:8px; --red:#f87171; --amber:#fbbf24; --blue:#60a5fa;
+  --sel-ink:#4b5450;
+  font-family:Inter,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+}
+[data-mode='light']{
+  --bg:#f4f6f5; --panel:#fff; --card:#fff; --line:rgba(8,11,10,.09); --line-2:rgba(8,11,10,.17);
+  --t1:#0b100e; --t2:#4b5450; --t3:#7b8480; --accent:#059669; --accent-soft:rgba(5,150,105,.12);
+  --red:#dc2626; --amber:#b45309; --blue:#2563eb;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--t1);font-size:13px;font-variant-numeric:tabular-nums}
+.pick{position:sticky;top:0;z-index:9;display:flex;align-items:center;gap:7px;padding:11px 20px;background:var(--panel);border-bottom:1px solid var(--line)}
+.pick .lab{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--t3);margin-right:6px}
+.tab{font:inherit;font-size:12px;color:var(--t2);background:transparent;border:1px solid var(--line);border-radius:999px;padding:6px 11px;cursor:pointer}
+.tab[aria-selected=true]{background:var(--accent);color:#04240f;border-color:transparent;font-weight:750}
+[data-mode='light'] .tab[aria-selected=true]{color:#fff}
+.mode{margin-left:auto;font:inherit;font-size:11.5px;color:var(--t2);background:transparent;border:1px solid var(--line);border-radius:999px;padding:6px 11px;cursor:pointer}
+.page{padding:18px 20px 44px;max-width:1240px;margin:0 auto}
+.page h1{font-size:21px;font-weight:850;letter-spacing:-.02em;margin:0 0 4px}
+.page .sub{font-size:12px;color:var(--t3);margin:0 0 14px}
+.note{font-size:12px;color:var(--t2);line-height:1.75;border-left:2px solid var(--accent);padding-left:10px;margin:0 0 16px}
+.note.warn{border-color:var(--amber)}
+.note.bad{border-color:var(--red)}
+.note b{color:var(--t1)}
+h2.sec{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--t3);margin:26px 0 10px;display:flex;align-items:center;gap:8px}
+h2.sec .n{color:var(--accent);font-weight:800}
+.phones{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+.pwrap{width:360px}
+.cap{font-size:12.5px;font-weight:750;color:var(--t1);margin-bottom:4px;display:flex;align-items:center;gap:7px}
+.badge{font-size:9.5px;font-weight:800;letter-spacing:.1em;padding:2px 6px;border-radius:5px;background:var(--accent-soft);color:var(--accent)}
+.why{font-size:11.5px;color:var(--t2);line-height:1.7;margin:0 0 9px;min-height:34px}
+.why .cost{color:var(--amber)}
+.m{font-size:11px;color:var(--t3);margin:7px 0 0;line-height:1.6}
+.hint{font-size:11px;color:var(--p-t3)}
+table.cmp{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px}
+table.cmp th,table.cmp td{border:1px solid var(--line);padding:8px 9px;text-align:left;vertical-align:top;line-height:1.6}
+table.cmp thead th{background:var(--card);font-weight:750;color:var(--t1)}
+table.cmp tbody th{background:transparent;font-weight:650;color:var(--t2);width:150px}
+table.cmp td b{color:var(--t1)}
+.srcs{font-size:11px;color:var(--t3);line-height:1.9;margin-top:20px;padding-top:12px;border-top:1px solid var(--line)}
+.srcs a{color:var(--t2)}
+
+/* ── 手机框：360×800dp，正文 15px，触控 ≥48dp（§8.10 基线） ── */
+.phone{
+  width:360px;height:800px;border-radius:30px;border:1px solid var(--line-2);overflow:hidden;position:relative;
+  display:flex;flex-direction:column;background:var(--p-bg);color:var(--p-t1);font-size:var(--p-fs);line-height:1.45;
+}
+.sbar{display:flex;justify-content:space-between;align-items:center;padding:9px 18px 5px;font-size:11px;color:var(--p-t3)}
+.sbar .rt{display:flex;gap:5px;align-items:center}
+.sbar i{display:inline-block;width:14px;height:8px;border:1px solid currentColor;border-radius:2px;opacity:.7}
+.pbody{flex:1;overflow-y:auto;padding:2px var(--p-padx) 14px;scrollbar-width:none}
+.pbody::-webkit-scrollbar{display:none}
+.phead{position:relative;padding:6px 0 10px}
+.phead .d{font-size:11.5px;color:var(--p-t3);letter-spacing:.01em}
+.phead h2{font-size:var(--p-h2);font-weight:850;letter-spacing:-.02em;margin:2px 0 0}
+.gear{position:absolute;right:0;top:14px;width:48px;height:48px;border:0;background:transparent;color:var(--p-t2);font-size:17px;border-radius:var(--p-rs);cursor:pointer;display:grid;place-items:center}
+.kpi{display:flex;gap:14px;margin-top:11px}
+.kpi>div{font-size:10.5px;color:var(--p-t3);letter-spacing:.06em}
+.kpi b{display:block;font-size:22px;font-weight:850;letter-spacing:-.03em;color:var(--p-t1);margin-bottom:1px}
+.kpi .over b{color:var(--p-red)}
+.kpi .ok b{color:var(--p-acc)}
+.oneline{display:none;font-size:13px;color:var(--p-t2);margin-top:10px}
+.oneline b{color:var(--p-t1);font-weight:750}
+.sync{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--p-t3);padding:7px 9px;border-radius:var(--p-rs);background:var(--p-surf2);margin-bottom:9px}
+.sync i{width:6px;height:6px;border-radius:50%;background:var(--p-acc);flex:none}
+.sync.warn{color:var(--p-amber)}
+.sync.warn i{background:var(--p-amber)}
+.gapline{font-size:11.5px;color:var(--p-t2);padding:0 2px 10px}
+.gapline b{color:var(--p-t1)}
+.zhead{display:flex;align-items:center;gap:6px;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--p-t3);font-weight:750;padding:12px 2px 6px}
+.zhead .n{font-size:10px;padding:1px 5px;border-radius:5px;background:var(--p-surf2);color:var(--p-t2);letter-spacing:0}
+.zhead.late{color:var(--p-red)}
+.zhead.late .n{background:var(--p-red-soft);color:var(--p-red)}
+.row{display:flex;align-items:center;gap:11px;min-height:var(--p-rowh);padding:0 9px;border-radius:var(--p-rs);background:var(--p-surf);border:1px solid var(--p-line);margin-bottom:var(--p-rowgap)}
+.row .cb{width:var(--p-cb);height:var(--p-cb);border:1.5px solid var(--p-line-2);border-radius:var(--p-cbr);flex:none}
+.row.done .cb{background:var(--p-acc);border-color:var(--p-acc)}
+.row .main{flex:1;min-width:0}
+.ttl{font-size:var(--p-fs);color:var(--p-t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row.done .ttl{color:var(--p-t3);text-decoration:line-through}
+.rsub{font-size:11px;color:var(--p-t3);margin-top:2px;display:flex;align-items:center;gap:6px}
+.pri{font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:4px;letter-spacing:.04em}
+.pri.p1{background:var(--p-red-soft);color:var(--p-red)}
+.pri.p2{background:var(--p-acc-soft);color:var(--p-acc)}
+.unsent{width:7px;height:7px;border-radius:50%;background:var(--p-amber);flex:none}
+.zone{margin-bottom:2px}
+.pfoot{border-top:1px solid var(--p-line);background:var(--p-bg);padding:8px var(--p-padx) 10px}
+.inbar{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.fld{flex:1;min-height:48px;display:flex;align-items:center;padding:0 15px;border-radius:999px;border:1px solid var(--p-line-2);background:var(--p-surf);color:var(--p-t3);font-size:calc(var(--p-fs) - 1px)}
+.send{width:48px;height:48px;flex:none;border:0;border-radius:50%;background:var(--p-acc);color:var(--p-acc-ink);font-size:17px;font-weight:800;cursor:pointer}
+.nav{display:flex;gap:6px}
+.nav button{flex:1;min-height:var(--p-navh);border:0;background:transparent;color:var(--p-t3);font:inherit;font-size:11.5px;font-weight:700;border-radius:var(--p-navr);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.nav button .g{font-size:15px;line-height:1}
+.nav button.on{color:var(--p-acc);background:var(--p-acc-soft)}
+.undo{position:absolute;left:12px;right:12px;bottom:130px;display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:var(--p-rs);background:var(--p-sel);color:var(--p-sel-ink);font-size:13px;font-weight:700;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.undo button{margin-left:auto;background:transparent;border:0;color:var(--p-acc-on-sel);font:inherit;font-weight:850;min-height:48px;min-width:48px;padding:0 8px;cursor:pointer}
+/* 课表 */
+.weekbar{display:flex;align-items:center;gap:8px;padding:2px 0 9px}
+.weekbar .wk{font-size:13px;font-weight:800}
+.weekbar .nav2{display:flex;gap:4px;margin-left:auto}
+.weekbar .nav2 button{width:48px;height:48px;border:1px solid var(--p-line);border-radius:var(--p-rs);background:transparent;color:var(--p-t2);font-size:16px;cursor:pointer}
+.daystrip{display:flex;gap:2px;padding:2px 0 12px;margin:0 calc(-1 * var(--p-padx) + 4px)}
+.daystrip button{flex:1;min-height:48px;border-radius:var(--p-rs);border:1px solid var(--p-line);background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;font-size:10px;color:var(--p-t3);font-weight:700;cursor:pointer;position:relative}
+.daystrip .dd{font-size:13px;color:var(--p-t2);font-variant-numeric:tabular-nums}
+.daystrip button.on{background:var(--p-acc-soft);border-color:transparent;color:var(--p-acc)}
+.daystrip button.on .dd{color:var(--p-acc);font-weight:850}
+.daystrip .dotc{position:absolute;bottom:6px;width:4px;height:4px;border-radius:50%;background:var(--p-blue)}
+.prow{display:flex;gap:11px;align-items:flex-start;padding:11px 10px;border-radius:var(--p-rs);border:1px solid var(--p-line);background:var(--p-surf);margin-bottom:var(--p-rowgap);min-height:var(--p-rowh)}
+.prow.next{border:1.5px solid var(--p-acc)}
+.prow.free{background:transparent;border-style:dashed;color:var(--p-t3)}
+.pt{font-size:11px;color:var(--p-t3);width:44px;flex:none;line-height:1.5;padding-top:2px}
+.pn{font-size:var(--p-fs);font-weight:650;color:var(--p-t1)}
+.prow.free .pn{font-weight:500;color:var(--p-t3)}
+.pm{font-size:11px;color:var(--p-t3);margin-top:2px}
+.tagnext{font-size:9.5px;font-weight:800;color:var(--p-acc);background:var(--p-acc-soft);border-radius:4px;padding:1px 5px;margin-left:6px;vertical-align:2px}
+/* 设置 */
+.grp{margin:14px 0 0}
+.grp>.gt{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--p-t3);font-weight:750;padding:0 2px 7px}
+.srow{display:flex;align-items:center;gap:10px;min-height:52px;padding:9px 11px;border-radius:var(--p-rs);background:var(--p-surf);border:1px solid var(--p-line);margin-bottom:var(--p-rowgap)}
+.srow .k{flex:1;font-size:13.5px;color:var(--p-t1)}
+.srow .v{font-size:11.5px;color:var(--p-t3);text-align:right;max-width:170px}
+.srow.act .v{color:var(--p-acc);font-weight:750}
+.srow .kb{font-size:11px;color:var(--p-t3);margin-top:2px;line-height:1.55}
+.back{display:inline-flex;align-items:center;gap:6px;min-height:48px;padding:0 12px;margin-left:-12px;font-size:12px;color:var(--p-t2);background:transparent;border:0;font-weight:700}
+/* 状态样张条 */
+.states{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+.st{width:calc(50% - 5px);border:1px solid var(--line);border-radius:var(--r-sm);background:var(--card);padding:10px 12px}
+.st .say{font-size:12.5px;font-weight:700;color:var(--t1);display:flex;align-items:center;gap:7px}
+.st .say i{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
+.st.w .say i{background:var(--amber)}
+.st.n .say i{background:var(--t3)}
+.st .cap2{font-size:10.5px;color:var(--t3);margin-top:4px;line-height:1.6}
+
+/* ══ 皮肤 1 · 桌面直系：令牌 1:1 搬过来，密、有边框 ══ */
+.phone{
+  --p-bg:#0d1110; --p-surf:#131816; --p-surf2:#171d1a; --p-line:rgba(255,255,255,.07); --p-line-2:rgba(255,255,255,.16);
+  --p-t1:#f1f5f3; --p-t2:#a3ada8; --p-t3:#6b7571; --p-acc:#2ee27a; --p-acc-ink:#04240f; --p-acc-soft:rgba(46,226,122,.14);
+  --p-red:#f87171; --p-red-soft:rgba(248,113,113,.12); --p-amber:#fbbf24; --p-blue:#60a5fa;
+  --p-sel:#f6faf7; --p-sel-ink:#4b5450; --p-acc-on-sel:#047857;
+  --p-fs:15px; --p-h2:24px; --p-rowh:54px; --p-padx:14px; --p-r:14px; --p-rs:10px; --p-navh:54px; --p-navr:10px;
+  --p-cb:21px; --p-cbr:6px; --p-rowgap:7px;
+}
+[data-mode='light'] .phone{
+  --p-bg:#f7f9f8; --p-surf:#fff; --p-surf2:#eef2f0; --p-line:rgba(8,11,10,.09); --p-line-2:rgba(8,11,10,.2);
+  --p-t1:#0b100e; --p-t2:#4b5450; --p-t3:#7b8480; --p-acc:#059669; --p-acc-ink:#fff; --p-acc-soft:rgba(5,150,105,.1);
+  --p-red:#dc2626; --p-red-soft:rgba(220,38,38,.08); --p-amber:#b45309; --p-blue:#2563eb;
+  --p-sel:#0b100e; --p-sel-ink:#f1f5f3; --p-acc-on-sel:#2ee27a;
+}
+
+/* ══ 皮肤 2 · 松一点：去掉边框与卡片，靠间距和字号分层 ══ */
+.phone.s2{
+  --p-bg:#0a0d0c; --p-surf:transparent; --p-surf2:#0f1413; --p-line:transparent; --p-line-2:rgba(255,255,255,.22);
+  --p-fs:16px; --p-h2:30px; --p-rowh:62px; --p-padx:20px; --p-rs:14px; --p-navh:58px;
+  --p-cb:25px; --p-cbr:50%; --p-rowgap:2px;
+}
+.phone.s2 .row{border-left:0;border-right:0;border-top:0;border-radius:0;padding-left:0;padding-right:0;border-bottom:1px solid rgba(255,255,255,.06)}
+.phone.s2 .prow{border-color:transparent;border-bottom-color:rgba(255,255,255,.08);border-radius:0;padding-left:0}
+.phone.s2 .prow.next{border-color:var(--p-acc);border-radius:var(--p-rs);padding-left:10px}
+.phone.s2 .prow.free{border-bottom-color:rgba(255,255,255,.06)}
+.phone.s2 .kpi{display:none}
+.phone.s2 .oneline{display:block}
+.phone.s2 .zhead{padding-top:20px}
+.phone.s2 .sync{background:transparent;padding-left:0}
+.phone.s2 .fld{border-radius:14px;background:#0f1413}
+.phone.s2 .gear{top:8px}
+[data-mode='light'] .phone.s2{--p-bg:#fbfcfb;--p-surf:transparent;--p-surf2:#f0f3f1;--p-line:transparent;--p-line-2:rgba(8,11,10,.28)}
+[data-mode='light'] .phone.s2 .row{border-bottom:1px solid rgba(8,11,10,.07)}
+[data-mode='light'] .phone.s2 .prow{border-color:transparent;border-bottom-color:rgba(8,11,10,.09)}
+[data-mode='light'] .phone.s2 .prow.next{border-color:var(--p-acc)}
+[data-mode='light'] .phone.s2 .prow.free{border-bottom-color:rgba(8,11,10,.07)}
+[data-mode='light'] .phone.s2 .fld{background:#f0f3f1}
+
+/* ══ 皮肤 3 · 色块分区：状态用底色说，逾期整条铺红 ══ */
+.phone.s3{
+  --p-bg:#080b0a; --p-surf:#101614; --p-surf2:#151c19; --p-line:rgba(255,255,255,.06); --p-line-2:rgba(255,255,255,.18);
+  --p-fs:15px; --p-h2:22px; --p-rowh:56px; --p-padx:12px; --p-rs:8px; --p-navh:56px; --p-navr:8px;
+  --p-cb:20px; --p-cbr:4px; --p-rowgap:2px;
+}
+.phone.s3 .zhead{padding:16px 0 7px}
+.phone.s3 .zone.late .row{background:var(--p-red-soft);border-left:3px solid var(--p-red);border-radius:0 var(--p-rs) var(--p-rs) 0}
+.phone.s3 .zone.any .row{background:transparent;border-style:dashed}
+.phone.s3 .zone.done .row{background:transparent;opacity:.72}
+.phone.s3 .zone.today .row{border-left:3px solid var(--p-acc)}
+.phone.s3 .kpi b{font-size:26px}
+.phone.s3 .sync{border:1px solid var(--p-line-2);background:transparent}
+.phone.s3 .nav button.on{background:var(--p-acc);color:var(--p-acc-ink)}
+.phone.s3 .gapline{background:var(--p-surf2);padding:8px 10px;border-radius:var(--p-rs)}
+[data-mode='light'] .phone.s3{--p-bg:#f2f5f3;--p-surf:#fff;--p-surf2:#e9eeeb;--p-line:rgba(8,11,10,.08);--p-line-2:rgba(8,11,10,.22);--p-red-soft:rgba(220,38,38,.07)}
+
+/* ══ 皮肤 4 · 安卓原生味：三档 tonal 表面 + 药丸导航 + 大标题 ══ */
+.phone.s4{
+  --p-bg:#101413; --p-surf:#171c1a; --p-surf2:#1e2523; --p-line:rgba(255,255,255,.09); --p-line-2:rgba(255,255,255,.2);
+  --p-t1:#e7ece9; --p-t2:#9ba6a1; --p-t3:#6d7873;
+  --p-fs:15px; --p-h2:27px; --p-rowh:58px; --p-padx:16px; --p-r:24px; --p-rs:16px; --p-navh:62px; --p-navr:999px;
+  --p-cb:24px; --p-cbr:50%; --p-rowgap:9px;
+}
+.phone.s4 .row,.phone.s4 .prow,.phone.s4 .srow{border-radius:var(--p-rs)}
+.phone.s4 .phead{padding:12px 0 12px}
+.phone.s4 .nav{padding:0 6px}
+.phone.s4 .nav button{gap:3px;font-size:11px}
+.phone.s4 .nav button.on{background:var(--p-acc-soft);font-weight:850}
+.phone.s4 .inbar{margin-bottom:9px}
+.phone.s4 .fld{border-radius:28px;background:var(--p-surf2);border-color:transparent}
+.phone.s4 .undo{border-radius:var(--p-rs);left:16px;right:16px}
+.phone.s4 .sync{border-radius:var(--p-rs)}
+.phone.s4 .daystrip button{border-radius:14px}
+[data-mode='light'] .phone.s4{--p-bg:#fbfaf8;--p-surf:#f2f1ee;--p-surf2:#e8e7e4;--p-line:rgba(11,16,14,.08);--p-line-2:rgba(11,16,14,.2);--p-t1:#1a1f1d;--p-t2:#4d5652;--p-t3:#78817d}
+</style>
+</head>
+<body>
+<div class="pick">
+  <span class="lab">ANVIL 手机端 · 四版视觉</span>
+  <button class="tab" role="tab" aria-selected="true" data-v="u0">⓪ 在比什么</button>
+  <button class="tab" role="tab" aria-selected="false" data-v="u1">① 桌面直系</button>
+  <button class="tab" role="tab" aria-selected="false" data-v="u2">② 松一点</button>
+  <button class="tab" role="tab" aria-selected="false" data-v="u3">③ 色块分区</button>
+  <button class="tab" role="tab" aria-selected="false" data-v="u4">④ 安卓原生味</button>
+  <button class="mode iconbtn" id="mode" title="切到亮色">切亮/暗</button>
+</div>
+
+<!-- ═══════════ ⓪ 在比什么 ═══════════ -->
+<div class="page view" id="u0">
+  <h1>四版视觉，同一版式</h1>
+  <p class="sub">版式已经定了（今天屏 A 清单 + 常驻输入条；课表屏 B 单日竖列）—— 这四版<b>只比视觉语言</b>，不比骨架</p>
+  <p class="note">每版都是同样三屏（今天 / 课表 / 设置）+ 同一份演示数据 + 同步四态各一句。手机框按 <b>360×800dp</b> 画，正文 <b>15px</b>，触控目标 <b>≥48dp</b>（PLAN §8.10 的基线，四版都达标，不达标会在下面那行实测里露出来）。<b>每屏下面的实测行是浏览器量的，不是我估的</b>：一屏能看到几条待办标题、内容溢出多少像素、最小触控目标多少像素。</p>
+  <p class="note warn">能混着选，但<b>色板只能选一套</b>：①③ 用桌面已冻结的令牌（§8.5），② 只改密度不改色，④ 要新增三档 tonal 表面色阶 —— 那是<b>桌面上不存在的一整套颜色</b>，选了它就有两套令牌要维护。这条比字号重要，先想清楚。</p>
+
+  <h2 class="sec"><span class="n">固定</span>四版都不许动的东西</h2>
+  <table class="cmp">
+    <tbody>
+      <tr><th>骨架</th><td>今天屏 = 清单 + 常驻输入条（A）；课表屏 = 单日竖列 + 7 日条（B）。已定，见 PLAN §8.10</td></tr>
+      <tr><th>分区顺序</th><td>逾期 → 今天 → 随时 → 已完成。逾期独立成区、无截止时间的不混进今天</td></tr>
+      <tr><th>导航</th><td><b>只有两项</b>（今天 / 课表），设置从今天屏右上角齿轮进。不凑五项</td></tr>
+      <tr><th>文案</th><td>「上次同步于 X · N 条待上传」类可验证的真事实；不出现「已同步」「同步中…」转圈；真空态与"还没同步过"是两句话</td></tr>
+      <tr><th>诚实</th><td>状态不只靠颜色（§2 原则 3）：色块版每块仍带文字标签；「下一节」是描边 + 文字两个通道</td></tr>
+      <tr><th>数据</th><td>课不进待办列表，只以空档摘要出现，且与课表页同一个函数算出来</td></tr>
+    </tbody>
+  </table>
+
+  <h2 class="sec"><span class="n">差别</span>四版各是什么主张</h2>
+  <table class="cmp">
+    <thead>
+      <tr><th style="width:130px"></th><th>① 桌面直系</th><th>② 松一点</th><th>③ 色块分区</th><th>④ 安卓原生味</th></tr>
+    </thead>
+    <tbody>
+      <tr><th>一句话</th><td>把桌面那套原样搬到手机上，一眼是同一个产品</td><td>手机上不该塞桌面那么多字：去边框、放大行距、少一半元素</td><td>状态用底色喊出来，扫一眼就知道哪条最急</td><td>看起来像正经安卓 app，不像"套壳网页"</td></tr>
+      <tr><th>正文 / 行高</th><td>15px / 54px</td><td>16px / 62px</td><td>15px / 56px</td><td>15px / 58px</td></tr>
+      <tr><th>卡片与边框</th><td>每条一个带描边的卡</td><td><b>零边框</b>，只有一条细分隔线</td><td>描边 + 左侧色条 + 分区底色</td><td>无边框，靠三档表面色分层</td></tr>
+      <tr><th>色板来源</th><td><b>桌面 §8.5 原封</b></td><td><b>桌面 §8.5 原封</b>（只改密度）</td><td>桌面 §8.5 + 复用已有的红/琥珀</td><td class="warn"><b>新增三档 tonal 表面</b>，桌面没有</td></tr>
+      <tr><th>实现成本</th><td>最低：令牌抄一遍</td><td>低：改间距与边框，令牌不动</td><td>中：分区底色与色条要写规则，暗亮两套都要校</td><td>高：一整套新令牌 + 大标题收缩动效</td></tr>
+      <tr><th>主要代价</th><td>手机上偏密、偏工程感</td><td>一屏看到的条数最少</td><td>颜色一多，"哪里最重要"反而可能糊</td><td>与桌面越来越像两个产品</td></tr>
+    </tbody>
+  </table>
+  <p class="note" style="margin-top:14px">「一屏看到几条」这类数字我不写死在表里 —— 每版页面底部有浏览器实测行，翻到哪版看哪版。<b>选法建议</b>：先说色板要不要新增（④），再说密度要 ① 还是 ②，最后决定要不要 ③ 的分区底色。三问答完就定了。</p>
+  <div class="srcs">
+    <b>来源</b> · 版式与文案纪律取自 <a href="file:///D:/ADevelop/Repositories/Mine/workbench/design/workbench-mobile.html">design/workbench-mobile.html</a>（① 路线对比 ② 竞品 ⑤ 同步文案）与 PLAN §8.10 · Material 3 的 surface / surface-container 色阶角色与导航条药丸指示器见 <a href="https://m3.material.io/styles/color/roles">m3.material.io/styles/color/roles</a> · Things 的"无框靠间距分层"参照 <a href="https://culturedcode.com/things/support/articles/4001304/">Today/Anytime/Logbook</a>
+  </div>
+</div>
+
+<!-- ①②③ 由脚本按同一份数据渲染 -->
+<div class="page view" id="u1" hidden></div>
+<div class="page view" id="u2" hidden></div>
+<div class="page view" id="u3" hidden></div>
+<div class="page view" id="u4" hidden></div>
+
+<script>
+/* ── 演示数据（假课程名 / 假待办，与 workbench-mobile.html 同一份，便于横向对照） ── */
+const NOW = '12:34', TODAY_DOW = 5, WEEK = 9;
+const DOW = ['一','二','三','四','五','六','日'];
+const WEEK_DATES = [26,27,28,29,30,31,1];
+const PERIODS = [
+  {n:1,t:'08:00',e:'09:40'},{n:2,t:'10:00',e:'11:40'},{n:3,t:'14:00',e:'15:40'},
+  {n:4,t:'16:00',e:'17:40'},{n:5,t:'19:00',e:'20:40'}
+];
+const CLASSES = {
+  1:{name:'高等数学',room:'3教 201',teacher:'李老师',weeks:'1-10 周'},
+  3:{name:'数据结构与算法',room:'实验中心 B302',teacher:'王老师',weeks:'1-16 周'},
+  5:{name:'大学英语',room:'外院楼 214',teacher:'张老师',weeks:'2-14 双周'}
+};
+const nextPer = PERIODS.find(p => p.t > NOW) || null;
+/* 有课的日子（演示数据：周一到周五都有课，周末没有）—— 7 日条上的蓝点用它，别拿节次键当星期 */
+const HAS_CLASS_DAYS = new Set([1,2,3,4,5]);
+const TODOS = {
+  late:[
+    {title:'回房东的消息',pri:1,sub:'逾期 1 天',unsent:0},
+    {title:'把统计页的选型定下来',pri:1,sub:'逾期 4 天',unsent:0}
+  ],
+  today:[
+    {title:'交实验报告',pri:1,sub:'今天 18:00',unsent:1},
+    {title:'买猫粮',pri:2,sub:'今天 20:00',unsent:1},
+    {title:'跑一次备份还原演练',pri:2,sub:'今天',unsent:0},
+    {title:'给课表补第 9 周的作业',pri:0,sub:'今天',unsent:0}
+  ],
+  any:[
+    {title:'整理旧笔记的标签',pri:0,sub:'没定日子',unsent:0},
+    {title:'看 WakeUp 怎么切周',pri:0,sub:'没定日子',unsent:0}
+  ],
+  done:[
+    {title:'倒垃圾',pri:0,sub:'11:20 完成',unsent:0},
+    {title:'预约牙科',pri:0,sub:'昨天完成',unsent:0}
+  ]
+};
+const PRI = {1:'高',2:'中',0:''};
+const esc = s => String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ── 三屏共用 markup（皮肤只靠 CSS 类区分，保证是同一版式） ── */
+const sbar = () => `<div class="sbar"><span>${NOW}</span><span class="rt"><i></i><i></i>100%</span></div>`;
+const syncLine = () => `<div class="sync"><i></i>上次同步于 12:03 · 2 条待上传</div>`;
+const gapLine = () => `<div class="gapline">▦ 今天 3 节课 · 最近的空档 <b>12:34–14:00</b></div>`;
+const nav = on => `<nav class="nav"><button class="${on==='today'?'on':''}"><span class="g">☑</span>今天</button><button class="${on==='tt'?'on':''}"><span class="g">▦</span>课表</button></nav>`;
+const row = (t,i) => `<div class="row"><span class="cb"></span><div class="main"><div class="ttl">${esc(t.title)}</div><div class="rsub">${t.pri?`<span class="pri p${t.pri}">${PRI[t.pri]}</span>`:''}${esc(t.sub)}</div></div>${t.unsent?'<span class="unsent" title="这条还没传出去"></span>':''}</div>`;
+const rowDone = t => `<div class="row done"><span class="cb"></span><div class="main"><div class="ttl">${esc(t.title)}</div><div class="rsub">${esc(t.sub)}</div></div></div>`;
+const zhead = (l,n,cls='') => `<div class="zhead ${cls}">${l}<span class="n">${n}</span></div>`;
+
+function todayScreen(){
+  return `<div class="phone __S__">${sbar()}
+    <div class="pbody">
+      <div class="phead">
+        <div class="d">10 月 30 日 · 周五 · 第 ${WEEK} 周</div>
+        <h2>今天</h2>
+        <button class="gear">⚙</button>
+        <div class="kpi"><div><b class="over">${TODOS.late.length}</b>逾期</div><div><b>${TODOS.today.length}</b>今天</div><div><b class="ok">${TODOS.done.length}</b>已完成</div></div>
+        <div class="oneline"><b>今天 ${TODOS.today.length} 件</b> · 逾期 ${TODOS.late.length} 件 · 已完成 ${TODOS.done.length} 件</div>
+      </div>
+      ${syncLine()}${gapLine()}
+      <div class="zone late">${zhead('逾期',TODOS.late.length,'late')}${TODOS.late.map(row).join('')}</div>
+      <div class="zone today">${zhead('今天',TODOS.today.length)}${TODOS.today.map(row).join('')}</div>
+      <div class="zone any">${zhead('随时',TODOS.any.length)}${TODOS.any.map(row).join('')}</div>
+      <div class="zone done">${zhead('已完成',TODOS.done.length)}${TODOS.done.map(rowDone).join('')}</div>
+    </div>
+    <div class="pfoot">
+      <div class="inbar"><span class="fld">记一条…</span><button class="send">↑</button></div>
+      ${nav('today')}
+    </div>
+    <div class="undo">已完成「倒垃圾」<button>撤销</button></div>
+  </div>`;
+}
+
+function ttScreen(){
+  const strip = DOW.map((d,i)=>{
+    const dow=i+1, has=HAS_CLASS_DAYS.has(dow)?'<span class="dotc"></span>':'';
+    return `<button class="${dow===TODAY_DOW?'on':''}"><span>${d}</span><span class="dd">${WEEK_DATES[i]}${WEEK_DATES[i]===1?'<span style="font-size:8px;opacity:.7">月</span>':''}</span>${has}</button>`;
+  }).join('');
+  const rows = PERIODS.map(p=>{
+    const c = CLASSES[p.n], isNext = nextPer && p.n===nextPer.n;
+    if(!c) return `<div class="prow free${isNext?' next':''}"><span class="pt">${p.t}<br>${p.e}</span><div><div class="pn">空闲</div><div class="pm">第 ${p.n} 大节${isNext?' · 下一节':''}</div></div></div>`;
+    return `<div class="prow${isNext?' next':''}"><span class="pt">${p.t}<br>${p.e}</span><div><div class="pn">${esc(c.name)}${isNext?'<span class="tagnext">下一节</span>':''}</div><div class="pm">${esc(c.room)} · ${esc(c.teacher)} · ${esc(c.weeks)}</div></div></div>`;
+  }).join('');
+  return `<div class="phone __S__">${sbar()}
+    <div class="pbody">
+      <div class="phead"><div class="d">10 月 30 日 · 周五</div><h2>课表</h2><button class="gear">⚙</button></div>
+      ${syncLine()}
+      <div class="weekbar"><span class="wk">第 ${WEEK} 周</span><span class="hint" style="margin-left:6px">左右滑切天</span><span class="nav2"><button>‹</button><button>›</button></span></div>
+      <div class="daystrip">${strip}</div>
+      ${rows}
+      ${gapLine()}
+    </div>
+    <div class="pfoot">${nav('tt')}</div>
+  </div>`;
+}
+
+function setScreen(){
+  return `<div class="phone __S__">${sbar()}
+    <div class="pbody">
+      <div class="phead"><button class="back">‹ 今天</button><h2>设置</h2></div>
+      <div class="grp"><div class="gt">同步</div>
+        <div class="srow"><div class="k">上次同步<div class="kb">12:03 · 2 条待上传</div></div><span class="unsent"></span></div>
+        <div class="srow act"><div class="k">立即同步</div><div class="v">现在</div></div>
+        <div class="srow"><div class="k">远端设备<div class="kb">坚果云目录里两份快照文件</div></div><div class="v">anvil-pc<br>一加 12</div></div>
+        <div class="srow"><div class="k">坚果云账号<div class="kb">应用密码存在本机 Keystore，不进数据库</div></div><div class="v">已填</div></div>
+      </div>
+      <div class="grp"><div class="gt">关于与隐私</div>
+        <div class="srow"><div class="k">手机能改什么<div class="kb">新建待办、勾选完成。课表只读，改它要回电脑导入</div></div></div>
+        <div class="srow"><div class="k">冲突了谁赢<div class="kb">谁那条更新谁赢；一样新就比设备号，两端算出同一个结果</div></div></div>
+        <div class="srow"><div class="k">什么不上云<div class="kb">笔记正文、速达、便签、倒计时。上传前用应用密码派生密钥加密，坚果云只看到密文</div></div></div>
+      </div>
+      <div class="grp"><div class="gt">外观</div>
+        <div class="srow"><div class="k">主题</div><div class="v">暗</div></div>
+        <div class="srow"><div class="k">字号<div class="kb">正文 15px · 触控目标不小于 48dp</div></div><div class="v">标准</div></div>
+      </div>
+      <div class="grp"><div class="gt">数据与诊断</div>
+        <div class="srow"><div class="k">本机库<div class="kb">/data/data/dev.rewmington.anvil/app.db</div></div><div class="v">展开</div></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ── 同步四态样张：同一句文案在四套皮肤里长什么样 ── */
+const STATES = [
+  {c:'', say:'上次同步于 12:03 · 2 条待上传', cap:'正常。两个数都可验证：时间来自最后一次成功同步，条数来自 dirty=1'},
+  {c:'w', say:'没连上坚果云 · 显示的是 12:03 那份', cap:'离线态。不伪装实时，明说手上这份旧到什么时候'},
+  {c:'', say:'今天没有待办 —— 上次同步于 12:03', cap:'真空态必须带同步时间，否则和"没同步到"长得一样'},
+  {c:'n', say:'还没同步过 · 这里可能是空的', cap:'首次装好、一次都没成功过。与上一句是两种状态，不能共用'}
+];
+const states = () => `<div class="states">${STATES.map(s=>`<div class="st ${s.c}"><div class="say"><i></i>${esc(s.say)}</div><div class="cap2">${esc(s.cap)}</div></div>`).join('')}</div>`;
+
+/* ── 四版文案 ── */
+const VERSIONS = {
+  u1:{cls:'', name:'① 桌面直系', thesis:'桌面那一套原样搬过来：每条一个带描边的卡、KPI 三个数字、强调色 <b>#2ee27a</b>（亮色 <b>#059669</b>）、圆角 14px。四版里唯一"零新决策"的：色板、圆角、状态色全部沿用 PLAN §8.5 冻结令牌。', cost:'代价：手机上偏密。桌面 13px 基线抬到 15px 之后，同样的边框卡叠在一起会有点"工程感"。'},
+  u2:{cls:'s2', name:'② 松一点', thesis:'Things 的路子：<b>去掉所有边框和卡片底</b>，分层只靠间距、字号和一条分隔线；正文 16px、行高 62px、勾选框改成 25px 圆角；KPI 三个数字换成一句话「今天 4 件 · 逾期 2 件 · 已完成 2 件」。', cost:'代价：一屏看到的条数最少（实测行里给数字）。色板与 ① 完全同源，所以选它只是选密度，不会引出第二套令牌。'},
+  u3:{cls:'s3', name:'③ 色块分区', thesis:'状态用底色喊：逾期整条铺红 + 左侧红条，今天给绿条，随时虚线框，已完成压暗。KPI 数字放大到 26px，导航选中项实心填绿。<b>每个色块仍然带文字标签</b>（§2 原则 3：状态不只靠颜色）。', cost:'代价：颜色一多，"这一屏最该看哪"反而可能糊；分区底色 × 暗亮两套要逐屏校对比度，是四版里最容易做砸的一版。'},
+  u4:{cls:'s4', name:'④ 安卓原生味', thesis:'Material 3 的路子：<b>三档 tonal 表面</b>（底 / surface-container / surface-container-high）取代描边，圆角 24px，导航用 62px 药丸指示器，标题 27px。看起来最像"正经安卓 app"。', cost:'代价（这条最重）：那三档表面色<b>桌面上不存在</b>，等于新增一整套令牌，手机与桌面从此各维护一套色阶；大标题滚动收缩还要额外动效。'}
+};
+
+function renderVersion(id){
+  const v = VERSIONS[id];
+  const skin = c => (c.replace(/__S__/g, ('phone ' + v.cls).trim()));
+  const p = document.getElementById(id);
+  p.innerHTML = `
+    <h1>${v.name}</h1>
+    <p class="sub">同一份演示数据 · 360×800dp · 正文 15px 起 · 触控 ≥48dp · 版式已定（今天 A / 课表 B）</p>
+    <p class="note"><b>主张：</b>${v.thesis}<br><b>${v.cost}</b></p>
+    <div class="phones"></div>
+    <h2 class="sec"><span class="n">同步四态</span>同一句文案在这套视觉里长什么样</h2>
+    ${states()}`;
+  p.querySelectorAll('.phones')[0].innerHTML =
+    `<div class="pwrap"><div class="cap">今天<span class="badge">已定 A</span></div>
+       <p class="why">清单 + 常驻输入条；逾期独立成区；勾选后延迟消失 + 撤销条，撤销条让到输入条上面。<span class="cost"></span></p>
+       ${skin(todayScreen())}<p class="m"></p></div>
+     <div class="pwrap"><div class="cap">课表<span class="badge">已定 B</span></div>
+       <p class="why">单日竖列 + 7 日条；课名全文不简称；空档显式写「空闲」；「下一节」是描边 + 文字两个通道。<span class="cost"></span></p>
+       ${skin(ttScreen())}<p class="m"></p></div>
+     <div class="pwrap"><div class="cap">设置<span class="badge">齿轮进</span></div>
+       <p class="why">导航只有两项，设置从今天屏右上角齿轮进；机制说明（能改什么 / 谁赢 / 什么不上云）收在这里。<span class="cost"></span></p>
+       ${skin(setScreen())}<p class="m"></p></div>`;
+}
+
+/* ── 实测：一屏可见待办标题数 / 内容溢出 / 最小触控目标 ── */
+function measure(pageEl){
+  pageEl.querySelectorAll('.pwrap').forEach((w,i)=>{
+    const ph = w.querySelector('.phone'); if(!ph) return;
+    const body = ph.querySelector('.pbody');
+    const overflow = Math.max(0, body.scrollHeight - body.clientHeight);
+    const br = body.getBoundingClientRect();
+    const vis = [...body.querySelectorAll('.ttl')].filter(el=>{
+      const r = el.getBoundingClientRect();
+      return r.bottom <= br.bottom + 1 && r.top >= br.top - 1;
+    }).length;
+    let min = 999, who = '';
+    ph.querySelectorAll('button,.fld,.row,.srow,.daystrip button,.prow,.undo').forEach(el=>{
+      const r = el.getBoundingClientRect();
+      if(!r.width || !r.height) return;
+      const m = Math.min(r.width, r.height);
+      if(m < min){ min = m; who = (el.className || el.tagName).toString().split(' ')[0]; }
+    });
+    const out = w.querySelector(':scope > .m');
+    if(out) out.textContent = `实测：一屏可见待办标题 ${vis} 条 · 内容溢出 ${overflow}px · 最小触控 ${Math.round(min)}px（${who}）`;
+  });
+}
+
+function show(id){
+  document.querySelectorAll('.page').forEach(p=>p.hidden = p.id !== id);
+  document.querySelectorAll('.tab').forEach(t=>t.setAttribute('aria-selected', String(t.dataset.v === id)));
+  if(VERSIONS[id]){ renderVersion(id); measure(document.getElementById(id)); }
+}
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>show(t.dataset.v)));
+const modeBtn = document.getElementById('mode')
+modeBtn.addEventListener('click',()=>{
+  const r = document.documentElement
+  r.dataset.mode = r.dataset.mode === 'dark' ? 'light' : 'dark'
+  modeBtn.title = r.dataset.mode === 'dark' ? '切到亮色' : '切到暗色'
+  show(document.querySelector('.tab[aria-selected=true]').dataset.v)
+});
+show('u0');
+</script>
+</body>
+</html>

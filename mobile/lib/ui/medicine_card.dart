@@ -1,0 +1,291 @@
+/// 今天屏的用药卡：药箱的**只读镜像**。
+///
+/// 这里不提供打卡 —— 打卡会写药箱的库，而 Anvil 对药箱只有 GET/PROPFIND。
+/// 卡片只说三件可验证的事：今天记了几次、下一次是什么、有没有药快没了；
+/// 时间一律写「药箱发布于 12:03」，不假装是此刻（§5.5 同一条纪律）。
+library;
+
+import 'package:flutter/material.dart';
+
+import '../medicine.dart';
+import '../palette.dart';
+import '../reltime.dart';
+import '../store.dart';
+
+class MedicineCard extends StatelessWidget {
+  final Store store;
+  const MedicineCard(this.store, {super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!store.medicineEnabled) return const SizedBox.shrink();
+    final view = store.medicine;
+    final plan = store.todayMedicine;
+    if (view == null || view.isEmpty || plan == null) return const SizedBox.shrink();
+
+    final s = skinOf(context);
+    final status = _status(plan, s);
+    final stock = _stockRow(view, s);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: InkWell(
+        onTap: () => showMedicineSheet(context, store),
+        borderRadius: BorderRadius.circular(Metrics.radiusSm),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(11, 9, 11, 9),
+          decoration: BoxDecoration(
+            color: s.surf,
+            border: Border.all(color: s.line),
+            borderRadius: BorderRadius.circular(Metrics.radiusSm),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text('用药',
+                      style: TextStyle(
+                          fontSize: Type.kicker,
+                          letterSpacing: .12,
+                          fontWeight: FontWeight.w700,
+                          color: s.t3)),
+                  const Spacer(),
+                  Text(
+                    view.publishedAt == null
+                        ? '药箱发布时间未知'
+                        : '药箱 ${clockTime(view.publishedAt!)}',
+                    style: TextStyle(fontSize: Type.meta, color: s.t3),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Text(
+                      plan.planned == 0
+                          ? '今天没有要吃的'
+                          : '今天 ${plan.taken}/${plan.planned} 次',
+                      style: TextStyle(
+                          fontSize: Metrics.body,
+                          fontWeight: FontWeight.w600,
+                          color: s.t1)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(status.text,
+                        textAlign: TextAlign.right,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: Type.metaWide, color: status.color)),
+                  ),
+                ],
+              ),
+              if (stock != null) ...[
+                const SizedBox(height: 3),
+                stock,
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  ({String text, Color color}) _status(TodayPlan plan, Skin s) {
+    if (plan.slots.isEmpty) return (text: '今天没有用药安排', color: s.t3);
+    if (plan.planned == 0) return (text: '今天都标记了没吃', color: s.t3);
+    final due = plan.due;
+    if (due != null) {
+      return (text: '待记 ${formatMinutes(due.minute)} · ${due.medicine.name}', color: s.amber);
+    }
+    final next = plan.next;
+    if (next != null) {
+      return (
+        text: '下一次 ${formatMinutes(next.minute)} · ${next.medicine.name}',
+        color: s.t2,
+      );
+    }
+    return (text: '今天都记了', color: s.acc);
+  }
+
+  /// 已用完优先说，其次才是偏低；两种都有就都写，中间用「·」隔开。
+  /// 两段分开着色：「已用完」是红，「剩 N 天」是琥珀 —— 一句话全红会夸大次要那条。
+  Widget? _stockRow(MedicineView view, Skin s) {
+    final out = [for (final m in view.medicines) if (m.isOut) m.name];
+    final low = [
+      for (final m in view.medicines)
+        if (!m.isOut && m.isLow) '${m.name} 剩 ${m.daysLeft!.ceil()} 天',
+    ];
+    if (out.isEmpty && low.isEmpty) return null;
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        if (out.isNotEmpty)
+          Text('已用完：${out.join('、')}',
+              style: TextStyle(fontSize: Type.meta, color: s.red)),
+        if (out.isNotEmpty && low.isNotEmpty)
+          Text(' · ', style: TextStyle(fontSize: Type.meta, color: s.t3)),
+        if (low.isNotEmpty)
+          Text(low.join('、'), style: TextStyle(fontSize: Type.meta, color: s.amber)),
+      ],
+    );
+  }
+}
+
+Future<void> showMedicineSheet(BuildContext context, Store store) {
+  final s = skinOf(context);
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: s.surf,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(Metrics.radius)),
+    ),
+    builder: (_) => MedicineSheet(store: store),
+  );
+}
+
+class MedicineSheet extends StatelessWidget {
+  final Store store;
+  const MedicineSheet({required this.store, super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = skinOf(context);
+    final view = store.medicine;
+    final plan = view?.todayPlan(store.clock.date);
+    return SafeArea(
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * .82),
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
+          children: [
+            Row(
+              children: [
+                Text('用药',
+                    style: TextStyle(
+                        fontSize: 17, fontWeight: FontWeight.w700, color: s.t1)),
+                const SizedBox(width: 8),
+                Text('只读', style: TextStyle(fontSize: Type.meta, color: s.t3)),
+                const Spacer(),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  constraints:
+                      const BoxConstraints(minWidth: Metrics.touch, minHeight: Metrics.touch),
+                  icon: Icon(Icons.close, size: 20, color: s.t2),
+                ),
+              ],
+            ),
+            _source(context, view),
+            const SizedBox(height: 12),
+            if (view == null || view.isEmpty)
+              Text('药箱里还没有药', style: TextStyle(fontSize: Type.metaWide, color: s.t3))
+            else
+              for (final m in view.medicines) _medicine(context, m, plan),
+            const SizedBox(height: 6),
+            Text('这里只读；回药箱打卡并同步后才会更新',
+                style: TextStyle(fontSize: Type.meta, color: s.t3)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _source(BuildContext context, MedicineView? view) {
+    final s = skinOf(context);
+    final err = store.medicineError;
+    final published = view?.publishedAt;
+    final fetched = view?.fetchedAt;
+    if (err != null) {
+      return Text(
+        published == null
+            ? '这次没读到：$err'
+            : '这次没读到：$err · 显示的是药箱 ${clockTime(published)} 那份',
+        style: TextStyle(fontSize: Type.meta, height: 1.5, color: s.amber),
+      );
+    }
+    if (published != null) {
+      return Text(
+        '药箱发布于 ${clockTime(published)}'
+        '${fetched == null ? '' : ' · 读取于 ${clockTime(fetched)}'}',
+        style: TextStyle(fontSize: Type.meta, color: s.t3),
+      );
+    }
+    if (fetched != null) {
+      return Text('药箱还没同步过', style: TextStyle(fontSize: Type.meta, color: s.t3));
+    }
+    return Text('还没读过药箱', style: TextStyle(fontSize: Type.meta, color: s.t3));
+  }
+
+  Widget _medicine(BuildContext context, Medicine m, TodayPlan? plan) {
+    final s = skinOf(context);
+    final slots = plan?.slots.where((x) => x.medicine.id == m.id).toList() ?? const [];
+    final days = m.daysLeft;
+    final badge = m.isOut
+        ? (text: '已用完', color: s.red)
+        : m.isLow
+            ? (text: '剩 ${days!.ceil()} 天', color: s.amber)
+            : (text: days == null ? '未设用量' : '剩 ${days.ceil()} 天', color: s.t3);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(m.name,
+                    style: TextStyle(
+                        fontSize: Metrics.body,
+                        fontWeight: FontWeight.w600,
+                        color: s.t1)),
+              ),
+              Text(badge.text, style: TextStyle(fontSize: Type.metaWide, color: badge.color)),
+            ],
+          ),
+          const SizedBox(height: 3),
+          if (slots.isEmpty)
+            Text('今天没有安排', style: TextStyle(fontSize: Type.meta, color: s.t3))
+          else
+            Wrap(
+              spacing: 10,
+              runSpacing: 2,
+              children: [
+                for (final slot in slots)
+                  Text(
+                    _slotText(slot, plan!),
+                    style: TextStyle(
+                      fontSize: Type.metaWide,
+                      color: switch (slot) {
+                        DoseSlot(taken: true) => s.t2,
+                        DoseSlot(skipped: true) => s.t3,
+                        _ => slot.minute + 30 < plan.nowMinute ? s.amber : s.t3,
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          const SizedBox(height: 3),
+          Text(
+            '${m.doseLabel} · 余 ${_trim(m.remaining)} ${m.unit}',
+            style: TextStyle(fontSize: Type.meta, color: s.t3),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _slotText(DoseSlot slot, TodayPlan plan) {
+    final t = formatMinutes(slot.minute);
+    if (slot.taken) return '$t 已服';
+    if (slot.skipped) return '$t 没吃';
+    if (slot.minute + 30 < plan.nowMinute) return '$t 待记';
+    return '$t 未到';
+  }
+
+  static String _trim(double v) =>
+      v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(1);
+}

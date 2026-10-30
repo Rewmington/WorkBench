@@ -1,0 +1,6 @@
+# 只有 `test/argon2_bench_test.dart` 用 bench 这个标签。它量的是本机 CPU 的 Argon2 耗时
+# （PLAN-MOBILE §7 第 1 条），慢且与机器有关，所以默认套件不跑：
+#   flutter test test/argon2_bench_test.dart -r expanded
+tags:
+  bench:
+    description: 耗时测量，不是断言
