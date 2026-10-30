@@ -117,7 +117,7 @@ git push origin v0.1.0
 
 在 Actions 页面手动运行同一工作流是**干跑**：只产出 workflow artifacts，不建 Release。
 
-> 目前产物**未做发布签名**：Windows 首次运行会弹 SmartScreen；APK 使用 debug 签名（仅自用/侧载）。应用内自动更新不在当前范围。
+> 目前产物**未做发布签名**：Windows 首次运行会弹 SmartScreen；APK 使用 debug 签名（仅自用/侧载），而且每个 runner 生成的 debug 证书不同，**跨版本安装要先卸载旧版**。应用内自动更新不在当前范围。
 
 ## 数据与隐私
 
