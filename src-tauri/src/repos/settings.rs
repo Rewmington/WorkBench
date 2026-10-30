@@ -82,7 +82,6 @@ pub const KEY_MEDICINE_DAV_DIR: &str = "linked.medicine.davDir";
 /// 药箱那边用的坚果云注册邮箱。应用密码走凭据管理器，邮箱不是秘密所以留在 settings，
 /// 才能解释那条凭据属于谁（与 `webdav.email` 同一个道理，两条互不干扰）。
 pub const KEY_MEDICINE_EMAIL: &str = "linked.medicine.email";
-pub const KEY_BLOG_ONLINE_CHECK: &str = "linked.blog.onlineCheck";
 pub const KEY_WDAV_EMAIL: &str = "webdav.email";
 pub const KEY_BACKUP_ENABLED: &str = "backup.enabled";
 pub const KEY_HOTKEYS: &str = "hotkeys";

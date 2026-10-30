@@ -4,7 +4,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::error::Error;
 use crate::linking::{
     blog_local, blog_online, dav_readonly, medicine_cloud, medicine_copy, medicine_math, paths,
-    Snapshot, Status,
+    Snapshot,
 };
 use crate::model::Todo;
 use crate::repos::{linked, settings, todos};
@@ -26,9 +26,8 @@ pub struct LinkedState {
 /// 外部源再慢再缺，界面第一帧都得画出来（PLAN §6.1「拿不到时」那一列）。
 #[tauri::command]
 pub fn linked_state(state: State<'_, AppState>) -> Result<LinkedState, Error> {
-    let now = SystemNow;
     let conn = state.lock();
-    let resolved = paths::resolve(&conn, &now, &state.device_id)?;
+    let resolved = paths::resolve(&conn)?;
     Ok(LinkedState {
         paths: resolved,
         blog: linked::list_for(&conn, blog_local::SOURCE)?,
@@ -47,7 +46,14 @@ pub async fn linked_refresh_blog(app: AppHandle) -> Result<Vec<linked::SnapshotV
             paths::blog_repo_dir(&conn)?
         };
 
-        let snaps = blog_local::read_repo(&repo, &now);
+        // 线上是主源（站点每天 cron 重建，本地 checkout 不会同步 —— PLAN §6.8）。
+        // 整轮全失败之后的抑制窗口内不再重撞冷启，直接退回本机仓库那份并说明原因。
+        let online = if blog_online::suppressed_until(now.ms()) {
+            Default::default()
+        } else {
+            blog_online::fetch_all(blog_local::kinds())
+        };
+        let snaps = blog_online::merge(blog_local::read_repo(&repo, &now), &online, now.ms());
         let conn = state.lock();
         for snap in &snaps {
             linked::upsert(&conn, snap)?;
@@ -56,57 +62,6 @@ pub async fn linked_refresh_blog(app: AppHandle) -> Result<Vec<linked::SnapshotV
     })
     .await
     .map_err(|e| Error::msg(format!("联动读取任务没跑起来：{e}")))??;
-
-    let _ = app.emit(LINK_BLOG, &views);
-    Ok(views)
-}
-
-/// 线上比对：只把状态改成 stale 并写一句人话，不改缓存内容、不伪装同步。
-#[tauri::command]
-pub async fn linked_check_online(app: AppHandle) -> Result<Vec<linked::SnapshotView>, Error> {
-    let handle = app.clone();
-    let views = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<linked::SnapshotView>, Error> {
-        let state = handle.state::<AppState>();
-        let now = SystemNow;
-        {
-            let conn = state.lock();
-            let enabled = settings::get_json(&conn, settings::KEY_BLOG_ONLINE_CHECK)?
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true);
-            if !enabled {
-                return linked::list_for(&conn, blog_local::SOURCE);
-            }
-        }
-
-        for (kind, _) in blog_local::kinds() {
-            let local = {
-                let conn = state.lock();
-                linked::get(&conn, blog_local::SOURCE, kind)?
-            };
-            let Some(local) = local else { continue };
-            // 本地本来就缺文件的类别，线上有没有都不该报「落后」，那是另一回事
-            if !matches!(local.status, Status::Ok) {
-                continue;
-            }
-
-            let (status, detail) = match blog_online::fetch_normalized(kind) {
-                Ok(remote) => blog_online::compare(&local, &remote),
-                Err(e) => {
-                    // 网络不可达不是错误状态：缓存还在用，只是这次没比对上
-                    log::debug!("线上比对 {kind} 失败：{e}");
-                    continue;
-                }
-            };
-
-            let conn = state.lock();
-            linked::set_status(&conn, blog_local::SOURCE, kind, status, &detail, now.ms())?;
-        }
-
-        let conn = state.lock();
-        linked::list_for(&conn, blog_local::SOURCE)
-    })
-    .await
-    .map_err(|e| Error::msg(format!("比对任务没跑起来：{e}")))??;
 
     let _ = app.emit(LINK_BLOG, &views);
     Ok(views)
@@ -320,7 +275,7 @@ pub fn linked_set_medicine_db(
             )?;
         }
     }
-    paths::resolve(&conn, &now, &state.device_id)
+    paths::resolve(&conn)
 }
 
 /// 「补买 X」是用户点出来的，不是系统偷偷建的（PLAN §6.1：副本读失败不生成任何待办）。
@@ -376,5 +331,5 @@ pub fn linked_set_blog_dir(state: State<'_, AppState>, path: String) -> Result<p
             )?;
         }
     }
-    paths::resolve(&conn, &now, &state.device_id)
+    paths::resolve(&conn)
 }

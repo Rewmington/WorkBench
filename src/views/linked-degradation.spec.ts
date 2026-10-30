@@ -13,7 +13,6 @@ const linkedState = vi.hoisted(() => ({
       medicineDbExists: false,
       medicineDav: 'https://dav.jianguoyun.com/dav/medicine-sync/',
       medicineCloudReady: false,
-      onlineCheckEnabled: true,
       blogRepoDefault: String.raw`D:\default\blog`,
       medicineDbDefault: String.raw`C:\default\medicine_tracker.db`,
       medicineDavDefault: 'https://dav.jianguoyun.com/dav/medicine-sync/',
@@ -34,7 +33,6 @@ vi.mock('../api', () => ({
       calls.refresh += 1
       return linkedState.value.medicine
     },
-    linkedCheckOnline: async () => [],
     linkedRestockTodo: async () => null,
     linkedSetBlogDir: async (path: string) => {
       calls.blogDir += 1
@@ -139,7 +137,7 @@ describe('外部源不可用时的降级', () => {
 
     const collapsed = wrapper.find('.y-empty.collapsed')
     expect(collapsed.exists()).toBe(true)
-    expect(collapsed.text()).toContain('本地仓库里没有可显示的清单')
+    expect(collapsed.text()).toContain('线上与本机仓库都没有可显示的清单')
     // 原来断言的是「页面上不该有 .blk」，但「本机仓库位置」也是一块 .blk ——
     // 仓库不可用时恰恰需要它出现。所以断言收窄成"不该有清单内容"。
     expect(wrapper.find('.cards').exists()).toBe(false)

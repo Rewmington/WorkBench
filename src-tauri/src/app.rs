@@ -155,7 +155,6 @@ pub fn run() {
             commands::linked::linked_state,
             commands::linked::linked_refresh_blog,
             commands::linked::linked_refresh_medicine,
-            commands::linked::linked_check_online,
             commands::linked::linked_restock_todo,
             commands::linked::linked_set_blog_dir,
             commands::linked::linked_set_medicine_db,

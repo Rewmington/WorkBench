@@ -74,7 +74,6 @@ export const realApi: Api = {
   linkedState: () => invoke<LinkedState>('linked_state'),
   linkedRefreshBlog: () => invoke<SnapshotView[]>('linked_refresh_blog'),
   linkedRefreshMedicine: () => invoke<SnapshotView | null>('linked_refresh_medicine'),
-  linkedCheckOnline: () => invoke<SnapshotView[]>('linked_check_online'),
   linkedRestockTodo: (name, daysLeft) =>
     invoke<Todo>('linked_restock_todo', { name, daysLeft }),
   linkedSetBlogDir: (path) => invoke<SourcePaths>('linked_set_blog_dir', { path }),

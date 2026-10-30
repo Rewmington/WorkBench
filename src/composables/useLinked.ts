@@ -10,11 +10,7 @@ import type { BlogPayload, LinkedState, MedicineTodayPayload, SnapshotView } fro
  * 站点首包 8 秒是实测过的，把它放在渲染路径上就等于让界面转圈。
  */
 const state = ref<LinkedState | null>(null)
-const busy = ref<{ blog: boolean; medicine: boolean; online: boolean }>({
-  blog: false,
-  medicine: false,
-  online: false,
-})
+const busy = ref<{ blog: boolean; medicine: boolean }>({ blog: false, medicine: false })
 
 function parse<T>(snap: SnapshotView | undefined): T | null {
   if (!snap || snap.status === 'missing') return null
@@ -51,16 +47,6 @@ export function useLinked() {
     }
   }
 
-  async function checkOnline() {
-    busy.value = { ...busy.value, online: true }
-    try {
-      const blog = await api.linkedCheckOnline()
-      if (state.value) state.value = { ...state.value, blog }
-    } finally {
-      busy.value = { ...busy.value, online: false }
-    }
-  }
-
   const snapOf = (kind: string) =>
     computed(() => state.value?.blog.find((s) => s.kind === kind) ?? null)
 
@@ -81,7 +67,6 @@ export function useLinked() {
     load,
     refreshBlog,
     refreshMedicine,
-    checkOnline,
     snapOf,
     payloadOf,
     medicine,

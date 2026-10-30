@@ -205,6 +205,15 @@ PC 是唯一权威写入端（single-writer + 客户端提交变更）。手机�
 
 **别人的仓库结构不同就看不了 —— 这是事实，不当 bug 修**：这份契约（`content/projects.json` 等七个清单 + 各自形状）就是本站的形状。要通用得做字段映射，v1 没有第二个用户，映射界面是给不存在的人做的表单。所以只做一件事：**读不到时说明缺什么**（「这个源没有 `content/projects.json`，工作台认的是本站那套清单」），而不是给一张空卡片或一句「0 条」。
 
+**已知阻塞（M10b 落地当天发现，未解）**：`https://wmddd.online` 在 Cloudflare 后面，证书由 **Google Trust Services WE1** 签发、链到 **GTS Root R4**，末端是**已过期的 GlobalSign Root CA 交叉签**。Windows 受信任根存储里没有 GTS 的根（Google 从未送进 Microsoft 的存储），浏览器自带根程序所以打得开，走 Schannel 的 `native-tls` 打不开 —— 实测报 `native-tls: unable to find any user-specified roots in the final cert chain`。对照 `dav.jianguoyun.com`（Sectigo → USERTrust，都在存储里）：**只有博客这一条路是死的**，备份与药箱不受影响。当前行为 = 永远走"本机仓库 · 线上没够到：<原因>"那条诚实降级。四条出路：
+
+| | 做法 | 代价 |
+|---|---|---|
+| **D（推荐）** | 在 Cloudflare 把该域的 CA 从 Google Trust Services 换成 **Let's Encrypt**（ISRG Root X1 在 Windows 存储里） | 零代码、零风险，一次控制台点击；证书仍由 Cloudflare 自动续 |
+| A | 随包内置 GTS Root R4 作**额外信任锚**，只加给这一个 host | 不放宽校验（是加一条真根），但 CA 一换就再断，维护债在代码里 |
+| B | 换 rustls + webpki-roots（Mozilla 根集） | `Cargo.toml` 记着这台机器缺 nasm/cmake，`aws-lc-rs` 编不过；换 `ring` 后端要试，可能把构建拖进坑 |
+| C | 接受本机仓库是源，界面明说「可能落后于线上」 | 等于放弃 M10b，回到"拿旧数据当现在" |
+
 ## 7. 统计与图表
 **选型标准**：每张图必须回答一个能引出动作的问题。个人量级（一天 2–5 项、一年千余条）撑不起 BI 式大屏。
 
@@ -394,8 +403,8 @@ label-value 清单 + 底部 sticky 操作条照抄，字段按本机语义重写
 | **M9c** | 课表视图 + 侧栏入口 + 待办「今天」档改按时间形状（§8.8 第 7、8 条） | ✅ 3 断点 × 2 主题各一张（`shots/m9-tt-ok-*`、`m9-today-*`、`m9-tt-panel-*`）；空态可达导入入口（`m9-tt-*` 未设开学日那条琥珀提示）；「此刻」与「选中」在同一格上分得清（描边 vs 左色条）；今天档那行空档与课表页是同一个值——`today-shape.spec.ts` 冻住时钟两边对句，发布版真机再用 `tools/probe-m9c.mjs` 对一遍（两边都是 12:34–14:00）；统计页完成数不含任何一节课（`stats.rs` 里 `importing_a_whole_term_moves_no_completion_number`）。**原写「点格子右栏出关联待办」这条作废**：见下方 §10 的换法 |
 
 | **M10a** | 界面文案审计：操作提示 / 机制说明 / 诊断三类各归各位（§8.9） | 逐屏过：每屏最多一句 ≤20 字的操作提示；设置页新增「关于与隐私」与「数据与诊断」两块，侧栏底部不再常驻绝对路径；**删掉的只有措辞，没有事实** —— 那张「会上传 / 不会上传」表整块搬家；改完 3 断点 × 2 主题重拍一遍，截图里不该出现"说实话：…"这种辩护句 |
-| **M10b** | 博客源反过来：线上赢、本机兜底、源标在脸上（§6.8） | 断网时这一页照常可用且写明「本机仓库 · 线上没够到」；线上够到时源那行是「线上 · 抓于 X」且条数与 `https://wmddd.online/content/projects.json` 一致；冷启站点（首包 ~8 s）不空屏转圈 —— 先出缓存再刷；`linked_check_online` 与那个开关**已删除**（同一件事不留两个入口） |
-| **M10c** | 契约诚实：结构对不上就说缺什么（§6.8 末） | 把仓库指向一个没有 `content/` 的目录、或把线上 URL 换成别的站：出现的是「这个源没有 `content/projects.json`」那一句，不是空卡片也不是「0 条」 |
+| **M10b** | 博客源反过来：线上赢、本机兜底、源标在脸上（§6.8） | ⚠️ 代码与三态标注完成（`blog_online::merge` 四条断言 + 并发 + 抑制窗口；`linked_check_online` 与那个开关已删），**但线上这条路在本机被证书链堵死**（§6.8 末"已知阻塞"）：GTS 的根不在 Windows 存储里。当前实际行为 = 永远走"本机仓库 · 线上没够到：<原因>"。解法待挑，推荐 D（Cloudflare 换 Let's Encrypt，零代码） |
+| **M10c** | 契约诚实：结构对不上就说缺什么（§6.8 末） | ✅ 空页折叠行给出的是 `emptyReason`（哪一边缺、缺什么），不是「0 条」；三态各一张：`shots/m10-blog-{online,local,none}-1400-dark.png`；降级横幅用 amber 不用 accent 绿 |
 
 **v1 已经没有高风险技术点了**：原 M3 那颗雷（iPhone 手动信任本地根证书 + Service Worker 要安全上下文）随手机伴侣一起推到 v2，届时它仍是第一颗要拆的。所以里程碑改成按"什么时候能早点用上"排：M2 待办+命令面板先行，M3 联动其次，不必再为风险前置。
 

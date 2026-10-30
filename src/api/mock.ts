@@ -736,7 +736,6 @@ function mockPaths(): SourcePaths {
     medicineDbExists: true,
     medicineDav: store.medicine.davDir,
     medicineCloudReady: store.medicine.hasPass,
-    onlineCheckEnabled: true,
     blogRepoDefault: String.raw`D:\ADevelop\Repositories\Mine\Rewmington-Blog-main`,
     medicineDbDefault: MEDICINE_DB_DEFAULT,
     medicineDavDefault: MEDICINE_DAV_DEFAULT,
@@ -972,9 +971,17 @@ export const mockApi: Api = {
     blog: blogFixtures(),
     medicine: medicineFixture(),
   }),
-  linkedRefreshBlog: async () => blogFixtures(),
+  linkedRefreshBlog: async () => {
+    // 与 Rust 的 blog_online::merge 同口径：线上赢（detail='线上'），够不到才退回本机仓库并说原因。
+    // ?mock=1&blog=local 演"线上没够到"，&blog=none 演"两边都没有"。
+    const mode = new URLSearchParams(location.search).get('blog')
+    return blogFixtures().map((snap) => {
+      if (mode === 'local') return { ...snap, detail: snap.status === 'ok' ? '本机仓库 · 线上没够到：dns error: 没有达到要求的名称服务器' : snap.detail }
+      if (mode === 'none') return { ...snap, status: 'missing', detail: '本机仓库没有，线上也没够到：404', payloadJson: '{"items":[],"count":0,"meta":{}}' }
+      return snap
+    })
+  },
   linkedRefreshMedicine: async () => medicineFixture(),
-  linkedCheckOnline: async () => blogFixtures(),
   linkedRestockTodo: async (name, daysLeft) =>
     mockApi.todosCreate({
       title: `补买 ${name}（${daysLeft == null ? '库存待确认' : `剩余 ${daysLeft} 天`}）`,
@@ -1502,7 +1509,7 @@ export const mockApi: Api = {
   },
 }
 
-function snap(kind: string, status: SnapshotView['status'], items: unknown[], detail = '', extraMeta: Record<string, unknown> = {}): SnapshotView {
+function snap(kind: string, status: SnapshotView['status'], items: unknown[], detail = '线上', extraMeta: Record<string, unknown> = {}): SnapshotView {
   const payload = { items, count: items.length, meta: extraMeta }
   return {
     source: 'blog',
@@ -1523,12 +1530,12 @@ function blogFixtures(): SnapshotView[] {
     snap('repos', 'ok', [
       { name: 'rewmington-blog', description: '个人站点', language: 'TypeScript', stars: 12, pushedAt: '2026-10-22', archived: false, url: 'https://github.com/x/y' },
       { name: 'medicine', description: '药盒余量追踪', language: 'Dart', stars: 3, pushedAt: '2026-10-26', archived: false, url: 'https://github.com/x/m' },
-    ], '', { remoteFetchedAt: '2026-10-25T00:14:00Z' }),
+    ], '线上', { remoteFetchedAt: '2026-10-25T00:14:00Z' }),
     snap('photos', 'ok', [{ id: 'p1', caption: '夜里的工作台', date: '2026-10-12', location: '杭州' }]),
     snap('friends', 'ok', [{ name: '某友链', url: 'https://friend.dev' }]),
     snap('profile', 'ok', [{ authorName: 'Rewmington', techStack: ['Vue', 'Rust'] }]),
     snap('music', 'ok', []),
-    snap('notes', 'missing', [], 'notes 清单不在仓库里'),
+    snap('notes', 'missing', [], '本机仓库没有，线上也没够到：404'),
   ]
 }
 /**

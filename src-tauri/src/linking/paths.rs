@@ -4,7 +4,6 @@ use rusqlite::Connection;
 
 use crate::error::Result;
 use crate::repos::settings;
-use crate::time::Now;
 
 /// 外部源的路径解析与展示值。设置页要**原样显示绝对路径**（§2 原则 4），
 /// 所以这里返回的一律是绝对路径字符串，不给「已配置」这种含糊话。
@@ -19,7 +18,6 @@ pub struct SourcePaths {
     /// 不是「云端一定连得上」—— 那要发一次请求才知道，而首屏不发。
     pub medicine_dav: String,
     pub medicine_cloud_ready: bool,
-    pub online_check_enabled: bool,
     /// 三个「不改时用它」的值。界面上那个「恢复默认」按钮必须知道默认是什么，
     /// 而默认值只该有一份 —— 以前 TS 里手抄了一份坚果云地址，改 Rust 不会通知它。
     pub blog_repo_default: String,
@@ -76,16 +74,11 @@ pub fn medicine_dav_dir(conn: &Connection) -> Result<String> {
     })
 }
 
-pub fn resolve(conn: &Connection, now: &dyn Now, device: &str) -> Result<SourcePaths> {
+/// 外部源的位置。原来这里还带一个「要不要比对线上」的开关，M10b 起删了：
+/// 线上现在就是主源（§6.8），没有"比不比"这回事 —— 留一个不生效的开关比少一个开关坏得多。
+pub fn resolve(conn: &Connection) -> Result<SourcePaths> {
     let blog = blog_repo_dir(conn)?;
     let med = medicine_db_path(conn)?;
-    let online = settings::get_or_default(
-        conn,
-        settings::KEY_BLOG_ONLINE_CHECK,
-        &serde_json::json!(true),
-        now.ms(),
-        device,
-    )?;
 
     Ok(SourcePaths {
         blog_repo: blog.display().to_string(),
@@ -94,7 +87,6 @@ pub fn resolve(conn: &Connection, now: &dyn Now, device: &str) -> Result<SourceP
         medicine_db_exists: med.is_file(),
         medicine_dav: medicine_dav_dir(conn)?,
         medicine_cloud_ready: crate::win32::creds::medicine_configured(),
-        online_check_enabled: online.as_bool().unwrap_or(true),
         blog_repo_default: blog_repo_default().display().to_string(),
         medicine_db_default: medicine_db_default()?.display().to_string(),
         medicine_dav_default: medicine_dav_default(),

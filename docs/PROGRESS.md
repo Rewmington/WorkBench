@@ -471,3 +471,23 @@ Rust：165 passed + 5 ignored；clippy 干净。
 工具：`tools/copy-audit.mjs` 列出模板里 ≥14 字的界面散文（24→23 处，剩下的集中在设置页那两个说明块 —— 那就是它们该在的地方）。它是报表不是门禁，判据要人看。
 
 验证：typecheck、71 passed、样式与令牌门禁全过；`shots/m10-about-1400-{dark,light}.png`（新的两块）、`m10-baktrim` / `m10-medtrim`（搬空之后的两页）。
+## M10b / M10c 博客源反过来 —— 做完撞上一堵真墙（2026-10-30 夜）
+
+代码侧按计划走完了：
+
+- `blog_online::merge` 是纯函数（不碰网络、不碰库），四种情况各一条断言：线上赢（内容与 `sig` 都要跟着换）、够不到就退回本机仓库并把原因写进 `detail`、两边都没有就说"两边都没有"、抑制窗口内没去试要说"这次没联网"（**"没试"和"试了失败"是两句话**）。
+- 七个清单 `std::thread::scope` 并发抓，整轮全失败进 60 秒抑制窗口，抓通一次立刻解除。
+- `linked_check_online` 与 `linked.blog.onlineCheck` 那个开关**删干净**（命令、注册、composable、api 三层、paths 字段、设置项）—— 同一件事不留两个入口，留一个不生效的开关比少一个开关坏得多。
+- 界面上：正常态顶部「读本站公开的清单 · 只读」；降级态一条 amber 横幅点名是哪几类、为什么（不是 accent 绿 —— 降级不是好消息）；两边都没有时折叠行说"这个源没有工作台认的清单"，不是"0 条"。
+- 三态在浏览器里用 `?mock=1&blog=local|none` 各拍一张（`shots/m10-blog-{online,local,none}-1400-dark.png`）。
+
+**然后真联网那一条测试把它打回来了**：
+
+```
+取不到 https://wmddd.online/content/projects.json：
+native-tls: unable to find any user-specified roots in the final cert chain
+```
+
+查到的事实（`openssl s_client` 实测，不是猜）：站点在 Cloudflare 后面，叶子证书由 **Google Trust Services WE1** 签发，链到 **GTS Root R4**，而那条链最后是**已过期的 GlobalSign Root CA 交叉签**。Windows 的受信任根存储里没有 GTS 的根（Google 从未把自家根送进 Microsoft 的存储），Edge/Chrome 自带根程序所以浏览器打得开，走 Schannel 的 `native-tls` 打不开。对照：`dav.jianguoyun.com` 的链是 Sectigo → USERTrust，两个都在 Windows 存储里 —— 所以**备份与药箱不受影响，只有博客这一条路是死的**。
+
+后果要说白：**M10b 的前提（线上是主源）在这台机器上目前不成立**，博客页会永远显示那句 amber 降级。诚实性达标了，新鲜度没达标。四条出路记在 PLAN §6.8 的"已知阻塞"里，等用户挑。

@@ -43,6 +43,16 @@ interface Profile {
   techStack?: string[]
 }
 
+const KIND_LABELS: Record<string, string> = {
+  projects: '项目',
+  repos: '仓库',
+  photos: '照片',
+  friends: '友链',
+  profile: '关于我',
+  music: '音乐',
+  notes: '文章',
+}
+
 const linked = useLinked()
 const { now } = useClock()
 
@@ -52,7 +62,10 @@ const photos = linked.payloadOf<BlogPayload<Photo>>('photos')
 const friends = linked.payloadOf<BlogPayload<Friend>>('friends')
 const profile = linked.payloadOf<BlogPayload<Profile>>('profile')
 
-const stale = computed(() => linked.blogSnapshots.value.find((s) => s.status === 'stale') ?? null)
+/** 线上是主源（§6.8）。这几类没够到线上、退回本机仓库时，必须一行说出来是哪几类、为什么。 */
+const fallbacks = computed(() =>
+  linked.blogSnapshots.value.filter((s) => s.status === 'ok' && s.detail !== '' && s.detail !== '线上'),
+)
 const lastFetch = computed(() => {
   const times = linked.blogSnapshots.value.map((s) => s.fetchedAt)
   return times.length ? Math.max(...times) : null
@@ -67,6 +80,15 @@ const nothingToShow = computed(
     !friends.value?.count &&
     !profile.value?.count,
 )
+
+/**
+ * 空页必须说"缺什么"，而不是给一个看着像"没有内容"的 0（PLAN §6.8 末）：
+ * detail 里带的就是两边各自的实际情况。
+ */
+const emptyReason = computed(() => {
+  if (!linked.state.value?.paths.blogRepoExists) return '本地仓库目录不可用'
+  return linked.blogSnapshots.value.find((b) => b.status !== 'ok')?.detail ?? '这个源没有工作台认的清单'
+})
 
 function open(url?: string) {
   // 系统默认浏览器，不在 webview 里开新窗口
@@ -92,25 +114,23 @@ async function saveRepoDir(raw: string): Promise<string> {
 <template>
   <section class="y-view">
     <div class="bar">
-      <h2>博客联动 <span class="sub">读本地仓库，只读</span></h2>
-      <span v-if="lastFetch" class="ago">缓存于 {{ relTime(now, lastFetch) }}</span>
+      <h2>博客联动 <span class="sub">读本站公开的清单 · 只读</span></h2>
+      <span v-if="lastFetch" class="ago">读取于 {{ relTime(now, lastFetch) }}</span>
       <button type="button" class="y-ghost btn" :disabled="linked.busy.value.blog" @click="linked.refreshBlog()">
         <RefreshCw :size="13" />
         重新读取
       </button>
-      <button type="button" class="y-ghost btn" :disabled="linked.busy.value.online" @click="linked.checkOnline()">
-        线上比对
-      </button>
+
     </div>
 
-    <p v-if="stale" class="stale">
-      {{ stale.kind }}：{{ stale.detail || '网站版本较新，本地缓存还没同步' }} —— 工作台读的是缓存，没写任何东西到站点。
+    <p v-if="fallbacks.length" class="stale">
+      {{ fallbacks.map((s) => KIND_LABELS[s.kind] ?? s.kind).join('、') }} 读的是本机仓库 —— {{ fallbacks[0].detail.replace(/^本机仓库 · /, '') }}
     </p>
 
     <CollapsedRow
       v-if="nothingToShow"
-      label="博客联动 · 本地仓库里没有可显示的清单"
-      :detail="linked.state.value?.paths.blogRepoExists ? undefined : '本地仓库目录不可用'"
+      label="博客联动 · 线上与本机仓库都没有可显示的清单"
+      :detail="emptyReason"
       :fetched-at="lastFetch"
       :busy="linked.busy.value.blog"
       @retry="linked.refreshBlog()"
@@ -227,10 +247,11 @@ h2 {
   align-items: center;
   gap: 5px;
 }
+/* 退回本机仓库不是好消息：用 amber，别拿 accent 绿去报"降级了"（§8.6 同一条纪律） */
 .stale {
   font-size: 11.5px;
   color: var(--t2);
-  background: var(--accent-soft);
+  background: color-mix(in srgb, var(--amber) 14%, transparent);
   border-radius: var(--r-sm);
   padding: 8px 11px;
 }

@@ -150,7 +150,6 @@ export interface SourcePaths {
   medicineDav: string
   /** 配了那第二条应用密码。不是"云端连得上"—— 那要发一次请求才知道，而首屏不发。 */
   medicineCloudReady: boolean
-  onlineCheckEnabled: boolean
   /**
    * 三个「不改时用它」的值 —— 界面那个「恢复默认」按钮得知道默认是什么。
    * 默认值只有 Rust 那一份：以前 TS 里手抄过一条坚果云地址，改 Rust 不会通知它。
@@ -535,7 +534,6 @@ export interface Api {
   linkedRefreshBlog(): Promise<SnapshotView[]>
   linkedRefreshMedicine(): Promise<SnapshotView | null>
   /** 线上比对，慢的时候首包 8 秒 —— 只在后台跑，不进首屏 */
-  linkedCheckOnline(): Promise<SnapshotView[]>
   /** 「补买 X」是用户点出来的，不是系统偷偷建的 */
   linkedRestockTodo(name: string, daysLeft: number | null): Promise<Todo>
   linkedSetBlogDir(path: string): Promise<SourcePaths>
