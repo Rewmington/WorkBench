@@ -42,6 +42,21 @@ fn has(account: &str) -> bool {
     matches!(entry(account).map(|e| e.get_password()), Ok(Ok(_)))
 }
 
+/// 界面上那个密码框**留空**是什么意思：沿用凭据管理器里已有那条，不是"清空"。
+///
+/// 清空走各页自己的「清除」按钮 —— 那是显式动作。这条规则买的是"换页回来
+/// 密码框空着（它本来就不该回显），不必为了改个邮箱重打一遍应用密码"。
+/// 返回 `None` = 什么都不用写。
+pub fn keep_or_set(incoming: &str, already_stored: bool) -> Result<Option<String>> {
+    if !incoming.trim().is_empty() {
+        return Ok(Some(incoming.to_owned()))
+    }
+    if already_stored {
+        return Ok(None)
+    }
+    Err(Error::msg("应用密码不能为空"))
+}
+
 /// 坚果云有**两条**应用密码：`webdav` 给工作台自己的备份目录，
 /// `medicine-webdav` 只读药箱的同步目录。
 ///
@@ -123,5 +138,18 @@ mod tests {
         assert_eq!(key.len(), 32);
         let again = local_key().unwrap();
         assert_eq!(key, again, "第二次必须拿回同一把钥匙，否则密文永远解不开");
+    }
+
+    /// 不碰凭据管理器：这条判的是"框里空着到底算什么"，纯函数就够，
+    /// 真去写 webdav 那条会把用户已经配好的密码覆盖掉。
+    #[test]
+    fn an_empty_password_box_means_keep_the_stored_one() {
+        assert_eq!(keep_or_set("app-pass", true).unwrap().as_deref(), Some("app-pass"));
+        assert_eq!(keep_or_set("", true).unwrap(), None, "已有一条 + 框里空着 = 沿用");
+        assert_eq!(keep_or_set("   ", true).unwrap(), None, "只打了空格也算空着");
+        for blank in ["", "   "] {
+            let err = keep_or_set(blank, false).unwrap_err().to_string();
+            assert!(err.contains("应用密码不能为空"), "第一次配置时空着必须当场拒：{err}");
+        }
     }
 }

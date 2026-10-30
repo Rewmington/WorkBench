@@ -242,10 +242,10 @@ pub fn linked_set_medicine_password(
     if email.is_empty() {
         return Err(Error::msg("邮箱不能为空"));
     }
-    if password.trim().is_empty() {
-        return Err(Error::msg("应用密码不能为空"));
+    // 框里空着 = 沿用凭据管理器里那条（换页回来密码框本来就不回显）
+    if let Some(p) = crate::win32::creds::keep_or_set(&password, crate::win32::creds::medicine_configured())? {
+        crate::win32::creds::set_medicine_password(&p)?;
     }
-    crate::win32::creds::set_medicine_password(&password)?;
     let now = SystemNow;
     let conn = state.lock();
     settings::set_json(

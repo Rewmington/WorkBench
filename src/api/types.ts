@@ -215,6 +215,8 @@ export interface BackupLogRow {
 export interface BackupStatus {
   /** 邮箱在 settings 里，应用密码只在 Windows 凭据管理器里 —— 两个都齐才算配好 */
   configured: boolean
+  /** 单看凭据管理器那条：还原之后邮箱空着而密码还在，界面该说"填个邮箱就行" */
+  passwordStored: boolean
   email: string | null
   lastSuccessAt: number | null
   lastError: string | null

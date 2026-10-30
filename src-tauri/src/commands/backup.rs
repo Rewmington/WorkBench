@@ -13,6 +13,9 @@ use crate::win32::creds;
 #[serde(rename_all = "camelCase")]
 pub struct BackupStatus {
     pub configured: bool,
+    /// 凭据管理器里有没有那条应用密码 —— 与邮箱分开设才是真话：
+    /// 还原之后邮箱空着而密码还在，这时候界面该说"填个邮箱就行"，不是"什么都没配"。
+    pub password_stored: bool,
     pub email: Option<String>,
     pub last_success_at: Option<i64>,
     pub last_error: Option<String>,
@@ -57,6 +60,7 @@ fn read_status(conn: &Connection, state: &AppState) -> Result<BackupStatus, Erro
 
     Ok(BackupStatus {
         configured: email.is_some() && creds::webdav_password().is_ok(),
+        password_stored: creds::webdav_configured(),
         email,
         last_success_at: schedule::last_success(conn),
         last_error: log.iter().find(|l| !l.ok).and_then(|l| l.error.clone()),
@@ -100,10 +104,10 @@ pub fn backup_save_credentials(
     if email.is_empty() {
         return Err(Error::msg("邮箱不能为空"));
     }
-    if password.trim().is_empty() {
-        return Err(Error::msg("应用密码不能为空"));
+    // 框里空着 = 沿用凭据管理器里那条（换页回来密码框本来就是不回显的）
+    if let Some(password) = creds::keep_or_set(&password, creds::webdav_configured())? {
+        creds::set_webdav_password(&password)?;
     }
-    creds::set_webdav_password(&password)?;
 
     let conn = state.lock();
     settings::set_json(&conn, settings::KEY_WDAV_EMAIL, &json!(email), now.ms(), &state.device_id)?;

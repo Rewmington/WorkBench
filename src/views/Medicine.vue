@@ -81,10 +81,13 @@ async function saveCred() {
   saving.value = true
   notice.value = null
   error.value = null
+  const typed = password.value.trim() !== ''
   try {
     await api.linkedSetMedicinePassword(email.value, password.value)
     password.value = ''
-    notice.value = '应用密码只写进了 Windows 凭据管理器：不进数据库，也不跟着备份出门。'
+    notice.value = typed
+      ? '应用密码只写进了 Windows 凭据管理器：不进数据库，也不跟着备份出门。'
+      : '邮箱已存；应用密码沿用凭据管理器里那条，没动它。'
     await linked.refreshMedicine()
     await linked.load()
   } catch (e) {
@@ -232,11 +235,25 @@ onMounted(async () => {
         </label>
         <label class="fld">
           <span>为「读药箱」单独建的应用密码（不是登录密码）</span>
-          <input v-model="password" type="password" autocomplete="new-password" placeholder="只写进凭据管理器" />
+          <input
+            v-model="password"
+            type="password"
+            autocomplete="new-password"
+            :placeholder="cloudReady ? '留空 = 沿用已存那条' : '只写进凭据管理器'"
+          />
         </label>
       </div>
+      <p v-if="cloudReady" class="why">
+        这把应用密码已在本机 Windows 凭据管理器里（服务 <code>Anvil</code> · 账号 <code>medicine-webdav</code>）。
+        它不回显，换一页再回来框里是空的 —— 那不是丢了；要换密码才需要重新填。
+      </p>
       <div class="row">
-        <button type="button" class="y-ghost btn" :disabled="!email.trim() || !password.trim() || saving" @click="saveCred">
+        <button
+          type="button"
+          class="y-ghost btn"
+          :disabled="!email.trim() || (!password.trim() && !cloudReady) || saving"
+          @click="saveCred"
+        >
           {{ saving ? '正在读取云端…' : '保存并立即读一次' }}
         </button>
         <button v-if="cloudReady" type="button" class="y-ghost btn" @click="forgetCred">清除</button>

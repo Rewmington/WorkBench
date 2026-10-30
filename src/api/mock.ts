@@ -1025,6 +1025,7 @@ export const mockApi: Api = {
     const desc = [...b.log].sort((x, y) => y.at - x.at)
     return {
       configured: !!b.email && b.hasPass,
+      passwordStored: b.hasPass,
       email: b.email,
       lastSuccessAt: desc.find((l) => l.ok)?.at ?? null,
       lastError: desc.find((l) => !l.ok)?.error ?? null,

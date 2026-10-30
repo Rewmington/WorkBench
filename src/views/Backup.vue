@@ -20,12 +20,16 @@ const { now } = useClock()
 const email = ref('')
 const password = ref('')
 const saved = ref(false)
+/** 这次保存有没有真的动凭据管理器那条 —— 两种情况的回话不一样，说成一样就是假话 */
+const keptExisting = ref(false)
+const selfTestMsg = ref<string | null>(null)
 const confirming = ref<string | null>(null)
 const testing = ref(false)
 let unlisten: (() => void) | null = null
 
 const st = computed(() => backup.status.value)
 const configured = computed(() => !!st.value?.configured)
+const passwordStored = computed(() => !!st.value?.passwordStored)
 const log = computed(() => st.value?.log ?? [])
 const paths = computed(() => st.value?.paths ?? null)
 const okCount = computed(() => log.value.filter((l) => l.ok).length)
@@ -73,21 +77,33 @@ function localOf(name: string): string {
 }
 
 async function save() {
+  const typed = password.value.trim() !== ''
   saved.value = await backup.saveCredentials(email.value, password.value)
-  if (saved.value) password.value = ''
+  selfTestMsg.value = null
+  if (saved.value) {
+    keptExisting.value = !typed
+    password.value = ''
+  }
 }
 
 async function forget() {
   await backup.clearCredentials()
   saved.value = false
+  keptExisting.value = false
   email.value = ''
   password.value = ''
 }
 
+/**
+ * 自证是**本机算法链路**的往返，不联网、也不读凭据管理器 ——
+ * 拿它当"凭据能用"的证据是假的（空密码它也说通过），所以回话里不许出现"凭据可用"。
+ */
 async function selfTest() {
   testing.value = true
   const ok = await backup.selfTest(email.value || st.value?.email || '', password.value)
-  saved.value = ok
+  selfTestMsg.value = ok
+    ? '本机 KDF + AES-GCM 往返通过：同样的邮箱 + 应用密码能解开同一份文件。这只证明算法链路，不证明凭据可用 —— 要试凭据点「测试连接」。'
+    : null
   testing.value = false
 }
 
@@ -158,14 +174,23 @@ onBeforeUnmount(() => unlisten?.())
         </label>
         <label class="fld">
           <span>第三方应用管理里的「应用密码」（不是登录密码）</span>
-          <input v-model="password" type="password" autocomplete="new-password" placeholder="只写进凭据管理器" />
+          <input
+            v-model="password"
+            type="password"
+            autocomplete="new-password"
+            :placeholder="passwordStored ? '留空 = 沿用已存那条' : '只写进凭据管理器'"
+          />
         </label>
       </div>
+      <p v-if="passwordStored" class="why">
+        应用密码已在本机 Windows 凭据管理器里（服务 <code>Anvil</code> · 账号 <code>webdav</code>）。
+        它不回显，所以换一页再回来框里是空的 —— 那不是丢了；要换密码才需要重新填。
+      </p>
       <div class="row">
-        <button type="button" class="y-ghost btn" :disabled="!email || !password" @click="save">
+        <button type="button" class="y-ghost btn" :disabled="!email" @click="save">
           <CheckCircle2 :size="13" /> 保存凭据
         </button>
-        <button type="button" class="y-ghost btn" :disabled="!email || !password" @click="selfTest">
+        <button type="button" class="y-ghost btn" :disabled="!password" @click="selfTest">
           <Loader2 v-if="testing" :size="13" class="spin" />
           <ShieldCheck v-else :size="13" /> 加解密自证
         </button>
@@ -174,7 +199,14 @@ onBeforeUnmount(() => unlisten?.())
         </button>
         <button v-if="configured" type="button" class="y-ghost btn" @click="forget">清除</button>
       </div>
-      <p v-if="saved" class="ok">凭据可用。应用密码没有落进数据库，所以备份文件里也没有它。</p>
+      <p v-if="saved" class="ok">
+        {{
+          keptExisting
+            ? '邮箱已存；应用密码沿用凭据管理器里那条，没动它。'
+            : '两条都写好了：邮箱进设置，应用密码只进 Windows 凭据管理器 —— 不进数据库，备份文件里也没有它。'
+        }}
+      </p>
+      <p v-if="selfTestMsg" class="ok">{{ selfTestMsg }}</p>
       <p v-if="backup.notice.value" class="ok">{{ backup.notice.value }}</p>
       <p v-if="backup.error.value" class="bad">{{ backup.error.value }}</p>
     </div>
@@ -425,6 +457,13 @@ h2 {
   font-size: 11.5px;
   margin: 0;
   word-break: break-all;
+}
+/* 表单底下那行解释：次要信息，不该比输入框本身还抢眼 */
+.why {
+  font-size: 11px;
+  color: var(--t3);
+  line-height: 1.6;
+  margin: 0;
 }
 .ok {
   color: var(--accent);
