@@ -11,6 +11,7 @@ export type ViewId =
   | 'progress'
   | 'stats'
   | 'calendar'
+  | 'timetable'
   | 'blog'
   | 'medicine'
   | 'backup'
@@ -467,6 +468,11 @@ export interface TimetableState {
   totalWeeks: number | null
   rows: number
   courses: number
+  /**
+   * 节次骨架，来自整学期而不是"这一周的课"：空档周（比如第 11 周什么都没排）
+   * 也要画出完整的行，否则网格会塌成一片空白，看着像"课表丢了"。
+   */
+  periods: { startMin: number; label: string }[]
 }
 
 export interface TimetableImportReport {

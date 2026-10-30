@@ -5,6 +5,7 @@ import {
   ChartNoAxesColumn,
   Gauge,
   HardDrive,
+  LayoutGrid,
   ListChecks,
   Pill,
   Settings as SettingsIcon,
@@ -13,7 +14,7 @@ import {
   Zap,
 } from 'lucide-vue-next'
 
-import type { ViewId } from '../api/types'
+import type { ClassRow, ViewId } from '../api/types'
 
 export interface NavItem {
   /** 侧栏条目的稳定标识，也是 §8.7 计数徽章的取数键 */
@@ -24,7 +25,7 @@ export interface NavItem {
 }
 
 /**
- * 侧栏条目由功能清单决定，不由风格决定（PLAN §8.7，v1 共 11 项）。
+ * 侧栏条目由功能清单决定，不由风格决定（PLAN §8.7，v1 共 12 项）。
  * 参考图里的智能分析/知识图谱/吸收与沉淀/扫描记录一条都不放 —— 没有对应功能，
  * 硬凑只会做出「点进去是空页」的导航。
  *
@@ -39,6 +40,9 @@ export const NAV: { title?: string; items: NavItem[] }[] = [
       { key: 'launcher', label: '速达', icon: Zap, view: 'launcher' },
       { key: 'notes', label: '笔记', icon: BookOpen, view: 'notes' },
       { key: 'progress', label: '进行中', icon: Timer, view: 'progress' },
+      // 课表放第一组末尾而不是「回顾」：它是"今天几点到几点有空"的输入，
+      // 不是事后看的东西 —— 待办「今天」档顶部那行空档就在读它（§8.8 第 8 条）。
+      { key: 'timetable', label: '课表', icon: LayoutGrid, view: 'timetable' },
     ],
   },
   {
@@ -72,6 +76,7 @@ export const VIEW_TITLES: Record<ViewId, string> = {
   progress: '进行中',
   stats: '统计',
   calendar: '日历',
+  timetable: '课表',
   blog: '博客',
   medicine: '药箱',
   backup: '备份',
@@ -87,6 +92,11 @@ export type Selection =
   | { kind: 'todo'; id: string }
   | { kind: 'resource'; id: string }
   | { kind: 'day'; day: number }
+  /**
+   * 课表里的一格。整行直接带进来 —— 它是外部导入的只读数据，没有 id 可回查；
+   * `week` 也得跟着，同一格在第 11 周与第 12 周显示的可能不是同一门课。
+   */
+  | { kind: 'class'; cls: ClassRow; week: number }
   | null
 
 const selection = ref<Selection>(null)

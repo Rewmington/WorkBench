@@ -1456,7 +1456,7 @@ export const mockApi: Api = {
   timetableState: async () => mockTimetableState(),
   timetableSetWeek1: async (date) => {
     const trimmed = date.trim()
-    if (trimmed && !/^d{4}-d{2}-d{2}$/.test(trimmed)) throw new Error('开学日要用 yyyy-mm-dd 这种写法')
+    if (trimmed && !/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) throw new Error('开学日要用 yyyy-mm-dd 这种写法')
     store.timetable.week1Monday = trimmed || null
     save()
     return mockTimetableState()
@@ -1623,5 +1623,8 @@ function mockTimetableState(): TimetableState {
     totalWeeks: t.rows.length ? total : null,
     rows: t.rows.length,
     courses: new Set(t.rows.map((r) => r.name)).size,
+    periods: [...new Map(t.rows.map((r) => [r.startMin, r.period])).entries()]
+      .map(([startMin, label]) => ({ startMin, label }))
+      .sort((a, b) => a.startMin - b.startMin),
   }
 }

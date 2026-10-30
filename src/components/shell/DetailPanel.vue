@@ -8,6 +8,7 @@ import { useClock } from '../../composables/useClock'
 import { useShell } from '../../composables/useShell'
 import { useTodos } from '../../composables/useTodos'
 import { dueLabel, relTime } from '../../lib/reltime'
+import { hhmm } from '../../lib/timetable'
 
 /**
  * 常驻详情面板（§8.1.1 / §8.8.3）。字段按本机语义重写过：
@@ -38,6 +39,11 @@ const dayLabel = computed(() => {
 })
 
 const PRIORITY = ['紧急', '高', '普通', '低']
+const DAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+
+/** 课表的一格。整行由选择带进来（外部导入的只读数据，没有 id 可回查）。 */
+const cls = computed(() => (shell.selection.value?.kind === 'class' ? shell.selection.value.cls : null))
+const selWeek = computed(() => (shell.selection.value?.kind === 'class' ? shell.selection.value.week : null))
 
 async function load() {
   const sel = shell.selection.value
@@ -188,6 +194,18 @@ async function launchIt() {
             <button type="button" class="kx" aria-label="取消完成" @click="api.todosSetDone(t.id, false)">×</button>
           </div>
         </div>
+      </template>
+
+      <template v-else-if="cls">
+        <h2 class="dt">{{ cls.name }}</h2>
+        <dl class="y-dl">
+          <dt>教师</dt><dd>{{ cls.teacher || '未写' }}</dd>
+          <dt>教室</dt><dd>{{ cls.room || '未写' }}</dd>
+          <dt>时间</dt><dd>{{ DAY_NAMES[cls.day - 1] }} {{ hhmm(cls.startMin) }}–{{ hhmm(cls.endMin) }}</dd>
+          <dt>节次</dt><dd>{{ cls.period }}</dd>
+          <dt>周次</dt><dd>第 {{ selWeek }} 周在 · 排 {{ cls.weeks }} 周</dd>
+        </dl>
+        <p class="dd">课表是导入进来的只读副本，改它要回教务导出再导一次。</p>
       </template>
 
       <div v-else class="y-empty">选中任何待办、速达条目，这里显示它的全貌与操作。</div>

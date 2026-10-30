@@ -10,14 +10,14 @@ import { NAV, VIEW_TITLES } from './useShell'
 describe('侧栏条目（§8.7）', () => {
   const items = NAV.flatMap((g) => g.items)
 
-  it('v1 共 11 项，key 不重复', () => {
-    expect(items).toHaveLength(11)
-    expect(new Set(items.map((i) => i.key)).size).toBe(11)
+  it('v1 共 12 项，key 不重复', () => {
+    expect(items).toHaveLength(12)
+    expect(new Set(items.map((i) => i.key)).size).toBe(12)
   })
 
   it('分组标题按 回顾 / 外部 / 系统 排，第一组无标题', () => {
     expect(NAV.map((g) => g.title ?? null)).toEqual([null, '回顾', '外部', '系统'])
-    expect(NAV[0].items).toHaveLength(5)
+    expect(NAV[0].items).toHaveLength(6)
   })
 
   it('标签用用户看得懂的话，且每项都能落到一个真实视图', () => {
@@ -27,6 +27,7 @@ describe('侧栏条目（§8.7）', () => {
       '速达',
       '笔记',
       '进行中',
+      '课表',
       '统计',
       '日历',
       '博客',

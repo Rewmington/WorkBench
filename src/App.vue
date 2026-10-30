@@ -26,6 +26,7 @@ import Notes from './views/Notes.vue'
 import Progress from './views/Progress.vue'
 import Settings from './views/Settings.vue'
 import Stats from './views/Stats.vue'
+import Timetable from './views/Timetable.vue'
 import Todos from './views/Todos.vue'
 
 const shell = useShell()
@@ -152,6 +153,7 @@ function showHint(text: string) {  hint.value = text
         <Calendar v-else-if="shell.view.value === 'calendar'" />
         <Blog v-else-if="shell.view.value === 'blog'" />
         <Medicine v-else-if="shell.view.value === 'medicine'" />
+        <Timetable v-else-if="shell.view.value === 'timetable'" />
         <Backup v-else-if="shell.view.value === 'backup'" />
         <div v-else class="y-empty">
           {{ runningInBrowser ? '浏览器预览（UI 验证用）· ' : '' }}「{{ title }}」要在后续里程碑接上；待办、速达、日历现在就能用，

@@ -6,7 +6,13 @@ import type { Priority, Todo } from '../../api/types'
 import { overdueLabel } from '../../lib/reltime'
 import DueEditor from './DueEditor.vue'
 
-const props = defineProps<{ todo: Todo; now: number; childCount: number }>()
+const props = defineProps<{
+  todo: Todo
+  now: number
+  childCount: number
+  /** 「今天」档的顺序由截止时间决定，那时拖动没有意义（§8.8 第 8 条） */
+  sortable: boolean
+}>()
 const emit = defineEmits<{
   toggle: []
   patch: [Partial<Pick<Todo, 'title' | 'note' | 'priority' | 'dueAt' | 'remindAt' | 'pinned'>>]
@@ -20,7 +26,8 @@ const draft = ref('')
 
 const PRIORITY_LABEL: Record<Priority, string> = { 0: '紧急', 1: '高', 2: '普通', 3: '低' }
 
-const overdue = computed(() => overdueLabel(props.now, props.todo.dueAt))
+/** 做完了就不该再喊逾期：勾掉的那条挂着"逾期 89 天"是两句互相矛盾的话摆在一起 */
+const overdue = computed(() => (props.todo.completed ? null : overdueLabel(props.now, props.todo.dueAt)))
 
 function startEdit() {
   draft.value = props.todo.title
@@ -46,7 +53,7 @@ function cyclePriority() {
     :class="{ done: todo.completed, sel: false, over: !!overdue }"
     @click="emit('select')"
   >
-    <span class="grip" title="拖动排序" @pointerdown="emit('dragStart', $event)">⠿</span>
+    <span v-if="sortable" class="grip" title="拖动排序" @pointerdown="emit('dragStart', $event)">⠿</span>
 
     <button
       type="button"

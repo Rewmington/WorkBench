@@ -11,6 +11,7 @@ import { useLinked } from '../composables/useLinked'
 import { useShell } from '../composables/useShell'
 import { useUndo } from '../composables/useUndo'
 import { relTime } from '../lib/reltime'
+import { errText } from '../lib/err'
 
 /**
  * 药箱是**只读源**：复制它的库再打开，绝不写回去。
@@ -87,7 +88,7 @@ async function saveCred() {
     await linked.refreshMedicine()
     await linked.load()
   } catch (e) {
-    error.value = String(e)
+    error.value = errText(e)
   } finally {
     saving.value = false
   }
@@ -103,7 +104,7 @@ async function forgetCred() {
     await linked.refreshMedicine()
     await linked.load()
   } catch (e) {
-    error.value = String(e)
+    error.value = errText(e)
   }
 }
 

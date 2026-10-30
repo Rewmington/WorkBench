@@ -301,6 +301,14 @@ fn max_week(specs: impl Iterator<Item = String>) -> Option<i32> {
     specs.filter_map(|s| weeks_high(&s)).max()
 }
 
+/// 网格的一行（节次）。整学期的骨架，不随"这一周有没有课"变化。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeriodLabel {
+    pub start_min: i32,
+    pub label: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StateView {
@@ -311,6 +319,9 @@ pub struct StateView {
     pub total_weeks: Option<i32>,
     pub rows: usize,
     pub courses: usize,
+    /// 为什么要把节次放进 state：某一节课可能整周都不上（第 11 周那种空档周），
+    /// 只按"本周的课"画行会让网格塌成一片空白，用户看到的是"课表丢了"。
+    pub periods: Vec<PeriodLabel>,
 }
 
 fn setting_str(conn: &Connection, key: &str) -> Option<String> {
@@ -358,14 +369,29 @@ pub fn state(conn: &Connection, now: &dyn Now) -> Result<StateView> {
     let week1 = setting_str(conn, KEY_WEEK1);
     let want = term.clone().unwrap_or_default();
     let mut stmt = conn.prepare(
-        "SELECT weeks, name FROM classes WHERE deleted_at IS NULL AND (?1 = '' OR term = ?1)",
+        "SELECT weeks, name, start_min, period FROM classes
+         WHERE deleted_at IS NULL AND (?1 = '' OR term = ?1) ORDER BY start_min",
     )?;
-    let pairs: Vec<(String, String)> = stmt
-        .query_map(params![want], |r| Ok((r.get(0)?, r.get(1)?)))?
+    let pairs: Vec<(String, String, i32, String)> = stmt
+        .query_map(params![want], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     drop(stmt);
 
-    let total_weeks = max_week(pairs.iter().map(|(w, _)| w.clone()));
+    let total_weeks = max_week(pairs.iter().map(|(w, _, _, _)| w.clone()));
+
+    // 节次骨架：同一 start_min 只留一条，标签取第一个非空的原文
+    let mut seen: std::collections::HashMap<i32, String> = std::collections::HashMap::new();
+    for (_, _, start, period) in &pairs {
+        let e = seen.entry(*start).or_insert_with(|| period.clone());
+        if e.is_empty() && !period.is_empty() {
+            *e = period.clone();
+        }
+    }
+    let mut periods: Vec<PeriodLabel> = seen
+        .into_iter()
+        .map(|(start_min, label)| PeriodLabel { start_min, label })
+        .collect();
+    periods.sort_by_key(|p| p.start_min);
 
     let current_week = match (week1.as_deref(), total_weeks) {
         (Some(iso), Some(tw)) => iso_to_day(iso)
@@ -374,7 +400,11 @@ pub fn state(conn: &Connection, now: &dyn Now) -> Result<StateView> {
         _ => None,
     };
 
-    let courses = pairs.iter().map(|(_, n)| n.as_str()).collect::<std::collections::HashSet<_>>().len();
+    let courses = pairs
+        .iter()
+        .map(|(_, n, _, _)| n.as_str())
+        .collect::<std::collections::HashSet<_>>()
+        .len();
     Ok(StateView {
         term,
         week1_monday: week1,
@@ -382,6 +412,7 @@ pub fn state(conn: &Connection, now: &dyn Now) -> Result<StateView> {
         total_weeks,
         rows: pairs.len(),
         courses,
+        periods,
     })
 }
 

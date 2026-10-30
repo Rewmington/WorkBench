@@ -8,7 +8,7 @@ use rusqlite::Connection;
 
 use anvil_lib::db::migrations::migrate;
 use anvil_lib::model::TodoDraft;
-use anvil_lib::repos::{dashboard, stats, tags, todos};
+use anvil_lib::repos::{dashboard, stats, tags, timetable, todos};
 use anvil_lib::time::{days, FixedNow};
 
 const TODAY: i32 = 20261028; // 周三
@@ -272,4 +272,46 @@ fn undone_and_trashed_rows_never_reach_the_charts() {
     assert!(!r.has_activity, "取消勾选之后 done_day 还留着，但当前状态不是完成态");
     assert_eq!(r.bars.iter().map(|b| b.total()).sum::<i64>(), 0);
     assert_eq!(r.tags_total, 0);
+}
+
+/// 一整个学期导进来，统计页的每一个完成数都不许动（PLAN §6.7 边界 2）。
+/// 今天当然不会动 —— 两张表。这条钉的是以后有人图省事拿 UNION 把 classes 混进聚合，
+/// 那时"上满一学期课"会变成"完成了几百件事"，是最难看出来的一种谎。
+#[test]
+fn importing_a_whole_term_moves_no_completion_number() {
+    let conn = db();
+    completed_on(&conn, TODAY, TODAY, Some(TODAY), "按时做完的一条");
+    let before = stats::report(&conn, &at(TODAY, 20)).expect("report");
+
+    let csv = r#"学生个人课表,,,,,,,
+学年学期：2026-2027-1,,,,,,
+,星期一,星期二,星期三,星期四,星期五,星期六,星期日
+"第一大节
+08:00-09:40","
+编译原理
+张老师
+1-16[周]
+[主校区]一教101
+[01-02]节",,,,,,
+"第二大节
+10:00-11:40",,,"
+线性代数
+王老师
+1-16[周]
+[主校区]一教105
+[05-06]节",,,,
+"#;
+    let report = timetable::import(&conn, &at(TODAY, 20), DEVICE, csv).expect("import");
+    assert!(report.rows >= 2, "夹具得真导进东西，不然这条测的是个空：{report:?}");
+
+    let after = stats::report(&conn, &at(TODAY, 20)).expect("report");
+    assert_eq!(after.gauge.done, before.gauge.done, "今日环的完成数不含课");
+    assert_eq!(after.gauge.open, before.gauge.open, "课也不进「今天要做的」");
+    assert_eq!(after.tags_total, before.tags_total);
+    assert_eq!(
+        after.bars.iter().map(|b| b.total()).sum::<i64>(),
+        before.bars.iter().map(|b| b.total()).sum::<i64>(),
+        "完成日历上多出来的那几格就是课"
+    );
+    assert_eq!(after.history_days, before.history_days);
 }
