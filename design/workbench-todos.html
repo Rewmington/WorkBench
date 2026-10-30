@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="zh-CN" data-mode="dark" data-preset="graphite" data-accent="green">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>待办版式对比 · Anvil</title>
+<style>
+/* ===== 令牌：逐条抄自 src/style.css 的冻结表，不新增 ===== */
+:root {
+  --bg: #080b0a; --panel: #0d1110; --card: #131816; --card-2: #0f1413;
+  --line: rgba(255,255,255,.07); --line-2: rgba(255,255,255,.12);
+  --t1: #f1f5f3; --t2: #a3ada8; --t3: #6b7571;
+  --accent: #2ee27a; --accent-2: #10b981; --accent-ink: #04240f; --accent-soft: rgba(46,226,122,.14);
+  --blue: #60a5fa; --amber: #fbbf24; --red: #f87171; --violet: #a78bfa;
+  --card-sel: #f6faf7; --sel-ink: #0d1211; --sel-muted: #4b5450; --sel-delta: #059669;
+  --r: 14px; --r-sm: 10px; --r-xs: 8px;
+  --dur-1: 120ms; --dur-2: 160ms; --ease: cubic-bezier(.2,.7,.3,1);
+  --glow-opacity: .5;
+}
+[data-mode='light'] {
+  --bg: #eef1f0; --panel: #f8faf9; --card: #ffffff; --card-2: #f2f5f4;
+  --line: rgba(20,30,26,.09); --line-2: rgba(20,30,26,.16);
+  --t1: #101614; --t2: #57615d; --t3: #8a938e;
+  --accent: #059669; --accent-2: #10b981; --accent-ink: #ffffff; --accent-soft: rgba(5,150,105,.12);
+  --blue: #2563eb; --amber: #b45309; --red: #b91c1c; --violet: #7c3aed;
+  --card-sel: #ffffff; --sel-ink: #101614; --sel-muted: #57615d; --sel-delta: #059669;
+  --glow-opacity: .34;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--t1);
+  font: 13px/1.5 "Inter", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+
+/* ===== 对比稿自己的外壳：顶部切换条 ===== */
+.pick {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+  position: sticky; top: 0; z-index: 20;
+}
+.pick .lab { font-size: 11px; color: var(--t3); letter-spacing: .08em; font-weight: 800; }
+.pick button.tab {
+  padding: 5px 11px; border-radius: 999px; font-size: 12px; font-weight: 700;
+  color: var(--t2); border: 1px solid var(--line);
+}
+.pick button.tab[aria-selected='true'] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.pick .mode { margin-left: auto; font-size: 11.5px; color: var(--t2); border: 1px solid var(--line-2); padding: 4px 10px; border-radius: 999px; }
+.pick .mode:hover { border-color: var(--accent); }
+
+/* ===== 应用外壳（侧栏 + 标题栏 + 右栏），只画一次 ===== */
+.win { display: grid; grid-template-columns: 208px minmax(0,1fr) 296px; height: calc(100vh - 47px); overflow: hidden; }
+.side { background: var(--panel); border-right: 1px solid var(--line); padding: 14px 10px; overflow-y: auto; }
+.brand { display: flex; align-items: center; gap: 8px; padding-bottom: 12px; }
+.brand .b { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; background: linear-gradient(150deg,var(--accent),#0a7a45); color: var(--accent-ink); font-size: 13px; font-weight: 800; }
+.brand .n { font-size: 15px; font-weight: 800; letter-spacing: -.02em; }
+.grp { font-size: 10px; color: var(--t3); font-weight: 800; letter-spacing: .1em; padding: 12px 8px 5px; }
+.nav button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 9px; border-radius: var(--r-xs); font-size: 13px; color: var(--t2); font-weight: 600; }
+.nav button:hover { background: var(--card-2); color: var(--t1); }
+.nav button.on { background: var(--accent-soft); color: var(--t1); font-weight: 750; }
+.nav .i { width: 15px; text-align: center; opacity: .85; }
+.nav .c { margin-left: auto; font-size: 10.5px; color: var(--t3); font-variant-numeric: tabular-nums; }
+.main { display: flex; flex-direction: column; min-width: 0; padding: 15px 16px 16px; gap: 12px; overflow: hidden; }
+.detail { border-left: 1px solid var(--line); background: var(--panel); padding: 14px 13px; overflow-y: auto; }
+.detail h3 { font-size: 12.5px; margin: 0 0 10px; display: flex; align-items: center; gap: 6px; }
+.detail .ph { border: 1px dashed var(--line-2); border-radius: var(--r-sm); padding: 12px; font-size: 11.5px; color: var(--t3); line-height: 1.7; }
+
+/* ===== 视图头 ===== */
+.head { display: flex; align-items: baseline; gap: 10px; }
+.head h1 { font-size: 21px; font-weight: 850; letter-spacing: -.02em; margin: 0; }
+.head .cnt { font-size: 11px; color: var(--t3); font-variant-numeric: tabular-nums; }
+.zones { display: flex; gap: 6px; }
+.zones button { font-size: 11.5px; font-weight: 700; color: var(--t3); padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); }
+.zones button.on { background: var(--card); color: var(--t1); border-color: var(--line-2); }
+.note { font-size: 11.5px; color: var(--t2); line-height: 1.65; border-left: 2px solid var(--accent); padding-left: 9px; margin: 0; }
+.note b { color: var(--t1); }
+.stage { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* ===== 共用的原子件（抄自 TodoRow / 卡片）===== */
+.cb { width: 15px; height: 15px; flex: none; border-radius: 5px; border: 1.5px solid var(--line-2); display: grid; place-items: center; font-size: 11px; font-weight: 900; color: var(--accent-ink); }
+.done .cb { background: var(--accent); border-color: transparent; }
+.pri { flex: none; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 5px; background: var(--card-2); color: var(--t3); border: 1px solid var(--line); }
+.pri.p0 { background: rgba(248,113,113,.16); border-color: transparent; color: var(--red); }
+.pri.p1 { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+.pri.p3 { opacity: .7; }
+.tag { font-size: 10px; color: var(--t3); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
+.t { font-size: 13px; font-weight: 650; color: var(--t1); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.done .t { color: var(--t3); text-decoration: line-through; font-weight: 500; }
+.meta { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--t3); flex: none; }
+.meta.over { color: var(--red); font-weight: 700; }
+.pin { color: var(--t3); font-size: 11px; }
+.pin.on { color: var(--amber); font-weight: 800; }
+
+/* ===== ① 基线：现在这样 ===== */
+.list { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 4px 11px; }
+.row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); min-width: 0; }
+.row:first-child { border-top: none; }
+.grip { color: var(--t3); font-size: 12px; width: 12px; flex: none; opacity: .35; }
+.body { display: flex; align-items: center; gap: 7px; min-width: 0; }
+
+/* ===== ② 看板分列 ===== */
+.board { display: grid; grid-template-columns: repeat(4, minmax(180px,1fr)); gap: 11px; align-items: start; }
+.col { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.col h4 { margin: 0 0 2px; font-size: 11.5px; font-weight: 800; display: flex; align-items: center; gap: 6px; color: var(--t2); }
+.col h4 .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--t3); }
+.col.late h4 .dot { background: var(--red); }
+.col.today h4 .dot { background: var(--accent); }
+.col h4 .n { margin-left: auto; font-size: 10.5px; color: var(--t3); font-weight: 600; }
+.bcard { border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--card-2); padding: 9px; display: flex; flex-direction: column; gap: 7px; }
+.bcard .top { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.bcard .foot { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--t3); }
+.bcard .foot .meta { margin-left: auto; }
+
+/* ===== ③ 卡片网格 ===== */
+/* 注意：这里**故意不用** KPI 那种渐变底。§8.8.6 要求一屏只有一个高亮区，
+   渐变底是给 4~5 张 KPI 卡用的，铺到 12 张内容卡上整屏就都是色块了。 */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(238px,1fr)); gap: 11px; }
+.gcard { border: 1px solid var(--line); border-radius: var(--r); background: var(--card); padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.gcard.over { border-left: 2px solid var(--red); }
+.gcard .k { font: 800 9.5px/1 ui-monospace, Consolas, monospace; letter-spacing: .13em; color: var(--t2); display: flex; align-items: center; gap: 7px; }
+.gcard .k .pin { margin-left: auto; }
+.gcard .ttl { font-size: 14px; font-weight: 750; line-height: 1.35; white-space: normal; }
+.gcard .when { font-size: 11.5px; color: var(--t2); }
+.gcard .rowend { display: flex; align-items: center; gap: 7px; margin-top: 1px; }
+
+/* ===== ④ 按天格子（课表落得进来）===== */
+.days { display: flex; flex-direction: column; gap: 11px; }
+.day { border: 1px solid var(--line); border-radius: var(--r); background: var(--card); overflow: hidden; }
+.dayh { display: flex; align-items: center; gap: 9px; padding: 9px 12px; border-bottom: 1px solid var(--line); background: var(--card-2); }
+.dayh .d { font-size: 13px; font-weight: 800; }
+.dayh .w { font-size: 11px; color: var(--t3); }
+.dayh .s { margin-left: auto; font-size: 10.5px; color: var(--t3); }
+.slot { display: grid; grid-template-columns: 74px 1fr; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--line); align-items: center; }
+.slot:first-of-type { border-top: none; }
+.slot .hr { font: 700 11px/1.3 ui-monospace, Consolas, monospace; color: var(--t3); font-variant-numeric: tabular-nums; }
+.slot.now .hr { color: var(--accent); }
+.slot .in { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.class { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 5px; background: rgba(96,165,250,.16); color: var(--blue); flex: none; }
+.slot .where { font-size: 10.5px; color: var(--t3); flex: none; }
+</style>
+</head>
+<body>
+<div class="pick">
+  <span class="lab">同一份数据 · 四种摆法</span>
+  <button class="tab" role="tab" aria-selected="true" data-v="v1">① 现在这样（一条一条）</button>
+  <button class="tab" role="tab" aria-selected="false" data-v="v2">② 按分区摆成几列</button>
+  <button class="tab" role="tab" aria-selected="false" data-v="v3">③ 一张事一卡片</button>
+  <button class="tab" role="tab" aria-selected="false" data-v="v4">④ 按天 · 课表落进来</button>
+  <button class="mode iconbtn" id="mode" title="切到亮色">切亮/暗</button>
+</div>
+
+<div class="win">
+  <aside class="side">
+    <div class="brand"><span class="b">A</span><span class="n">Anvil</span></div>
+    <div class="nav">
+      <button><span class="i">◔</span>今日驾驶舱</button>
+      <button class="on"><span class="i">≡</span>待办<span class="c">14</span></button>
+      <button><span class="i">⚡</span>速达</button>
+      <button><span class="i">▤</span>笔记</button>
+      <button><span class="i">◷</span>进行中</button>
+    </div>
+    <div class="grp">回顾</div>
+    <div class="nav"><button><span class="i">˙</span>统计</button><button><span class="i">▦</span>日历</button></div>
+    <div class="grp">外部</div>
+    <div class="nav"><button><span class="i">◱</span>博客<span class="c">5</span></button><button><span class="i">◈</span>药箱<span class="c">2</span></button></div>
+    <div class="grp">系统</div>
+    <div class="nav"><button><span class="i">☁</span>备份</button><button><span class="i">⚙</span>设置</button></div>
+  </aside>
+
+  <main class="main y-ctr">
+    <div class="head">
+      <h1>待办</h1><span class="cnt">14 条未完成 · 其中 4 条逾期</span>
+      <div class="zones" id="zones"><button class="on">全部</button><button>今天 3</button><button>待整理 2</button><button>稍后 5</button><button>某天 1</button><button>已完成 3</button></div>
+    </div>
+    <p class="note" id="caption"></p>
+
+    <!-- ① 基线 -->
+    <div class="stage view" id="v1">
+      <div class="list" id="baseline"></div>
+    </div>
+
+    <!-- ② 看板 -->
+    <div class="stage view" id="v2" hidden>
+      <div class="board" id="board"></div>
+    </div>
+
+    <!-- ③ 卡片网格 -->
+    <div class="stage view" id="v3" hidden>
+      <div class="grid" id="grid"></div>
+    </div>
+
+    <!-- ④ 按天 -->
+    <div class="stage view" id="v4" hidden>
+      <div class="days" id="days"></div>
+    </div>
+  </main>
+
+  <aside class="detail">
+    <h3>⩕ 详情</h3>
+    <div class="ph">选中任何一条，这里显示它的全貌与操作。<br><br>四种摆法都保留这个右栏 —— 所以卡片里不必塞下全部信息，这也是「③ 卡片」能瘦身的前提。</div>
+  </aside>
+</div>
+
+<script>
+/* ===== 一份数据，四种渲染。课表按"每周重复"建模，不是几百条日期待办。 ===== */
+const CLASSES = [
+  { day: '今天', hr: '08:00–09:40', name: '高等数学', where: '三教 201' },
+  { day: '今天', hr: '10:00–11:40', name: '大学英语', where: '外院 305' },
+  { day: '今天', hr: '14:00–15:40', name: '离散数学', where: '三教 107' },
+  { day: '今天', hr: '16:00–17:40', name: '体育', where: '北操场' },
+  { day: '明天', hr: '08:00–09:40', name: '数据结构', where: '实验楼 A302' },
+  { day: '明天', hr: '10:00–11:40', name: '毛概', where: '一教 101' },
+]
+const TODOS = [
+  { zone: 'late', title: '回复房东的微信', pri: 1, tags: ['家里'], when: '逾期 1 天', over: 1, pin: 0, done: 0, cls: '高等数学 课后作业' },
+  { zone: 'late', title: '统计视图的图先定选型', pri: 1, tags: ['工作'], when: '逾期 4 天', over: 1, pin: 0, done: 0 },
+  { zone: 'late', title: '预约牙医（下周三之前）', pri: 0, tags: [], when: '逾期 2 天', over: 1, pin: 0, done: 0 },
+  { zone: 'late', title: '把药箱的补买提醒接上', pri: 2, tags: ['电脑'], when: '逾期 6 天', over: 1, pin: 0, done: 0 },
+  { zone: 'today', title: '把 M2 的验收跑完', pri: 2, tags: ['工作'], when: '今天 18:00', over: 0, pin: 1, done: 0 },
+  { zone: 'today', title: '给 x-hub 提同步 issue', pri: 2, tags: [], when: '今天 21:00', over: 0, pin: 0, done: 0 },
+  { zone: 'today', title: '重写数据位置这块文案', pri: 1, tags: ['电脑'], when: '今天 23:00', over: 0, pin: 0, done: 0 },
+  { zone: 'inbox', title: '写周报', pri: 2, tags: [], when: '没定日子', over: 0, pin: 0, done: 0 },
+  { zone: 'inbox', title: '学一下 3D 环的降级写法', pri: 3, tags: [], when: '没定日子', over: 0, pin: 0, done: 0 },
+  { zone: 'later', title: '整理备份目录', pri: 2, tags: ['电脑'], when: '明天 12:00', over: 0, pin: 1, done: 0 },
+  { zone: 'later', title: '买猫粮（大袋）', pri: 2, tags: ['跑腿'], when: '周五', over: 0, pin: 0, done: 0, kids: 2 },
+  { zone: 'later', title: '交房租', pri: 0, tags: ['家里'], when: '11 月 1 日', over: 0, pin: 0, done: 0 },
+  { zone: 'done', title: '倒垃圾', pri: 2, tags: [], when: '3 小时前', over: 0, pin: 0, done: 1 },
+  { zone: 'done', title: '买电池', pri: 2, tags: ['跑腿'], when: '昨天', over: 0, pin: 0, done: 1 },
+]
+const ZONES = [
+  { k: 'late', n: '逾期', cls: 'late' },
+  { k: 'today', n: '今天', cls: 'today' },
+  { k: 'inbox', n: '待整理', cls: '' },
+  { k: 'later', n: '稍后', cls: '' },
+]
+const PRI = ['最急', '高', '中', '低']
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+const pri = (t) => `<button class="pri p${t.pri}">${PRI[t.pri]}</button>`
+const cb = (t) => `<span class="cb">${t.done ? '✓' : ''}</span>`
+const tags = (t) => t.tags.map((x) => `<span class="tag">${esc(x)}</span>`).join('')
+const meta = (t) => `<span class="meta${t.over ? ' over' : ''}">${esc(t.when)}</span><span class="pin${t.pin ? ' on' : ''}">↑</span>`
+
+/* ① 基线：一条一条 */
+document.getElementById('baseline').innerHTML = TODOS.map((t) => `
+  <div class="row${t.done ? ' done' : ''}">
+    <span class="grip">⠿</span>${cb(t)}${pri(t)}
+    <div class="body"><span class="t">${esc(t.title)}</span>${t.kids ? `<span class="tag">${t.kids} 个子项</span>` : ''}${tags(t)}</div>
+    ${meta(t)}
+  </div>`).join('')
+
+/* ② 看板：按分区摆成几列 */
+document.getElementById('board').innerHTML = ZONES.map((z) => {
+  const items = TODOS.filter((t) => t.zone === z.k)
+  return `<div class="col ${z.cls}">
+    <h4><span class="dot"></span>${z.n}<span class="n">${items.length}</span></h4>
+    ${items.map((t) => `<div class="bcard${t.done ? ' done' : ''}">
+      <div class="top">${cb(t)}${pri(t)}<span class="t">${esc(t.title)}</span></div>
+      <div class="foot">${tags(t) || '<span class="tag">无标签</span>'}${meta(t)}</div>
+    </div>`).join('') || '<div class="tag" style="align-self:flex-start">这一列是空的</div>'}
+  </div>`
+}).join('')
+
+/* ③ 卡片网格：一张事一卡片 */
+document.getElementById('grid').innerHTML = TODOS.filter((t) => t.zone !== 'done').map((t) => `
+  <div class="gcard${t.over ? ' over' : ''}">
+    <div class="k">${esc(t.over ? '逾期' : ZONES.find((z) => z.k === t.zone).n)}<span class="pin${t.pin ? ' on' : ''}">↑</span></div>
+    <div class="ttl">${esc(t.title)}</div>
+    <div class="when">${esc(t.when)}${t.cls ? ' · 课后要交：' + esc(t.cls) : ''}</div>
+    <div class="rowend">${cb(t)}${pri(t)}${tags(t)}</div>
+  </div>`).join('')
+
+/* ④ 按天：课表与待办排在同一条时间轴上 */
+const dayNames = ['今天', '明天']
+document.getElementById('days').innerHTML = dayNames.map((d) => {
+  const cs = CLASSES.filter((c) => c.day === d)
+  const rows = [
+    ...cs.map((c) => `<div class="slot${d === '今天' && c.hr.startsWith('10') ? ' now' : ''}">
+      <span class="hr">${c.hr}</span>
+      <div class="in"><span class="class">课</span><span class="t">${esc(c.name)}</span><span class="where">${esc(c.where)}</span></div>
+    </div>`),
+    ...TODOS.filter((t) => (d === '今天' ? t.zone === 'today' || t.zone === 'late' : t.zone === 'later')).map((t) => `
+      <div class="slot${t.done ? ' done' : ''}">
+        <span class="hr">${d === '今天' ? '随时' : '—'}</span>
+        <div class="in">${cb(t)}${pri(t)}<span class="t">${esc(t.title)}</span>${tags(t)}${meta(t)}</div>
+      </div>`),
+  ]
+  return `<div class="day"><div class="dayh"><span class="d">10 月 ${d === '今天' ? '30' : '31'} 日</span><span class="w">${d} · 周${d === '今天' ? '五' : '六'}</span><span class="s">${cs.length} 节课 · ${d === '今天' ? '7' : '5'} 条待办</span></div>${rows.join('')}</div>`
+}).join('')
+
+/* 切换 */
+const CAP = {
+  v1: '<b>① 现在这样</b>：一条一行，最省地方、扫得最快，代价是每条的信息都被压成一行 —— 课表塞进来会变成几百行，所以它其实撑不住你下一个需求。',
+  v2: '<b>② 按分区摆成几列</b>：把"这件事该往哪儿走"变成一次拖动。代价是列宽只有 180px 上下，标题更容易被截断，且一屏装的条数比 ① 少。',
+  v3: '<b>③ 一张事一卡片</b>：跟驾驶舱同一套令牌与圆角，一条事能放下标题 + 时间 + 关联的课。代价是一屏从 14 条掉到 9 条，纯清单党会觉得啰嗦。<b>这里刻意不用 KPI 那种渐变底</b> —— §8.8.6 要求一屏只有一个高亮区，渐变底铺到十几张卡上整屏就都是色块（我先按那样画了一版，自己否了）。',
+  v4: '<b>④ 按天 · 课表落进来</b>：一天一块，课和待办排在同一条时间轴上。它同时回答"今天几点有空"和"今天要做完什么"，课表是往格子里填内容而不是新增几百行 —— 代价是"稍后/某天"这类没日子的事没地方放，得留一个兜底列。',
+}
+const views = document.querySelectorAll('.view')
+const tabs = document.querySelectorAll('.pick .tab')
+function show(id) {
+  views.forEach((v) => (v.hidden = v.id !== id))
+  tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.v === id)))
+  document.getElementById('caption').innerHTML = CAP[id]
+  document.getElementById('zones').hidden = id === 'v4'
+}
+tabs.forEach((t) => t.addEventListener('click', () => show(t.dataset.v)))
+const modeBtn = document.getElementById('mode')
+function syncMode() {
+  modeBtn.title = document.documentElement.dataset.mode === 'dark' ? '切到亮色' : '切到暗色'
+}
+modeBtn.onclick = () => {
+  const r = document.documentElement
+  r.dataset.mode = r.dataset.mode === 'dark' ? 'light' : 'dark'
+  syncMode()
+}
+show('v1')
+</script>
+</body>
+</html>
