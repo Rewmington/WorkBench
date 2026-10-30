@@ -668,4 +668,4 @@ M11c 在状态表里还是 🟡，欠的三块是手机侧 SQLite、快照/合�
 - `.gitignore` 补上 `.qoder/`、`mobile/build/`、`mobile/.dart_tool/`、`*.apk`、`*.abackup`、编辑器文件；三个构建产物目录原本就已忽略。`.qoder/worktrees/` 里那个 M11b 遗留 worktree（6.6 GB）被忽略，**没有删**——要不要清理、以及要不要分几个 commit 推，等 GitHub 地址和你的意见。
 - 元数据：`package.json` 加英文描述；`mobile/pubspec.yaml` 的描述改成真话、版本从 `1.0.0+1` 对齐到 `0.1.0+1`。
 - 验证：`npm run typecheck` 干净、前端 86 条测试全绿、手机 75 条全绿；README 内相对链接逐条检查过。
-- 未做：`LICENSE` 没有擅自加（许可方式是你的决定）；个人绝对路径、`design/refs/` 里的第三方参考图是否要处理，等仓库公开范围定了再说。
+- 未做：`LICENSE` 没有擅自加（许可方式是你的决定）；个人绝对路径仍留在计划/记录里（示例性质），要不要泛化等你的意见。**一个发现**：`design/refs/yics-knowledge-os*.png` 从 M0 起就被 git 跟踪，首推时已随仓库公开；它们是参考图、不是本项目资产，已在 `design/refs/README.md` 注明。要彻底移出历史需要改写已推送的提交，没做。

@@ -26,6 +26,3 @@ tools/.webdav-sync-root/
 *.log
 .DS_Store
 Thumbs.db
-
-# 设计参考图（来源/授权未定，不随仓库发布）
-design/refs/yics-knowledge-os*.png
