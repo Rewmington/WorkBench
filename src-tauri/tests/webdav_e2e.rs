@@ -11,8 +11,10 @@ use rusqlite::Connection;
 
 use anvil_lib::backup::{self, crypto, webdav::Remote};
 use anvil_lib::db;
+use anvil_lib::repos::settings;
 use anvil_lib::state::Paths;
 use anvil_lib::time::FixedNow;
+use serde_json::json;
 
 fn env(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| panic!("m4-check.mjs 没传 {name}"))
@@ -98,6 +100,15 @@ fn put_propfind_get_and_restore_against_the_stub() {
     std::fs::write(&target.device_id, "pc-old").unwrap();
     let mut conn2 = db::open(&target.db).expect("目标库");
     lived_in(&mut conn2, 1);
+    // 这台机器登录的是另一个账号 —— 还原之后留下的必须是它，不是快照那台机器的
+    settings::set_json(
+        &conn2,
+        settings::KEY_WDAV_EMAIL,
+        &json!("this-machine@example.com"),
+        common::MS,
+        "pc-old",
+    )
+    .expect("本机邮箱");
 
     let at = common::MS + 60_000;
     let bytes = backup::restore_with(&mut conn2, &target, &r, SECRET, &name, at).expect("还原");
@@ -116,6 +127,20 @@ fn put_propfind_get_and_restore_against_the_stub() {
         count(&reopened, "SELECT count(*) FROM todos"),
         count(&probe, "SELECT count(*) FROM todos"),
         "还原后的待办数与源库一致"
+    );
+
+    assert_eq!(
+        settings::get_json(&reopened, settings::KEY_WDAV_EMAIL).unwrap(),
+        Some(json!("this-machine@example.com")),
+        "还原换的是库，不是这台机器的账号：邮箱丢了 = 备份页与药箱页同时变成未配置"
+    );
+    assert_eq!(
+        count(
+            &reopened,
+            "SELECT count(*) FROM settings WHERE key IN ('linked.blog.repoDir','linked.medicine.dbPath','webdav.email','linked.medicine.email')"
+        ),
+        4,
+        "四项本机设置都得原地留下（快照里根本没有它们）"
     );
 
     let id = std::fs::read_to_string(&target.device_id).expect("device.id 要还在");

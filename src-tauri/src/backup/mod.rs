@@ -3,6 +3,7 @@
 //! 单写端（一台电脑）让这件事简单：快照不需要合并、不需要版本号，
 //! 恢复就是整文件覆盖（PLAN §10）。备份产物里**不含外部缓存与凭据**：
 //! linked_snapshots 里是药箱的健康数据，settings 里有本机绝对路径与邮箱。
+//! 但"不许出门"不等于"还原时该清掉"—— 那几项按 `MACHINE_LOCAL_KEYS` 原地留在这台机器上。
 
 pub mod crypto;
 pub mod propfind;
@@ -16,6 +17,7 @@ use rusqlite::{params, Connection};
 use sha2::{Digest, Sha256};
 
 use crate::error::{Error, Result};
+use crate::repos::settings;
 use crate::state::Paths;
 use crate::time::{days, Now};
 use crate::win32::creds;
@@ -35,6 +37,46 @@ pub struct Outcome {
 /// 保留多少份本地暂存副本。远端保留数由设置决定，默认不动远端历史。
 pub const KEEP_LOCAL: usize = 3;
 
+/// 属于**这台机器**的四项设置：两个坚果云邮箱（它解释凭据管理器里那条密码属于谁）
+/// 与两个外部程序的绝对路径。
+///
+/// 同一份名单管两头：`export` 拿它剥（不许出门），`restore_with` 拿它留（还原是换库
+/// 不是换机器）。两头共用一个常量，才不会哪天加了一项只记得改一头。
+pub const MACHINE_LOCAL_KEYS: [&str; 4] = [
+    crate::repos::settings::KEY_BLOG_REPO_DIR,
+    crate::repos::settings::KEY_MEDICINE_DB,
+    crate::repos::settings::KEY_WDAV_EMAIL,
+    // 药箱那边用的邮箱同样是邮箱。目录地址留着（它机器无关，还原后仍然有效）
+    crate::repos::settings::KEY_MEDICINE_EMAIL,
+];
+
+fn machine_local_rows(conn: &Connection) -> Result<Vec<(String, serde_json::Value)>> {
+    let mut out = Vec::new();
+    for key in MACHINE_LOCAL_KEYS {
+        if let Some(v) = settings::get_json(conn, key)? {
+            out.push((key.to_owned(), v));
+        }
+    }
+    Ok(out)
+}
+
+/// 把抄下来的那几项写回刚还原好的库，返回写回了几项。
+fn keep_machine_local(
+    db: &Path,
+    rows: &[(String, serde_json::Value)],
+    ms: i64,
+    device: &str,
+) -> Result<usize> {
+    if rows.is_empty() {
+        return Ok(0)
+    }
+    let conn = Connection::open(db)?;
+    for (key, value) in rows {
+        settings::set_json(&conn, key, value, ms, device)?;
+    }
+    Ok(rows.len())
+}
+
 /// 从库里导出「可上云的最小快照」：一致快照 → 剥掉不该出门的内容 → gzip。
 pub fn export(conn: &Connection, tmp_dir: &Path, ms: i64) -> Result<Vec<u8>> {
     std::fs::create_dir_all(tmp_dir)?;
@@ -48,17 +90,9 @@ pub fn export(conn: &Connection, tmp_dir: &Path, ms: i64) -> Result<Vec<u8>> {
 
     let stripped = Connection::open(&snap)?;
     stripped.execute_batch("DELETE FROM linked_snapshots; DELETE FROM backup_log;")?;
-    // 键名用常量，免得哪天改了名字、备份里还带着本机绝对路径和邮箱
-    stripped.execute(
-        "DELETE FROM settings WHERE key IN (?1, ?2, ?3, ?4)",
-        params![
-            crate::repos::settings::KEY_BLOG_REPO_DIR,
-            crate::repos::settings::KEY_MEDICINE_DB,
-            crate::repos::settings::KEY_WDAV_EMAIL,
-            // 药箱那边用的邮箱同样是邮箱。目录地址留着（它机器无关，还原后仍然有效）
-            crate::repos::settings::KEY_MEDICINE_EMAIL,
-        ],
-    )?;
+    for key in MACHINE_LOCAL_KEYS {
+        stripped.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
+    }
     stripped.execute_batch("VACUUM")?;
     drop(stripped);
 
@@ -284,6 +318,10 @@ pub fn restore_with(
         return Err(Error::msg("那是药箱的同步文件，不是工作台的备份"));
     }
 
+    // 本机那四项要在换库之前抄：换完之后 conn 指向的是快照里那份库，
+    // 而快照里根本没有它们（`export` 剥掉了）。
+    let local = machine_local_rows(conn)?;
+
     let sealed = remote.get(remote_name)?;
     let gz = crypto::open(secret, &sealed)?;
 
@@ -326,6 +364,107 @@ pub fn restore_with(
     std::fs::write(&paths.device_id, &fresh)?;
     log::info!("已还原快照 {remote_name}（{stamp}），新设备 id {fresh}");
 
+    // 写回本机设置。这一步失败不该把已经成功的还原说成失败：库已经换好了，
+    // 顶多邮箱空着、重填一次就能用，所以只记日志。
+    match keep_machine_local(&paths.db, &local, ms, &fresh) {
+        Ok(0) => log::info!("这台机器还没有本机专属的设置，还原后无需补回"),
+        Ok(n) => log::info!("还原后保留本机设置 {n} 项（两个邮箱与两个绝对路径）"),
+        Err(e) => log::error!("还原后写回本机设置失败，需要重填：{e}"),
+    }
+
     Ok(db_bytes.len() as u64)
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::migrations::migrate;
+    use serde_json::json;
+
+    fn fresh_db() -> Connection {
+        let mut c = crate::db::open_in_memory().expect("内存库");
+        migrate(&mut c).expect("migrate");
+        c
+    }
+
+    fn count(conn: &Connection, key: &str) -> i64 {
+        conn.query_row(
+            "SELECT count(*) FROM settings WHERE key = ?1",
+            params![key],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    /// 备份不许带凭据，但还原也不该把这台机器自己的设置清掉 —— 两头都要测，
+    /// 因为它们是同一份名单（`MACHINE_LOCAL_KEYS`）。
+    #[test]
+    fn the_artifact_drops_them_and_the_restore_puts_them_back() {
+        let tmp = std::env::temp_dir().join(format!("anvil-keep-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let conn = fresh_db();
+        let ms = 1_793_000_000_000_i64;
+        for (key, value) in [
+            (settings::KEY_WDAV_EMAIL, json!("me@example.com")),
+            (settings::KEY_MEDICINE_EMAIL, json!("me@example.com")),
+            (settings::KEY_BLOG_REPO_DIR, json!("D:/blog")),
+            (settings::KEY_MEDICINE_DB, json!("D:/med.db")),
+            (settings::KEY_THEME_MODE, json!("dark")),
+        ] {
+            settings::set_json(&conn, key, &value, ms, "pc-old").unwrap();
+        }
+
+        let gz = export(&conn, &tmp, ms).expect("导出");
+        let mut gunzip = flate2::read::GzDecoder::new(&gz[..]);
+        let mut raw = Vec::new();
+        gunzip.read_to_end(&mut raw).unwrap();
+        let file = tmp.join("restored.db");
+        std::fs::write(&file, &raw).unwrap();
+
+        // 出门的那份：四项都没了，机器无关的留着
+        let artifact = Connection::open(&file).unwrap();
+        for key in MACHINE_LOCAL_KEYS {
+            assert_eq!(count(&artifact, key), 0, "{key} 不该出门");
+        }
+        assert_eq!(count(&artifact, settings::KEY_THEME_MODE), 1, "主题是机器无关的");
+        drop(artifact);
+
+        // 还原：换库之前抄，换库之后写回
+        let rows = machine_local_rows(&conn).expect("抄本机设置");
+        assert_eq!(rows.len(), 4);
+        assert_eq!(keep_machine_local(&file, &rows, ms + 1, "pc-new").expect("写回"), 4);
+
+        let after = Connection::open(&file).unwrap();
+        for key in MACHINE_LOCAL_KEYS {
+            assert_eq!(count(&after, key), 1, "还原之后 {key} 必须还在");
+        }
+        assert_eq!(
+            settings::get_json(&after, settings::KEY_WDAV_EMAIL).unwrap(),
+            Some(json!("me@example.com")),
+            "写回的必须是这台机器还原前那个值"
+        );
+        assert_eq!(
+            settings::get_json(&after, settings::KEY_THEME_MODE).unwrap(),
+            Some(json!("dark")),
+            "快照里的主题归快照管，还原不该顺手改它"
+        );
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// 新机器第一次还原：本机一项设置都还没有，就不该往库里塞空值。
+    #[test]
+    fn nothing_is_written_back_when_this_machine_has_no_local_settings() {
+        let tmp = std::env::temp_dir().join(format!("anvil-keep-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let file = tmp.join("db.db");
+        std::fs::write(&file, []).ok();
+
+        let conn = fresh_db();
+        assert!(machine_local_rows(&conn).unwrap().is_empty());
+        assert_eq!(keep_machine_local(&file, &[], 1, "pc-new").unwrap(), 0);
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+}

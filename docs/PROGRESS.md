@@ -390,3 +390,20 @@ Rust：165 passed + 5 ignored；clippy 干净。
 - 前端 71 passed（`today-shape.spec.ts` 7 条：三条带的顺序与内容、空档行与课表页同值、没设开学日不编"全天有空"、空清单时那一行还在、课不进待办、把手与绿线）+ typecheck + `lint:style` 与令牌冻结表都过。
 - Rust 164 passed + 5 ignored、clippy `-D warnings` 干净。新增 `importing_a_whole_term_moves_no_completion_number`：整学期导进来，今日环 / 完成日历 / 标签总数 / 历史天数一个数都不许动。
 - 截图：`shots/m9-today-{1400,1000,760}-{dark,light}.png`（今天档三条带 + 空档行）、`shots/m9-tt-ok-*`（课表常态）、`shots/m9-tt-panel-*`（点一格出右栏，含图例那句空档）、`shots/m9-tt-*`（未设开学日与窄档）。
+## 你报的：回退一份备份之后，坚果云的账号和密码都不见了（2026-10-30）
+
+诊断先于改动，取证只读聚合值（不读邮箱内容）：
+
+- 现在这台机器的 `settings` 里 `webdav.email` **整行没了**，`linked.medicine.email` 是 `null`。
+- 还原时留下的 `app.pre-restore-*.db` 里两行都还在 —— 所以是**还原这一步抹掉的**，不是别的。
+- Windows 凭据管理器里 `webdav.Anvil` **仍然存在**（`cmdkey /list` 只有目标名，没读秘密）。密码从来没进过库，也就不可能被还原删掉。
+
+根因是 M4 的一条正确规则被用错了地方：备份产物**不许携带**本机凭据与绝对路径（`export` 剥掉 `MACHINE_LOCAL_KEYS` 四项，envelope 测试钉着）。但还原是**换库**，不是**换机器** —— 整文件覆盖顺手把这四项清成了空，于是备份页与药箱页同时变成"未配置"，而那个还躺在凭据管理器里的密码因为邮箱没了而没人能解释它属于谁。备份页的保存按钮要邮箱 + 密码两个都填才让点，所以看起来"密码也没了"。
+
+改法：同一份名单管两头。`restore_with` 在换库**之前**把这四项抄下来，换完库、写完新设备 id 之后写回刚还原好的库；`export` 的剥除名单改成引用同一个 `MACHINE_LOCAL_KEYS` 常量，以后加一项不会只记得改一头。写回失败只记日志不算还原失败 —— 库已经换好了，顶多重填一次邮箱，把成功的还原说成失败更糟。
+
+- 单测 `the_artifact_drops_them_and_the_restore_puts_them_back`：出门那份四项全空、主题留着；写回后四项回来且值是本机还原前那个。
+- e2e `put_propfind_get_and_restore_against_the_stub` 加了断言：目标机器登录的是**另一个**账号，还原之后留下的必须是它（`node tools/m4-check.mjs` 真跑过，3 passed）。
+- 换机场景不变：新机器本来就没有这四项，`machine_local_rows` 返回空，就不往库里塞空值（第二条单测钉这个）。
+
+**你这边现在要做的**：备份页填一次邮箱即可 —— 那条应用密码还在凭据管理器里，但表单要两个都填，所以顺手重填一次；药箱页的邮箱 + 密码要重填（凭据管理器里没有 `medicine-webdav.Anvil` 这条，说明它早就没存过）。另外 `linked.blog.repoDir` 与 `linked.medicine.dbPath` 你这两台都没自定义过，所以没东西可丢。
