@@ -387,17 +387,15 @@ fn webdav_credentials(conn: &Connection) -> Option<(String, String)> {
     crate::backup::credentials(conn)
 }
 
-/// 课表没有 `dirty` 列（手机只读它），不能靠 `pending` 判断有没有新东西要发。
-/// 用「课表里最新一行的 `updated_at`」与上次成功同步的时间比：首次同步（没有
-/// lastSyncAt）或课表在这之后被导入/删除过，就必须发布。否则「只有课表、没有待办」
-/// 的机器会永远不发自己那份，手机也就永远看不到课表（2026-10-31 真机复现）。
-fn classes_changed_since(conn: &Connection, last_sync_at: Option<i64>) -> Result<bool> {
-    let newest: Option<i64> = conn.query_row("SELECT max(updated_at) FROM classes", [], |r| r.get(0))?;
-    Ok(match (newest, last_sync_at) {
-        (Some(newest), Some(at)) => newest > at,
-        (Some(_), None) => true,
-        _ => false,
-    })
+/// 本机有没有任何可同步的行。PC 只要本地有数据就发布全量快照：
+/// 只拉取过的机器 lastSyncAt 可能晚于课表更新时间，按时间判断会永远漏发。
+fn has_local_rows(conn: &Connection) -> Result<bool> {
+    let any: i64 = conn.query_row(
+        "SELECT (EXISTS(SELECT 1 FROM todos) OR EXISTS(SELECT 1 FROM classes))",
+        [],
+        |r| r.get(0),
+    )?;
+    Ok(any != 0)
 }
 
 /// 一次完整同步的纯逻辑：远端与密钥由调用方给，所以 `tests/sync_relay_e2e.rs`
@@ -415,6 +413,8 @@ pub fn run_with(
 
         // GET 的是**别人**那些 device-*.enc：自己那份不读回来合并（自己的行本来就在库里）。
         let entries = remote.list()?;
+        // 合并前先看本机有没有本地数据：合并进来的对端行会让「空库」看起来有数据，不能算。
+        let local_rows = has_local_rows(conn)?;
         let mut applied = 0usize;
         let mut kept = 0usize;
         let mut peers = Vec::new();
@@ -435,16 +435,14 @@ pub fn run_with(
             peers.truncate(MAX_PEERS);
         }
 
-        // 「没有要发的东西就跳过 PUT」的省配额判断（§3.4）。待办看 dirty；
-        // 课表没有 dirty 列，看它是否比上次成功同步更新（见 classes_changed_since）。
-        let last_sync_at = stored_state(conn)?
-            .get("lastSyncAt")
-            .and_then(serde_json::Value::as_i64);
-        let classes_changed = classes_changed_since(conn, last_sync_at)?;
+        // PC 只要本地有数据就发布全量快照；只有真正的空库才跳过。
+        // 课表没有 dirty 列，只拉取过的机器 lastSyncAt 又可能晚于课表更新时间，
+        // 任何基于「有没有变化」的优化都会漏发（2026-10-31 真机复现），所以不做。
         let pending = merge::pending(conn)?;
+        let should_publish = pending > 0 || local_rows;
         let mut uploaded = false;
         let mut sealed_at = None;
-        if pending > 0 || classes_changed {
+        if should_publish {
             let stamp = now.ms();
             let snap = snapshot::dump(conn, snapshot::PC_TABLES, device, stamp)?;
             let plain = snap.to_bytes()?;
@@ -654,26 +652,4 @@ mod tests {
         assert_eq!(stored_state(&c).unwrap(), json!({}), "跳过不该留下任何状态");
     }
 
-    /// 「只有课表、没有待办」的机器也必须发自己那份：课表没有 dirty 列，
-    /// 判据是「课表最新一行的 updated_at 是否晚于上次成功同步」。
-    #[test]
-    fn classes_newer_than_the_last_sync_trigger_a_publish() {
-        let c = conn();
-        assert!(!classes_changed_since(&c, None).unwrap(), "空课表没有东西可发");
-
-        c.execute(
-            "INSERT INTO classes (id, rev, created_at, created_by, updated_at, updated_by,
-                                  deleted_at, term, name, teacher, room, day,
-                                  start_min, end_min, period, weeks)
-             VALUES ('cls-1',1,100,'pc-a',100,'pc-a',NULL,'2026-2027-1','数据结构','','',3,480,580,'','1-16')",
-            [],
-        )
-        .unwrap();
-        assert!(classes_changed_since(&c, None).unwrap(), "首次同步要发");
-        assert!(!classes_changed_since(&c, Some(100)).unwrap(), "没变就别重复发");
-        assert!(classes_changed_since(&c, Some(99)).unwrap(), "比上次同步新就要发");
-
-        c.execute("UPDATE classes SET deleted_at = 101, updated_at = 101", []).unwrap();
-        assert!(classes_changed_since(&c, Some(100)).unwrap(), "墓碑也要发出去");
-    }
 }

@@ -166,10 +166,11 @@ fn phone_snapshot_merges_in_and_the_pc_uploads_its_own_envelope() {
         "邮箱不许进文件名：{names:?}"
     );
 
-    // 第二次同步：没有本地写入 → 一句 PUT 都不发（M11b 点名的省配额钉子）。
+    // 第二次同步：PC 仍持有本地数据 → 每次发布全量快照（课表没有 dirty，
+    // 只拉取过的机器时间戳又会骗人，所以不做「有没有变化」的省配额优化）。
     let out2 = relay::run_with(&c, "pc-e2e", SECRET, &r, &FixedNow(MS + 60_000));
     assert!(out2.ok);
-    assert!(!out2.uploaded && out2.put_skipped, "pending==0 必须跳过 PUT");
+    assert!(out2.uploaded && !out2.put_skipped, "有本地数据的 PC 每轮都发布");
     assert_eq!(out2.pending_after, 0);
 
     // 状态落进了 settings：界面那句「上次同步于」与 listing 的唯一来源
@@ -361,5 +362,40 @@ fn classes_alone_trigger_a_publish() {
     assert!(snap.rows("todos").is_empty());
 
     let out2 = relay::run_with(&c, "pc-cls", SECRET, &r, &FixedNow(MS + 60_000));
-    assert!(!out2.uploaded && out2.put_skipped, "课表没变化就别重复发");
+    assert!(out2.uploaded, "有本地数据的 PC 每轮都发布全量快照");
+}
+
+/// 只拉取过、从没上传过的机器：lastSyncAt 晚于课表更新时间，仍然必须补发自己那份。
+/// 否则「上一次同步只拉取、跳过了 PUT」的机器会永远没有 `device-pc-*.enc`。
+#[test]
+#[ignore = "需要桩在跑"]
+fn a_pull_only_sync_still_publishes_on_the_next_run() {
+    wipe_device_files();
+    let r = remote();
+    r.ensure_dir().unwrap();
+
+    let c = conn();
+    c.execute(
+        "INSERT INTO classes (id, rev, created_at, created_by, updated_at, updated_by,
+                              deleted_at, term, name, teacher, room, day,
+                              start_min, end_min, period, weeks)
+         VALUES ('cls-pull',1,?1,'pc-a',?1,'pc-a',NULL,'2026-2027-1','数据结构','','',3,480,580,'','1-16')",
+        [MS],
+    )
+    .unwrap();
+    // 模拟一次「只拉取、没上传」的旧同步：状态里有 lastSyncAt，但远端没有自己那份。
+    settings::set_json(
+        &c,
+        settings::KEY_SYNC_STATE,
+        &json!({ "lastSyncAt": MS }),
+        MS,
+        "pc-pull",
+    )
+    .unwrap();
+    assert_eq!(merge::pending(&c).unwrap(), 0);
+
+    let out = relay::run_with(&c, "pc-pull", SECRET, &r, &FixedNow(MS + 60_000));
+    assert!(out.ok, "{}", out.error.unwrap_or_default());
+    assert!(out.uploaded && !out.put_skipped, "远端没有自己那份就要补发");
+    assert!(r.get(&relay::file_name("pc-pull")).is_ok());
 }
