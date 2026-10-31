@@ -331,3 +331,35 @@ fn rejected_credentials_leave_one_line_and_no_panic() {
     assert!(st.get("lastSyncAt").and_then(Value::as_i64).is_none());
     assert_eq!(st.get("lastError").and_then(Value::as_str), Some(line.as_str()));
 }
+
+/// 「只有课表、没有待办」也要发布：否则手机永远拿不到课表。首次发完，课表没变就跳过。
+#[test]
+#[ignore = "需要桩在跑"]
+fn classes_alone_trigger_a_publish() {
+    wipe_device_files();
+    let r = remote();
+    r.ensure_dir().unwrap();
+
+    let c = conn();
+    c.execute(
+        "INSERT INTO classes (id, rev, created_at, created_by, updated_at, updated_by,
+                              deleted_at, term, name, teacher, room, day,
+                              start_min, end_min, period, weeks)
+         VALUES ('cls-only',1,?1,'pc-a',?1,'pc-a',NULL,'2026-2027-1','数据结构','','',3,480,580,'','1-16')",
+        [MS],
+    )
+    .unwrap();
+    assert_eq!(merge::pending(&c).unwrap(), 0, "夹具前提：没有待办欠账");
+
+    let out = relay::run_with(&c, "pc-cls", SECRET, &r, &FixedNow(MS));
+    assert!(out.ok, "{}", out.error.unwrap_or_default());
+    assert!(out.uploaded && !out.put_skipped, "课表在库里就得发");
+
+    let blob = r.get(&relay::file_name("pc-cls")).unwrap();
+    let snap = Snapshot::from_bytes(&crypto::open(SECRET, &blob).unwrap()).unwrap();
+    assert_eq!(snap.rows("classes").len(), 1, "课表要进快照");
+    assert!(snap.rows("todos").is_empty());
+
+    let out2 = relay::run_with(&c, "pc-cls", SECRET, &r, &FixedNow(MS + 60_000));
+    assert!(!out2.uploaded && out2.put_skipped, "课表没变化就别重复发");
+}

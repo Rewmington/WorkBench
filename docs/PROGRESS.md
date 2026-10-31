@@ -714,3 +714,13 @@ v0.1.0 的 APK 是 CI 临时 debug 证书签的，既不能跨版本覆盖安装
 - 用 `flutter_launcher_icons` 从 `mobile/assets/app-icon.png` 生成 Android legacy + adaptive 图标（背景 #0D1110）；桌面 Tauri 图标与托盘也用干净源重生成。
 - 版本 `0.1.2+3`；本地 release APK 验证：证书 `CN=Anvil`、versionCode 3、含 `INTERNET`、launcher label `Anvil`。
 - 顺带把设置页「远端设备」的空值分成两种：从没同步过 =「还没列过」，同步成功但没有别人 =「没发现其他设备」——后者正是「课表还没过来」时要看的信号。
+
+## v0.1.3：只有课表也要发布（2026-10-31）
+
+**真机复现**：`workbench-sync` 目录建出来了（手机第一次同步的 MKCOL），但里面没有 `device-pc-*.enc`，手机显示「没发现其他设备」，课表自然没有。根因不在坚果云，也不在手机：**PC 端的发布条件只数 `todos.dirty`**，而课表没有 dirty 列 —— 只有课表、待办干净的机器永远不发自己那份。
+
+修复：PC 的发布条件改成 **`pending > 0` 或「课表最新 `updated_at` 晚于上次成功同步」**。首次同步（没有 lastSyncAt）课表非空就发；课表没变仍然跳过，不浪费配额。新增单测与 e2e `classes_alone_trigger_a_publish`，`node tools/m11b-check.mjs` 5/5 通过。
+
+手机侧只改了一句空态文案：「课表要在电脑上导入并同步一次，才会出现在这里」。
+
+版本统一到 0.1.3。**桌面必须升到 v0.1.3 并在「备份」页点一次立即同步**，`workbench-sync` 里才会出现 `device-pc-*.enc`；手机再同步就能拉到课表。

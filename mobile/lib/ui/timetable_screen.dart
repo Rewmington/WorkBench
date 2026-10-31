@@ -130,7 +130,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
           Text(store.classes.isEmpty ? '这台手机还没同步到课表' : '电脑上的开学日还没设',
               style: TextStyle(fontSize: Metrics.body, color: s.t1)),
           const SizedBox(height: 6),
-          Text('课表只能在电脑上导入，同步之后出现在这里',
+          Text('课表要在电脑上导入并同步一次，才会出现在这里',
               style: TextStyle(fontSize: Type.meta, color: s.t3)),
         ],
       ),

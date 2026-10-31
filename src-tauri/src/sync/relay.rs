@@ -387,6 +387,19 @@ fn webdav_credentials(conn: &Connection) -> Option<(String, String)> {
     crate::backup::credentials(conn)
 }
 
+/// 课表没有 `dirty` 列（手机只读它），不能靠 `pending` 判断有没有新东西要发。
+/// 用「课表里最新一行的 `updated_at`」与上次成功同步的时间比：首次同步（没有
+/// lastSyncAt）或课表在这之后被导入/删除过，就必须发布。否则「只有课表、没有待办」
+/// 的机器会永远不发自己那份，手机也就永远看不到课表（2026-10-31 真机复现）。
+fn classes_changed_since(conn: &Connection, last_sync_at: Option<i64>) -> Result<bool> {
+    let newest: Option<i64> = conn.query_row("SELECT max(updated_at) FROM classes", [], |r| r.get(0))?;
+    Ok(match (newest, last_sync_at) {
+        (Some(newest), Some(at)) => newest > at,
+        (Some(_), None) => true,
+        _ => false,
+    })
+}
+
 /// 一次完整同步的纯逻辑：远端与密钥由调用方给，所以 `tests/sync_relay_e2e.rs`
 /// 能对着本地桩跑通整条链，不必碰 Windows 凭据管理器（PLAN §6.3「不经 Tauri、直接可测」）。
 pub fn run_with(
@@ -422,11 +435,16 @@ pub fn run_with(
             peers.truncate(MAX_PEERS);
         }
 
-        // 「本地没有写入就跳过 PUT」的省配额判断（§3.4）。计数只有 merge::pending 一个来源。
+        // 「没有要发的东西就跳过 PUT」的省配额判断（§3.4）。待办看 dirty；
+        // 课表没有 dirty 列，看它是否比上次成功同步更新（见 classes_changed_since）。
+        let last_sync_at = stored_state(conn)?
+            .get("lastSyncAt")
+            .and_then(serde_json::Value::as_i64);
+        let classes_changed = classes_changed_since(conn, last_sync_at)?;
         let pending = merge::pending(conn)?;
         let mut uploaded = false;
         let mut sealed_at = None;
-        if pending > 0 {
+        if pending > 0 || classes_changed {
             let stamp = now.ms();
             let snap = snapshot::dump(conn, snapshot::PC_TABLES, device, stamp)?;
             let plain = snap.to_bytes()?;
@@ -634,5 +652,28 @@ mod tests {
         assert!(out.skipped);
         assert!(out.error.unwrap().contains("还没配好"));
         assert_eq!(stored_state(&c).unwrap(), json!({}), "跳过不该留下任何状态");
+    }
+
+    /// 「只有课表、没有待办」的机器也必须发自己那份：课表没有 dirty 列，
+    /// 判据是「课表最新一行的 updated_at 是否晚于上次成功同步」。
+    #[test]
+    fn classes_newer_than_the_last_sync_trigger_a_publish() {
+        let c = conn();
+        assert!(!classes_changed_since(&c, None).unwrap(), "空课表没有东西可发");
+
+        c.execute(
+            "INSERT INTO classes (id, rev, created_at, created_by, updated_at, updated_by,
+                                  deleted_at, term, name, teacher, room, day,
+                                  start_min, end_min, period, weeks)
+             VALUES ('cls-1',1,100,'pc-a',100,'pc-a',NULL,'2026-2027-1','数据结构','','',3,480,580,'','1-16')",
+            [],
+        )
+        .unwrap();
+        assert!(classes_changed_since(&c, None).unwrap(), "首次同步要发");
+        assert!(!classes_changed_since(&c, Some(100)).unwrap(), "没变就别重复发");
+        assert!(classes_changed_since(&c, Some(99)).unwrap(), "比上次同步新就要发");
+
+        c.execute("UPDATE classes SET deleted_at = 101, updated_at = 101", []).unwrap();
+        assert!(classes_changed_since(&c, Some(100)).unwrap(), "墓碑也要发出去");
     }
 }
