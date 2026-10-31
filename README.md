@@ -106,8 +106,8 @@ cd mobile && flutter test && flutter analyze
 推一个 `v*` tag 就会触发 [.github/workflows/release.yml](.github/workflows/release.yml)：
 
 ```bash
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 工作流会并行构建并挂到同一个 GitHub Release：

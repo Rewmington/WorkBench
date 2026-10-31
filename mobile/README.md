@@ -64,6 +64,17 @@ flutter run -d windows \
 
 release APK 用固定 keystore 签名：本机文件在 `mobile/.signing/anvil-release.jks` + `mobile/android/key.properties`（两者被忽略）；CI 从 `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD` 四个 secrets 还原。没有 key.properties 时回退 debug 证书。
 
+## 图标
+
+源图是 `assets/app-icon.png`（已清掉水印的透明版）。改图后跑：
+
+```bash
+cp ../design/refs/anvil-app-icon-transparent.png assets/app-icon.png
+dart run flutter_launcher_icons
+```
+
+桌面图标用 `npx tauri icon design/refs/anvil-app-icon-transparent.png` 重新生成。
+
 ## 已知限制
 
 - 只做 Android；没有 iOS 工程。

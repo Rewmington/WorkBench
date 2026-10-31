@@ -111,7 +111,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   context,
                   key: '远端设备',
                   sub: '只认 device-*.enc；自己那份不读回来合并',
-                  value: store.peers.isEmpty ? '还没列过' : store.peers.join('、'),
+                  value: store.sync is NeverSynced
+                      ? '还没列过'
+                      : (store.peers.isEmpty ? '没发现其他设备' : store.peers.join('、')),
                 ),
             ]),
             if (store.medicineService != null)

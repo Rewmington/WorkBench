@@ -707,3 +707,10 @@ v0.1.0 的 APK 是 CI 临时 debug 证书签的，既不能跨版本覆盖安装
 - `build.gradle.kts` 读 key.properties 决定 release 签名；本地已重建验证：证书 `CN=Anvil`、`versionCode=2`、`versionName=0.1.1`、含 `INTERNET`。
 - 版本号：桌面与手机统一到 0.1.1（手机 `0.1.1+2`）。
 - **从 v0.1.0 升上来要卸载一次**（旧包是另一把 debug 证书）；之后同签名的版本可直接覆盖。
+
+## v0.1.2：手机图标（2026-10-31）
+
+- 之前装的是 Flutter 默认图标。美术源 `design/refs/anvil-app-icon*.png` 右下角还带一行「Qoder AI生成」水印；先给 `tools/mkicon.mjs` 加 `--clean-watermark`，只重涂右下角浅色像素（保留圆角透明度），生成干净的透明版。
+- 用 `flutter_launcher_icons` 从 `mobile/assets/app-icon.png` 生成 Android legacy + adaptive 图标（背景 #0D1110）；桌面 Tauri 图标与托盘也用干净源重生成。
+- 版本 `0.1.2+3`；本地 release APK 验证：证书 `CN=Anvil`、versionCode 3、含 `INTERNET`、launcher label `Anvil`。
+- 顺带把设置页「远端设备」的空值分成两种：从没同步过 =「还没列过」，同步成功但没有别人 =「没发现其他设备」——后者正是「课表还没过来」时要看的信号。

@@ -19,6 +19,7 @@ const SRC = resolve(ROOT, 'design/refs/anvil-app-icon.png')
 const OUT = resolve(ROOT, 'design/refs/anvil-app-icon-transparent.png')
 const TRAY = resolve(ROOT, 'src-tauri/icons/tray.png')
 const WRITE = process.argv.includes('--write')
+const CLEAN = process.argv.includes('--clean-watermark')
 
 // 判定"背景"的松紧：越接近纯白越像背景。深色块本身最亮的绿也远不到 200。
 const OPAQUE_MIN = 240 // min(R,G,B) >= 这个值且与外圈连通 → 完全透明
@@ -232,6 +233,29 @@ function cutout(img) {
   return { cleared, fringed }
 }
 
+
+/**
+ * 美术源右下角有「Qoder AI生成」水印。只清那一块的浅色像素：
+ * 深色背景与圆角透明度原样保留，水印不会跟着进 launcher。
+ */
+function eraseWatermark(img) {
+  const { w, h, data } = img
+  const sample = (900 * w + 820) * 4
+  const [br, bg, bb] = [data[sample], data[sample + 1], data[sample + 2]]
+  let n = 0
+  for (let y = 950; y < h; y++) {
+    for (let x = 830; x < w; x++) {
+      const p = (y * w + x) * 4
+      if (data[p + 3] === 0) continue
+      data[p] = br
+      data[p + 1] = bg
+      data[p + 2] = bb
+      n++
+    }
+  }
+  return n
+}
+
 /** 面积平均缩放：图标这种小图不需要更讲究的滤波器。 */
 function resize(img, size) {
   const { w, h, data } = img
@@ -288,6 +312,7 @@ if (!existsSync(SRC)) throw new Error(`找不到图标源文件：${SRC}`)
 const src = decodePng(readFileSync(SRC))
 const before = corners(src)
 const { cleared, fringed } = cutout(src)
+const erased = CLEAN ? eraseWatermark(src) : 0
 const tray = resize(src, 24)
 
 console.log(`源图 ${src.w}x${src.h}`)
