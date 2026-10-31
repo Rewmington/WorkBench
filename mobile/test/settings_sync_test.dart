@@ -131,4 +131,35 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('设置在无路由可弹时，返回键先回今天页而不是退出 app', (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final store = await tester.runAsync(() async {
+      final db = await openMemoryDatabase(databaseFactoryFfi);
+      final repo = await PhoneRepo.open(db, now: DateTime.now().millisecondsSinceEpoch);
+      return Store.load(repo, clock: Clock.live());
+    });
+    await tester.pumpWidget(AnvilApp(
+      store: store!,
+      initialPage: 'today',
+      forcedBrightness: Brightness.dark,
+    ));
+    await tester.pumpAndSettle();
+
+    // 从今天页点齿轮进设置
+    await tester.tap(find.text('⚙'));
+    await tester.pumpAndSettle();
+    expect(find.text('设置'), findsOneWidget);
+
+    // 安卓系统返回：应回到今天页
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('设置'), findsNothing);
+    expect(find.text('⚙'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
 }

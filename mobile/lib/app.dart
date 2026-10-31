@@ -87,27 +87,34 @@ class _AnvilAppState extends State<AnvilApp> {
       home: Builder(
         builder: (context) {
           final onTimetable = _page == _Page.timetable;
-          switch (_page) {
-            case _Page.settings:
-              return SettingsScreen(
+          // 设置页是切换 home 而不是 Navigator 推入的：不给它拦返回键，
+          // 安卓返回会落到「只有一条路由」上，直接把 app 退掉。
+          final child = switch (_page) {
+            _Page.settings => SettingsScreen(
                 store: widget.store,
                 onBack: () => setState(() => _page = _Page.today),
-              );
-            case _Page.today:
-            case _Page.timetable:
-              return onTimetable
-                  ? TimetableScreen(
-                      store: widget.store,
-                      onOpenSettings: () => setState(() => _page = _Page.settings),
-                      onTab: (v) => setState(() => _page = v ? _Page.timetable : _Page.today),
-                    )
-                  : TodayScreen(
-                      store: widget.store,
-                      initialUndoTitle: widget.demo == DemoCase.undo ? undoDemoTitle : null,
-                      onOpenSettings: () => setState(() => _page = _Page.settings),
-                      onTab: (v) => setState(() => _page = v ? _Page.timetable : _Page.today),
-                    );
-          }
+              ),
+            _Page.today || _Page.timetable => onTimetable
+                ? TimetableScreen(
+                    store: widget.store,
+                    onOpenSettings: () => setState(() => _page = _Page.settings),
+                    onTab: (v) => setState(() => _page = v ? _Page.timetable : _Page.today),
+                  )
+                : TodayScreen(
+                    store: widget.store,
+                    initialUndoTitle: widget.demo == DemoCase.undo ? undoDemoTitle : null,
+                    onOpenSettings: () => setState(() => _page = _Page.settings),
+                    onTab: (v) => setState(() => _page = v ? _Page.timetable : _Page.today),
+                  ),
+          };
+          return PopScope(
+            canPop: _page != _Page.settings,
+            onPopInvokedWithResult: (didPop, _) {
+              if (didPop) return;
+              setState(() => _page = _Page.today);
+            },
+            child: child,
+          );
         },
       ),
     );
