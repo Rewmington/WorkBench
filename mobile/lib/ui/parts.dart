@@ -10,10 +10,12 @@ import '../timetable.dart';
 import '../store.dart';
 import '../todo.dart';
 
-/// 头部那一行小字：`10 月 30 日 · 周五 · 第 9 周`
-String headDateLine(Clock clock, int? week) {
+/// 头部那一行小字：`10 月 30 日 · 周五 · 第 9 周`。
+/// `at` 只在看别周时用（课表屏翻到第 N 周的那一天），不传就是今天 ——
+/// 今天屏那条永远不该被别周带走。
+String headDateLine(Clock clock, int? week, {DateTime? at}) {
   const dow = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-  final d = clock.date;
+  final d = at ?? clock.date;
   final w = week == null ? '' : ' · 第 $week 周';
   return '${d.month} 月 ${d.day} 日 · ${dow[d.weekday - 1]}$w';
 }
@@ -390,6 +392,8 @@ class UndoBar extends StatelessWidget {
 }
 
 /// 48dp 的图标按钮（齿轮、左右切天都用它）。视觉 15–17px，点击区整块 48×48。
+/// 48dp 一格的图标按钮。`onTap` 传 null 就是「这一头已经到头」：按不动，
+/// 边框和字形都要淡下去 —— 摆一个看着能按、按了什么都不发生的东西，比不摆更糟。
 class IconButton48 extends StatelessWidget {
   final String glyph;
   final VoidCallback? onTap;
@@ -407,10 +411,12 @@ class IconButton48 extends StatelessWidget {
         height: Metrics.touch,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          border: outlined ? Border.all(color: s.line) : null,
+          border: outlined ? Border.all(color: onTap == null ? Colors.transparent : s.line) : null,
           borderRadius: BorderRadius.circular(Metrics.radiusSm),
         ),
-        child: Text(glyph, style: TextStyle(fontSize: 17, color: s.t2)),
+        child: Text(glyph,
+            style: TextStyle(
+                fontSize: 17, color: onTap == null ? s.t3.withValues(alpha: .45) : s.t2)),
       ),
     );
   }

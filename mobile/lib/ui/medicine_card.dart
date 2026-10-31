@@ -1,9 +1,13 @@
 /// 今天屏的用药卡：药箱的**只读镜像**。
 ///
 /// 这里不提供打卡 —— 打卡会写药箱的库，而 Anvil 对药箱只有 GET/PROPFIND。
-/// 卡片只说三件可验证的事：今天记了几次、下一次是什么、有没有药快没了；
+/// 卡片说的是可验证的事：三环（今日服药 / 本周依从 / 连续打卡）、下一次是什么、
+/// 有没有药快没了。三个数的口径全部来自药箱自己那段算法（见 `medicine.dart`），
+/// 与桌面端「药箱联动」页算出来的必须是同一个数。
 /// 时间一律写「药箱发布于 12:03」，不假装是此刻（§5.5 同一条纪律）。
 library;
+
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -24,8 +28,11 @@ class MedicineCard extends StatelessWidget {
     if (view == null || view.isEmpty || plan == null) return const SizedBox.shrink();
 
     final s = skinOf(context);
+    final now = store.clock.date;
     final status = _status(plan, s);
     final stock = _stockRow(view, s);
+    final stats = view.weekStats(now);
+    final streak = view.streakDays(now);
     return Padding(
       padding: const EdgeInsets.only(bottom: 9),
       child: InkWell(
@@ -58,29 +65,45 @@ class MedicineCard extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 8),
               Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
                 children: [
-                  Text(
-                      plan.planned == 0
-                          ? '今天没有要吃的'
-                          : '今天 ${plan.taken}/${plan.planned} 次',
-                      style: TextStyle(
-                          fontSize: Metrics.body,
-                          fontWeight: FontWeight.w600,
-                          color: s.t1)),
-                  const SizedBox(width: 10),
+                  _ActivityRings(
+                    today: plan.planned > 0 ? plan.taken / plan.planned : 0,
+                    week: stats.hasPlan ? stats.rate : 0,
+                    streak: streak / PeriodStats.weekDays,
+                    skin: s,
+                  ),
+                  const SizedBox(width: 12),
                   Expanded(
-                    child: Text(status.text,
-                        textAlign: TextAlign.right,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: Type.metaWide, color: status.color)),
+                    child: Column(
+                      children: [
+                        _RingRow(
+                            color: s.acc,
+                            label: '今日服药',
+                            value: plan.planned > 0
+                                ? '${plan.taken} / ${plan.planned}'
+                                : '没有安排'),
+                        _RingRow(
+                            color: s.blue,
+                            label: '本周依从',
+                            value: stats.hasPlan
+                                ? '${(stats.rate * 100).round()}%'
+                                : '没有安排'),
+                        _RingRow(
+                            color: s.amber,
+                            label: '连续打卡',
+                            value: '$streak 天'),
+                      ],
+                    ),
                   ),
                 ],
               ),
+              const SizedBox(height: 5),
+              Text(status.text,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: Type.metaWide, color: status.color)),
               if (stock != null) ...[
                 const SizedBox(height: 3),
                 stock,
@@ -111,10 +134,12 @@ class MedicineCard extends StatelessWidget {
 
   /// 已用完优先说，其次才是偏低；两种都有就都写，中间用「·」隔开。
   /// 两段分开着色：「已用完」是红，「剩 N 天」是琥珀 —— 一句话全红会夸大次要那条。
+  /// 名单也按还剩几天排：排最前的那个名字就是最该去补的。
   Widget? _stockRow(MedicineView view, Skin s) {
-    final out = [for (final m in view.medicines) if (m.isOut) m.name];
+    final stock = view.byStock;
+    final out = [for (final m in stock) if (m.isOut) m.name];
     final low = [
-      for (final m in view.medicines)
+      for (final m in stock)
         if (!m.isOut && m.isLow) '${m.name} 剩 ${m.daysLeft!.ceil()} 天',
     ];
     if (out.isEmpty && low.isEmpty) return null;
@@ -129,6 +154,124 @@ class MedicineCard extends StatelessWidget {
         if (low.isNotEmpty)
           Text(low.join('、'), style: TextStyle(fontSize: Type.meta, color: s.amber)),
       ],
+    );
+  }
+}
+
+/// 三色活动环：今日服药 / 本周依从 / 连续打卡。
+///
+/// 几何照药箱今天屏那张（它 `theme.dart` 的 `ActivityRings`），颜色只从 [Skin] 里取，
+/// 分工与桌面端 `AdherenceRings.vue` 一致：绿=今天、蓝=本周、金=连续。
+class _ActivityRings extends StatelessWidget {
+  final double today;
+  final double week;
+  final double streak;
+  final Skin skin;
+
+  const _ActivityRings({
+    required this.today,
+    required this.week,
+    required this.streak,
+    required this.skin,
+  });
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+        size: const Size(72, 72),
+        painter: _RingsPainter(
+          values: [
+            today.clamp(0.0, 1.0),
+            week.clamp(0.0, 1.0),
+            streak.clamp(0.0, 1.0),
+          ],
+          track: skin.line2,
+          colors: [skin.acc, skin.blue, skin.amber],
+        ),
+      );
+}
+
+class _RingsPainter extends CustomPainter {
+  final List<double> values;
+  final Color track;
+  final List<Color> colors;
+
+  const _RingsPainter({
+    required this.values,
+    required this.track,
+    required this.colors,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    final stroke = size.width * 0.086;
+    for (var i = 0; i < values.length; i++) {
+      final radius = size.width / 2 - stroke / 2 - i * stroke * 1.36;
+      canvas.drawCircle(
+        c,
+        radius,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = stroke
+          ..color = track,
+      );
+      final v = values[i];
+      if (v <= 0) continue; // 没有安排就留空环，不画成「一圈满」
+      canvas.drawArc(
+        Rect.fromCircle(center: c, radius: radius),
+        -math.pi / 2,
+        2 * math.pi * v,
+        false,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = stroke
+          ..strokeCap = StrokeCap.round
+          ..color = colors[i],
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_RingsPainter old) {
+    for (var i = 0; i < values.length; i++) {
+      if (old.values[i] != values[i]) return true;
+    }
+    return old.track != track || old.colors != colors;
+  }
+}
+
+class _RingRow extends StatelessWidget {
+  final Color color;
+  final String label;
+  final String value;
+
+  const _RingRow({required this.color, required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = skinOf(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(label,
+                style: TextStyle(fontSize: Type.metaWide, color: s.t2)),
+          ),
+          Text(value,
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: s.t1,
+                  fontFeatures: const [FontFeature.tabularFigures()])),
+        ],
+      ),
     );
   }
 }
@@ -184,7 +327,7 @@ class MedicineSheet extends StatelessWidget {
             if (view == null || view.isEmpty)
               Text('药箱里还没有药', style: TextStyle(fontSize: Type.metaWide, color: s.t3))
             else
-              for (final m in view.medicines) _medicine(context, m, plan),
+              for (final m in view.byStock) _medicine(context, m, plan),
             const SizedBox(height: 6),
             Text('这里只读；回药箱打卡并同步后才会更新',
                 style: TextStyle(fontSize: Type.meta, color: s.t3)),

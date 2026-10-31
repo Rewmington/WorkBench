@@ -3,6 +3,8 @@ import { computed, onMounted, ref } from 'vue'
 import { CloudDownload, HardDrive, RefreshCw } from 'lucide-vue-next'
 
 import { api } from '../api'
+import AdherenceRings from '../components/medicine/AdherenceRings.vue'
+import StockBars from '../components/medicine/StockBars.vue'
 import CollapsedRow from '../components/ui/CollapsedRow.vue'
 import PathField from '../components/ui/PathField.vue'
 import UndoBar from '../components/ui/UndoBar.vue'
@@ -150,15 +152,20 @@ onMounted(async () => {
     />
 
     <template v-else>
+      <div class="gauge">
+        <AdherenceRings
+          class="rings"
+          :today-taken="meta.todayTaken ?? 0"
+          :today-owed="meta.todayOwed ?? 0"
+          :week-rate="meta.weekRate ?? 0"
+          :has-week-plan="(meta.weekOwed ?? 0) > 0 || (meta.weekSkipped ?? 0) > 0"
+          :streak-days="meta.streakDays ?? 0"
+        />
+        <StockBars class="stock" :items="items" />
+      </div>
+
       <div class="sum">
-        <span class="s">
-          今日时段
-          <b>{{ meta.todayTaken ?? 0 }}/{{ meta.todayOwed ?? 0 }}</b>
-          已记
-        </span>
-        <span v-if="lowOnes.length" class="s warn">
-          余量偏低 <b>{{ lowOnes.length }}</b> 种
-        </span>
+        <span v-if="lowOnes.length" class="s warn">余量偏低 <b>{{ lowOnes.length }}</b> 种</span>
         <span class="s">共 {{ items.length }} 种药</span>
       </div>
 
@@ -307,6 +314,42 @@ h2 {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+}
+.gauge {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: var(--r-sm);
+  padding: 12px 13px;
+}
+.rings {
+  width: 288px;
+  flex: none;
+}
+.stock {
+  flex: 1;
+  min-width: 0;
+  border-left: 1px solid var(--line);
+  padding-left: 16px;
+}
+/* 窄一档横着排会把条挤成没读相的细线，改成上下两段 */
+@media (max-width: 1000px) {
+  .gauge {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .rings {
+    width: auto;
+  }
+  .stock {
+    border-left: 0;
+    padding-left: 0;
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+  }
 }
 .sum {
   display: flex;

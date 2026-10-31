@@ -72,8 +72,20 @@ fn medicine_payload(day_start_ms: i64, now_minutes: i32, meds: &[medicine_math::
     let mut items = Vec::new();
     let (mut taken, mut owed, mut low) = (0usize, 0usize, 0usize);
 
-    for med in meds {
-        let mine: Vec<medicine_math::Dose> = doses.iter().filter(|d| d.medicine_id == med.id).cloned().collect();
+    // 快没的先出现（口径见 by_stock_risk：与药箱统计页同一个排法）
+    let ordered = medicine_math::by_stock_risk(meds);
+
+    let today = crate::time::days::day_of_ms(day_start_ms);
+    let tomorrow = crate::time::days::day_start_ms(crate::time::days::shift(today, 1));
+
+    for med in ordered {
+        // 云端那份是**全量**历史（药箱每台设备发自己合并后的整表），不按今天切一刀，
+        // 上周的打卡会被就近匹配点到今天的格子上。
+        let mine: Vec<medicine_math::Dose> = doses
+            .iter()
+            .filter(|d| d.medicine_id == med.id && d.taken_at >= day_start_ms && d.taken_at < tomorrow)
+            .cloned()
+            .collect();
         let plan = medicine_math::today_plan(med, &mine, day_start_ms, now_minutes);
         taken += plan.taken;
         owed += plan.owed;
@@ -112,6 +124,14 @@ fn medicine_payload(day_start_ms: i64, now_minutes: i32, meds: &[medicine_math::
     meta.insert("todayOwed".into(), json!(owed));
     meta.insert("lowCount".into(), json!(low));
     meta.insert("nowMinutes".into(), json!(now_minutes));
+
+    // 三环卡的另外两环。窗口与算法都来自药箱自己那一段，不在此处另立口径。
+    let week = medicine_math::stats_over(meds, doses, today, now_minutes, medicine_math::WEEK_DAYS);
+    meta.insert("weekTaken".into(), json!(week.taken));
+    meta.insert("weekOwed".into(), json!(week.owed));
+    meta.insert("weekSkipped".into(), json!(week.skipped));
+    meta.insert("weekRate".into(), json!((week.rate() * 1_000.0).round() / 1_000.0));
+    meta.insert("streakDays".into(), json!(medicine_math::streak_days(doses, today)));
 
     crate::linking::normalized(Value::Array(items), meta)
 }

@@ -214,11 +214,12 @@ class Store extends ChangeNotifier {
     return classesOn(classes, clock.dow, week);
   }
 
-  /// 某天这一天的课。7 日条切到别的日子时用。
-  List<ClassRow> classesOnDay(int dow) {
-    final week = currentWeek;
-    if (week == null) return const [];
-    return classesOn(classes, dow, week);
+  /// 某天这一天的课。7 日条切到别的日子时用；`week` 只在课表屏翻到别周时给，
+  /// 不给就是本周（[currentWeek]）。
+  List<ClassRow> classesOnDay(int dow, {int? week}) {
+    final w = week ?? currentWeek;
+    if (w == null) return const [];
+    return classesOn(classes, dow, w);
   }
 
   /// 今天这一天的时间形状。**今天屏那行与课表屏底部那行共用它**（§5.4：同值同函数），

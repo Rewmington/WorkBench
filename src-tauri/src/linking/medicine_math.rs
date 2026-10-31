@@ -8,6 +8,11 @@
 
 use serde::Serialize;
 
+use crate::time::days::{day_of_ms, day_start_ms, days_between, shift};
+
+/// 「近 7 天」这一个窗口长度写在这里，桌面与手机端各自照搬时只有一个数要对。
+pub const WEEK_DAYS: i64 = 7;
+
 #[derive(Debug, Clone)]
 pub struct Medicine {
     pub id: String,
@@ -246,6 +251,129 @@ pub fn today_plan(
     }
 }
 
+/// 一段窗口里的服药统计。字段与算法都照药箱 `PeriodStats`（`models.dart`），
+/// 因为这是健康数据：两个程序对同一个「本周依从」给出不同数字，用户就不知道该信谁。
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeriodStats {
+    /// 实服次数
+    pub taken: usize,
+    /// 应服次数：已到期、且没被标记没吃
+    pub owed: usize,
+    /// 标记「这顿没吃」的次数
+    pub skipped: usize,
+}
+
+impl PeriodStats {
+    /// 药箱 `PeriodStats.rate` 原样：应服为 0 时，只有「全部格子都标了没吃」才算满，
+    /// 压根没有安排就是 0 —— 没有安排不能吹成 100% 依从。
+    pub fn rate(&self) -> f64 {
+        if self.owed == 0 {
+            return if self.skipped > 0 { 1.0 } else { 0.0 };
+        }
+        (self.taken as f64 / self.owed as f64).clamp(0.0, 1.0)
+    }
+
+    /// 有没有安排可统计。false 时 rate 那个 0 不是「漏吃」，界面上不能画成空环骗人。
+    pub fn has_plan(&self) -> bool {
+        self.owed > 0 || self.skipped > 0
+    }
+}
+
+/// 近 `days` 个自然日（含今天）的依从统计 = 药箱 `computeStats` 的直译。
+///
+/// 三条不显然的口径跟着它一起搬：
+/// - 建档之前的格子不算（昨天才加的药不该背上前几天的漏吃）；
+/// - 今天只算已经过点的格子，进行中的那天不扣分；
+/// - 实服数封顶到格子数，同一天多打几次不会把依从率刷过 100%。
+///
+/// `today` 是本地日历日整数（`yyyymmdd`），逐日窗口靠 [`crate::time::days`] 走日历，
+/// 不做毫秒加减。
+pub fn stats_over(meds: &[Medicine], doses: &[Dose], today: i32, now_minutes: i32, days: i64) -> PeriodStats {
+    let (mut taken, mut owed, mut skipped) = (0usize, 0usize, 0usize);
+
+    for back in (0..days).rev() {
+        let day = shift(today, -back);
+        let day_start = day_start_ms(day);
+        let day_end = day_start_ms(shift(day, 1));
+        let is_today = back == 0;
+
+        for med in meds {
+            let slots: Vec<i32> = med
+                .schedule_minutes()
+                .into_iter()
+                .filter(|m| day_start + i64::from(*m) * 60_000 >= med.created_at)
+                .filter(|m| !(is_today && *m > now_minutes))
+                .collect();
+            if slots.is_empty() {
+                continue;
+            }
+            let that_day: Vec<&Dose> = doses
+                .iter()
+                .filter(|d| d.medicine_id == med.id && d.taken_at >= day_start && d.taken_at < day_end)
+                .collect();
+            let hits = that_day.iter().filter(|d| !d.is_skipped()).count();
+            let marked = (that_day.len() - hits).clamp(0, slots.len());
+            taken += hits.min(slots.len());
+            owed += slots.len() - marked;
+            skipped += marked;
+        }
+    }
+
+    PeriodStats { taken, owed, skipped }
+}
+
+/// 连续打卡天数 = 药箱 `streakDays` 原样：只看近 7 天里**有非零剂量记录**的连续日子。
+///
+/// 今天还没打不算断（早上 8 点的药不该在凌晨就把连续天数清零），
+/// 但也没算上 —— 从昨天往回数。
+pub fn streak_days(doses: &[Dose], today: i32) -> usize {
+    let mut counts = vec![0usize; WEEK_DAYS as usize];
+    for d in doses {
+        if d.is_skipped() {
+            continue; // 标记「这顿没吃」不算打卡
+        }
+        let back = days_between(day_of_ms(d.taken_at), today);
+        if back < 0 || back >= WEEK_DAYS {
+            continue;
+        }
+        counts[(WEEK_DAYS - 1 - back) as usize] += 1;
+    }
+
+    let mut i = WEEK_DAYS as usize - 1;
+    if counts[i] == 0 && i > 0 {
+        i -= 1; // 今天还没打不算断
+    }
+    let mut streak = 0;
+    loop {
+        if counts[i] == 0 {
+            break;
+        }
+        streak += 1;
+        if i == 0 {
+            break;
+        }
+        i -= 1;
+    }
+    streak
+}
+
+/// 库存顺序：快没的那支排最前，这一屏才是「该去补货的清单」而不是按录入顺序的流水。
+///
+/// 口径照药箱自己的统计页（`stats_page.dart`）：算不出天数的记成 9999 沉底，同值按名字 ——
+/// 两个程序排出来的顺序得一样，不然用户对照着看会以为其中一边算错了。
+pub fn by_stock_risk<'a>(meds: &'a [Medicine]) -> Vec<&'a Medicine> {
+    const UNKNOWN: f64 = 9999.0;
+    let mut ordered: Vec<&Medicine> = meds.iter().collect();
+    ordered.sort_by(|a, b| {
+        a.days_left().unwrap_or(UNKNOWN)
+            .partial_cmp(&b.days_left().unwrap_or(UNKNOWN))
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    ordered
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::TimeZone;
@@ -358,5 +486,85 @@ mod tests {
         let plan = today_plan(&m, &[], day_start(), 22 * 60);
         assert_eq!(plan.slots.len(), 1, "早上那格在建档之前，不该算今天的应服");
         assert_eq!(plan.slots[0].minute, 1260);
+    }
+
+    /// 本周窗口里第 `back` 天、当日第 `minute` 分钟
+    fn week_at(back: i64, minute: i32) -> i64 {
+        day_start_ms(shift(20261020, -back)) + i64::from(minute) * 60_000
+    }
+
+    fn dose(at_ms: i64, amount: f64) -> Dose {
+        Dose { medicine_id: "m1".into(), taken_at: at_ms, amount }
+    }
+
+    #[test]
+    fn the_one_running_out_soonest_is_first_and_unknown_dose_sinks() {
+        let mut soon = med("07:30", 1.0, 1.0, 3.0);
+        soon.name = "二甲双胍".into();
+        let mut plenty = med("07:30", 1.0, 1.0, 60.0);
+        plenty.name = "钙片".into();
+        let mut unknown = med("07:30", 0.0, 0.0, 5.0); // 没设用量：算不出还剩几天
+        unknown.name = "益生菌".into();
+
+        let all = [plenty, unknown, soon];
+        let names: Vec<&str> = by_stock_risk(&all).iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(names, vec!["二甲双胍", "钙片", "益生菌"], "按天数升序，算不出的沉底");
+    }
+
+    #[test]
+    fn week_rate_counts_only_elapsed_slots_and_caps_at_their_number() {
+        // 昨天才建档：再往前那几天压根没有格子，不该背漏吃的账
+        let mut m = med("07:30,21:00", 2.0, 1.0, 60.0);
+        m.created_at = week_at(1, 0);
+        // 昨天两格都打、今早打了、晚上那格还没到（现在 15:00），另外早上多补了一次
+        let doses = [
+            dose(week_at(1, 450), 1.0),
+            dose(week_at(1, 1260), 1.0),
+            dose(week_at(0, 450), 1.0),
+            dose(week_at(0, 500), 1.0),
+        ];
+        let s = stats_over(&[m], &doses, 20261020, 15 * 60, WEEK_DAYS);
+        assert_eq!((s.taken, s.owed), (3, 3), "没到的格子不算欠，多打的那次也不多给");
+        assert!((s.rate() - 1.0).abs() < f64::EPSILON, "同一天打两次不能把依从率刷过 100%");
+    }
+
+    #[test]
+    fn marked_not_taken_leaves_the_week_denominator_but_still_breaks_a_streak() {
+        // 昨天那一格标了「这顿没吃」，今天那格还没到点
+        let mut m = med("21:00", 1.0, 1.0, 60.0);
+        m.created_at = week_at(1, 0);
+        let doses = [dose(week_at(1, 1260), 0.0)];
+        let s = stats_over(&[m], &doses, 20261020, 20 * 60, WEEK_DAYS);
+        assert_eq!((s.taken, s.owed, s.skipped), (0, 0, 1), "标了没吃的那格不进分母");
+        assert!(s.has_plan());
+        assert!((s.rate() - 1.0).abs() < f64::EPSILON, "整周只有一格且标了没吃＝没有欠，按药箱算满分");
+        assert_eq!(streak_days(&doses, 20261020), 0, "但「没吃」不是打卡，连续天数照断");
+    }
+
+    #[test]
+    fn no_plan_at_all_is_not_a_hundred_percent() {
+        let s = stats_over(&[], &[], 20261020, 22 * 60, WEEK_DAYS);
+        assert!(!s.has_plan());
+        assert_eq!(s.rate(), 0.0, "没安排过药不能说自己是满分依从");
+    }
+
+    #[test]
+    fn a_day_not_checked_in_yet_does_not_reset_the_streak() {
+        // 昨天、前天都打过，今天（早上 8 点的药还没到点）没打
+        let doses = [dose(week_at(1, 480), 1.0), dose(week_at(2, 480), 1.0)];
+        assert_eq!(streak_days(&doses, 20261020), 2, "今天还没打不算断，但也不提前 +1");
+
+        let with_today = [doses.as_slice(), &[dose(week_at(0, 480), 1.0)]].concat();
+        assert_eq!(streak_days(&with_today, 20261020), 3);
+
+        // 中间空了一天
+        let gapped = [dose(week_at(0, 480), 1.0), dose(week_at(2, 480), 1.0)];
+        assert_eq!(streak_days(&gapped, 20261020), 1);
+    }
+
+    #[test]
+    fn a_log_older_than_the_window_neither_counts_nor_breaks_anything() {
+        let doses = [dose(week_at(0, 480), 1.0), dose(week_at(9, 480), 1.0)];
+        assert_eq!(streak_days(&doses, 20261020), 1, "9 天前那条在窗口外，不该被折进连续天数");
     }
 }

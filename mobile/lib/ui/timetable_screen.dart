@@ -1,10 +1,12 @@
 /// 课表屏 = 候选 B（单日竖列 + 7 日条）。
 ///
 /// 选 B 而不选竞品那种压缩周网格，是为了**课名全文可读**；代价（「这周哪几天空」要滑 7 次
-/// 才拼得出来）在 PLAN-MOBILE §5.4 里已经写明并接受。这一屏上有三条不许破的规矩：
+/// 才拼得出来）在 PLAN-MOBILE §5.4 里已经写明并接受。这一屏上有四条不许破的规矩：
 /// - 空档显式写「空闲」，不许留白（这张表最有用的一件事就是找空档）；
 /// - 「下一节」是描边 + 文字两个通道，且**不是「此刻」** —— 课间空档里没有正在上的课；
-/// - 底部那行空档摘要与今天屏同值同函数。
+/// - 底部那行空档摘要与今天屏同值同函数；
+/// - ‹ › 翻的是**周**，左右滑翻的是**天**：翻到别周时「今天」那几样（下一节、今天几节课）
+///   不许拿别周的数据冒充。
 library;
 
 import 'package:flutter/material.dart';
@@ -33,7 +35,22 @@ class _TimetableScreenState extends State<TimetableScreen> {
   /// 7 日条选中的那天（1=周一…7=周日）
   late int _dow = widget.store.clock.dow;
 
+  /// 看的是第几周；null = 跟着真实本周。
+  /// 存「有没有离开」而不是「离开本周几天」：同步之后真实本周自己会往前挪，
+  /// 那时「回本周」该落到哪一格只有 null 说得清。
+  int? _week;
+
   void _go(int dow) => setState(() => _dow = dow.clamp(1, 7));
+
+  /// ‹ › 翻周，夹在第 1 周与总周数之间；翻回本周那一格时把状态清成 null。
+  void _goWeek(int by) {
+    final store = widget.store;
+    final cur = _week ?? store.currentWeek;
+    final total = store.totalWeeks;
+    if (cur == null || total == null) return;
+    final next = (cur + by).clamp(1, total);
+    setState(() => _week = next == store.currentWeek ? null : next);
+  }
 
   /// 除 7 日条以外，每一行都回到页面左右 14dp 的基线（§5.2 的 --p-padx）。
   Widget _pad(Widget w) =>
@@ -43,6 +60,17 @@ class _TimetableScreenState extends State<TimetableScreen> {
   Widget build(BuildContext context) {
     final s = skinOf(context);
     final store = widget.store;
+    final current = store.currentWeek;
+    final viewed = _week ?? current;
+    final offWeek = viewed != null && current != null && viewed != current;
+    // 看的那一周的周一：拿本周的周一整周整周地挪，不回头重算开学日 ——
+    // 与 7 日条原本那句 `date.subtract(days: dow - 1)` 是同一条口径
+    final monday = current == null
+        ? null
+        : store.clock.date
+            .subtract(Duration(days: store.clock.dow - 1))
+            .add(Duration(days: (viewed! - current) * 7));
+    final dayDate = monday == null ? store.clock.date : monday.add(Duration(days: _dow - 1));
 
     return Scaffold(
       backgroundColor: s.bg,
@@ -72,7 +100,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(headDateLine(store.clock, store.currentWeek),
+                                Text(headDateLine(store.clock, viewed, at: dayDate),
                                     style: TextStyle(fontSize: Type.metaWide, color: s.t3)),
                                 const SizedBox(height: 2),
                                 Text('课表',
@@ -93,12 +121,12 @@ class _TimetableScreenState extends State<TimetableScreen> {
                       ),
                     ),
                     _pad(SyncLine(store)),
-                    if (store.currentWeek == null)
+                    if (viewed == null || monday == null)
                       _pad(_noWeek(context, store))
                     else ...[
-                      _pad(_weekBar(store)),
-                      _dayStrip(store),
-                      _pad(_dayColumn(context, store, _dow)),
+                      _pad(_weekBar(store, viewed, offWeek)),
+                      _dayStrip(store, viewed, monday),
+                      _pad(_dayColumn(context, store, _dow, viewed)),
                     ],
                     _pad(GapLine(store)),
                   ],
@@ -137,21 +165,44 @@ class _TimetableScreenState extends State<TimetableScreen> {
     );
   }
 
-  Widget _weekBar(Store store) {
+  /// 顶栏：第几周 + ‹ › 翻周。翻到别周时那句「左右滑切天」换成「回本周」——
+  /// 那一刻人要找的是回去的路，不是又一个手势提示。
+  Widget _weekBar(Store store, int viewed, bool offWeek) {
     final s = skinOf(context);
+    final total = store.totalWeeks;
     return Padding(
       padding: const EdgeInsets.only(top: 2, bottom: 9),
       child: Row(
         children: [
-          Text('第 ${store.currentWeek} 周',
+          Text('第 $viewed 周',
               style: TextStyle(
                   fontSize: 13, fontWeight: FontWeight.w800, color: s.t1)),
           const SizedBox(width: 6),
-          Text('左右滑切天', style: TextStyle(fontSize: Type.metaWide, color: s.t3)),
+          if (offWeek)
+            InkWell(
+              onTap: () => setState(() => _week = null),
+              borderRadius: BorderRadius.circular(Metrics.radiusSm),
+              child: Container(
+                constraints: const BoxConstraints(
+                    minHeight: Metrics.touch, minWidth: Metrics.touch),
+                alignment: Alignment.center,
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Text('回本周',
+                    style: TextStyle(fontSize: Type.metaWide, color: s.acc)),
+              ),
+            )
+          else
+            Text('左右滑切天', style: TextStyle(fontSize: Type.metaWide, color: s.t3)),
           const Spacer(),
-          IconButton48('‹', outlined: true, onTap: () => _go(_dow - 1)),
+          // 到头的箭头按不动，也淡下去：摆一个看着能按、按了什么都不发生的按钮，
+          // 就是这次要修的那个误会
+          IconButton48('‹',
+              outlined: true,
+              onTap: total != null && viewed <= 1 ? null : () => _goWeek(-1)),
           const SizedBox(width: 4),
-          IconButton48('›', outlined: true, onTap: () => _go(_dow + 1)),
+          IconButton48('›',
+              outlined: true,
+              onTap: total != null && viewed >= total ? null : () => _goWeek(1)),
         ],
       ),
     );
@@ -159,8 +210,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
 
   /// 7 日条。360dp 宽下如果也跟着页边距缩进去，每格就只有 45dp，达不到 Android 最小触控
   /// —— 所以这一条自己只留 2dp 边，实测每格 49.1dp（§5.4 的来由）。
-  Widget _dayStrip(Store store) {
-    final monday = store.clock.date.subtract(Duration(days: store.clock.dow - 1));
+  Widget _dayStrip(Store store, int viewed, DateTime monday) {
     const names = ['一', '二', '三', '四', '五', '六', '日'];
     return Padding(
       padding: const EdgeInsets.only(top: 2, bottom: 12),
@@ -176,7 +226,8 @@ class _TimetableScreenState extends State<TimetableScreen> {
                       dow: i + 1,
                       name: names[i],
                       date: monday.add(Duration(days: i)),
-                      store: store),
+                      store: store,
+                      viewed: viewed),
                 ),
               ),
           ],
@@ -185,11 +236,18 @@ class _TimetableScreenState extends State<TimetableScreen> {
     );
   }
 
-  Widget _stripCell({required int dow, required String name, required DateTime date, required Store store}) {
+  Widget _stripCell({
+    required int dow,
+    required String name,
+    required DateTime date,
+    required Store store,
+    required int viewed,
+  }) {
     final s = skinOf(context);
-    final hasClass = store.classesOnDay(dow).isNotEmpty;
+    final hasClass = store.classesOnDay(dow, week: viewed).isNotEmpty;
     final on = dow == _dow;
-    final isToday = dow == store.clock.dow;
+    // 「今天」只在真的那一周里成立：翻到第 12 周时不该有个格子被当成今天
+    final isToday = viewed == store.currentWeek && dow == store.clock.dow;
     return InkWell(
       onTap: () => _go(dow),
       borderRadius: BorderRadius.circular(Metrics.radiusSm),
@@ -244,13 +302,13 @@ class _TimetableScreenState extends State<TimetableScreen> {
     );
   }
 
-  Widget _dayColumn(BuildContext context, Store store, int dow) {
-    final rows = dow == store.clock.dow
-        ? store.classesToday()
-        : store.classesOnDay(dow);
+  Widget _dayColumn(BuildContext context, Store store, int dow, int viewed) {
+    final rows = store.classesOnDay(dow, week: viewed);
     final skeleton = store.periodSkeleton;
     final nowMin = minutesOfDay(store.clock.date);
-    final isToday = dow == store.clock.dow;
+    // 「今天」得连着周次一起成立：翻到别周时那天的课是排出来的预告，
+    // 给它标「下一节」就是拿未来冒充此刻
+    final isToday = viewed == store.currentWeek && dow == store.clock.dow;
 
     // 「下一节」= 今天里最早的那节还没开始的课。正在上课的时候标的也是它，
     // 而不是把正在上的那节说成「此刻」—— 课间空档里没有正在上的课（§5.4）

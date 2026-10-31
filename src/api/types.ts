@@ -198,7 +198,24 @@ export interface MedicineTodayItem {
 export interface MedicineTodayPayload {
   items: MedicineTodayItem[]
   count: number
-  meta: { todayTaken?: number; todayOwed?: number; lowCount?: number; nowMinutes?: number }
+  /**
+   * 三个数各管一环，口径全部来自药箱自己那段算法（`models.dart` 的 `computeStats`）：
+   * 分母扣掉标记「这顿没吃」的格子，今天只算已过点的格子。
+   * `weekOwed` 与 `weekSkipped` 都为 0 表示这一周压根没有安排 —— 那不是 0% 依从，界面得说「没有安排」。
+   */
+  meta: {
+    todayTaken?: number
+    todayOwed?: number
+    lowCount?: number
+    nowMinutes?: number
+    weekTaken?: number
+    weekOwed?: number
+    weekSkipped?: number
+    /** 0~1，后端已经按药箱那条算好，前端不再复述一遍公式 */
+    weekRate?: number
+    /** 近 7 天里连续打卡的天数；今天还没打不算断，也不提前 +1 */
+    streakDays?: number
+  }
 }
 
 /** 备份流水的一行。`kind` 是 daily / manual / restore，直接决定这行怎么念。 */

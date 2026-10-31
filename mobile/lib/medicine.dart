@@ -109,6 +109,37 @@ class Medicine {
       v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(2);
 }
 
+/// 库存顺序：快没的那支排最前。口径照药箱自己的统计页（`stats_page.dart`）——
+/// 算不出天数的记成 9999 沉底、同值按名字；桌面端 Rust 的 `by_stock_risk` 是同一条。
+/// 两边排出来的顺序得一样，否则用户对照着看会以为其中一边算错了。
+int byStockRisk(Medicine a, Medicine b) {
+  const unknown = 9999.0;
+  final d = (a.daysLeft ?? unknown).compareTo(b.daysLeft ?? unknown);
+  return d != 0 ? d : a.name.compareTo(b.name);
+}
+
+/// 一段窗口里的服药计数。字段与算法都照药箱 `PeriodStats`（`models.dart`）。
+class PeriodStats {
+  /// 本周这一个窗口长度：桌面 Rust 的 `WEEK_DAYS` 与这里必须是一个数。
+  static const weekDays = 7;
+
+  final int taken;
+
+  /// 已到期、且没被标记「这顿没吃」的格子数
+  final int owed;
+  final int skipped;
+
+  const PeriodStats({required this.taken, required this.owed, required this.skipped});
+
+  /// 药箱 `PeriodStats.rate` 原样：应服为 0 时，只有整窗都标了没吃才算满，
+  /// 压根没有安排就是 0 —— 没有安排不能吹成 100% 依从。
+  double get rate =>
+      owed == 0 ? (skipped > 0 ? 1.0 : 0.0) : (taken / owed).clamp(0.0, 1.0);
+
+  /// false 时那个 0 不是「漏吃」，界面上不能画一个空环骗人。
+  bool get hasPlan => owed > 0 || skipped > 0;
+}
+
 /// 一次服药打卡。0 剂量 = 标记「这顿没吃」。
 class DoseLog {
   final String id;
@@ -235,6 +266,12 @@ class MedicineView {
 
   bool get isEmpty => medicines.isEmpty;
 
+  /// 按还剩几天升序的那份清单（口径见 [byStockRisk]）：快没的排最前。
+  ///
+  /// 排在渲染这一层而不是 `merge` 里：演示数据与本机缓存回来的那份都不走 merge，
+  /// 放在这里才不管数据从哪来都是同一个顺序。
+  List<Medicine> get byStock => [...medicines]..sort(byStockRisk);
+
   /// 多台设备各发一份全量。规则与药箱一致：同一 id 取 `updated_at` 更新的那条；
   /// 平票时取发布更晚的那份、再按设备 id，保证每次算出来一样（药箱那侧平票保留本机，
   /// 但这里是只读视图，必须有一个与读取顺序无关的答案）。
@@ -273,7 +310,7 @@ class MedicineView {
     final active = [
       for (final row in medicines.values)
         if (((row['deleted'] as num?) ?? 0) == 0) Medicine.fromRow(row),
-    ]..sort((a, b) => a.name.compareTo(b.name));
+    ];
     final activeIds = {for (final m in active) m.id};
     final visibleLogs = [
       for (final row in logs.values)
@@ -351,8 +388,7 @@ class MedicineView {
   }
 
   /// 今日计划：药 × 时间点，按时间排序。规则与药箱 `todayPlan` 同一句。
-  TodayPlan todayPlan(DateTime now) {
-    final dayStart = DateTime(now.year, now.month, now.day).millisecondsSinceEpoch;
+  TodayPlan todayPlan(DateTime now) {    final dayStart = DateTime(now.year, now.month, now.day).millisecondsSinceEpoch;
     final dayEnd = dayStart + const Duration(days: 1).inMilliseconds;
     final slots = <DoseSlot>[];
     for (final m in medicines) {
@@ -379,6 +415,62 @@ class MedicineView {
       return m != 0 ? m : a.medicine.name.compareTo(b.medicine.name);
     });
     return TodayPlan(slots, nowMinute: now.hour * 60 + now.minute);
+  }
+
+  /// 近 7 天的依从统计 = 药箱 `computeStats` 的直译，三条不显然的口径跟着一起搬：
+  /// 建档之前的格子不算、今天只算已过点的格子、同一天多打几次封顶到格子数。
+  /// 桌面端 Rust（`stats_over`）是同一条算法的另一份抄本 —— 同一个数在两个程序里得一样。
+  PeriodStats weekStats(DateTime now) {
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final nowMin = now.hour * 60 + now.minute;
+    var taken = 0, owed = 0, skipped = 0;
+
+    for (var back = PeriodStats.weekDays - 1; back >= 0; back--) {
+      final dayStart = todayStart.subtract(Duration(days: back));
+      final dayStartMs = dayStart.millisecondsSinceEpoch;
+      final dayEndMs = dayStartMs + const Duration(days: 1).inMilliseconds;
+      final isToday = back == 0;
+
+      for (final m in medicines) {
+        final slots = m.scheduleMinutes.where((min) {
+          if (dayStartMs + min * 60000 < m.createdAt) return false;
+          if (isToday && min > nowMin) return false;
+          return true;
+        }).toList();
+        if (slots.isEmpty) continue;
+        final mine = logs
+            .where((l) =>
+                l.medicineId == m.id && l.takenAt >= dayStartMs && l.takenAt < dayEndMs)
+            .toList();
+        final hits = mine.where((l) => !l.isSkipped).length;
+        final marked = (mine.length - hits).clamp(0, slots.length);
+        taken += hits > slots.length ? slots.length : hits;
+        owed += slots.length - marked;
+        skipped += marked;
+      }
+    }
+    return PeriodStats(taken: taken, owed: owed, skipped: skipped);
+  }
+
+  /// 连续打卡天数 = 药箱 `streakDays` 原样：只看近 7 天里**有非零剂量记录**的连续日子。
+  /// 今天还没打不算断（早上 8 点的药不该在凌晨就把连续天数清零），但也没提前 +1。
+  int streakDays(DateTime now) {
+    final today = DateTime(now.year, now.month, now.day);
+    final dayCounts = List<int>.filled(PeriodStats.weekDays, 0);
+    for (final l in logs) {
+      if (l.isSkipped) continue; // 「这顿没吃」不算打卡
+      final d = DateTime.fromMillisecondsSinceEpoch(l.takenAt);
+      final diff = today.difference(DateTime(d.year, d.month, d.day)).inDays;
+      if (diff >= 0 && diff < PeriodStats.weekDays) dayCounts[PeriodStats.weekDays - 1 - diff]++;
+    }
+    var i = PeriodStats.weekDays - 1;
+    if (dayCounts[i] == 0) i--; // 今天还没打不算断
+    var streak = 0;
+    while (i >= 0 && dayCounts[i] > 0) {
+      streak++;
+      i--;
+    }
+    return streak;
   }
 }
 

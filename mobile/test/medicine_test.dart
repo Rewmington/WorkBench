@@ -14,6 +14,7 @@ Medicine med({
   double amount = 1,
   int lowDays = 7,
   String times = '',
+  int createdAt = 1,
   int updatedAt = 100,
   bool deleted = false,
 }) =>
@@ -28,7 +29,7 @@ Medicine med({
       lowDays: lowDays,
       note: '',
       times: times,
-      createdAt: 1,
+      createdAt: createdAt,
       updatedAt: updatedAt,
       deleted: deleted,
     );
@@ -44,12 +45,12 @@ DoseLog log(String id, String medId, int at, {double amount = 1, int updatedAt =
       deleted: deleted,
     );
 
-Map<String, Object?> medRow(String id, {int updatedAt = 100, double remaining = 10, int deleted = 0, String name = '药'}) => {
+Map<String, Object?> medRow(String id, {int updatedAt = 100, double remaining = 10, int deleted = 0, String name = '药', double doses = 1.0}) => {
       'id': id,
       'name': name,
       'per_box': 30.0,
       'remaining': remaining,
-      'doses_per_day': 1.0,
+      'doses_per_day': doses,
       'amount_per_dose': 1.0,
       'unit': '片',
       'low_days': 7,
@@ -204,7 +205,98 @@ void main() {
     });
   });
 
+  group('本周依从与连续打卡', () {
+    // 2026-10-30 12:34 本地时间；`at(0)` 是今天 00:00，`at(1)` 是昨天 00:00
+    final today = DateTime(2026, 10, 30);
+    DateTime now() => today.add(const Duration(hours: 12, minutes: 34));
+    int at(int back, [int hour = 8]) =>
+        today.subtract(Duration(days: back)).millisecondsSinceEpoch + hour * 3600000;
+
+    MedicineView viewOf({required List<Medicine> meds, required List<DoseLog> logs}) =>
+        MedicineView(medicines: meds, logs: logs, publishedAt: 1, devices: 1);
+
+    test('没到的格子不算欠，同一天多打一次也不把依从率刷过 100%', () {
+      final v = viewOf(meds: [
+        med(times: '08:00,20:00', doses: 2, createdAt: at(1))
+      ], logs: [
+        log('l1', 'm1', at(1, 8)),
+        log('l2', 'm1', at(1, 20)),
+        log('l3', 'm1', at(0, 8)),
+        log('l4', 'm1', at(0, 9)), // 早上补打了一次
+      ]);
+      final s = v.weekStats(now());
+      expect([s.taken, s.owed], [3, 3], reason: '昨天两格 + 今天已过点那一格');
+      expect(s.rate, 1.0);
+      expect(s.hasPlan, isTrue);
+    });
+
+    test('标了「这顿没吃」不进分母，但连续打卡照断', () {
+      final v = viewOf(meds: [
+        med(times: '21:00', createdAt: at(1))
+      ], logs: [log('l1', 'm1', at(1, 21), amount: 0)]);
+      final s = v.weekStats(DateTime(2026, 10, 30, 20));
+      expect([s.taken, s.owed, s.skipped], [0, 0, 1]);
+      expect(s.rate, 1.0, reason: '整窗只有一格且标了没吃＝没有欠，药箱按满算');
+      expect(v.streakDays(now()), 0, reason: '「没吃」不是打卡');
+    });
+
+    test('压根没有安排，不说自己是 100% 依从', () {
+      final s = viewOf(meds: [med(doses: 0)], logs: const []).weekStats(now());
+      expect(s.hasPlan, isFalse);
+      expect(s.rate, 0.0);
+    });
+
+    test('今天还没打不算断，但也不提前 +1', () {
+      final two = viewOf(meds: [med(times: '08:00')], logs: [
+        log('l1', 'm1', at(1, 8)),
+        log('l2', 'm1', at(2, 8)),
+      ]);
+      expect(two.streakDays(now()), 2);
+
+      final three = viewOf(meds: [med(times: '08:00')], logs: [
+        log('l1', 'm1', at(0, 8)),
+        log('l2', 'm1', at(1, 8)),
+        log('l3', 'm1', at(2, 8)),
+      ]);
+      expect(three.streakDays(now()), 3);
+
+      final gapped = viewOf(meds: [med(times: '08:00')], logs: [
+        log('l1', 'm1', at(0, 8)),
+        log('l2', 'm1', at(2, 8)),
+      ]);
+      expect(gapped.streakDays(now()), 1);
+
+      final stale = viewOf(meds: [med(times: '08:00')], logs: [
+        log('l1', 'm1', at(0, 8)),
+        log('l2', 'm1', at(9, 8)), // 窗口外
+      ]);
+      expect(stale.streakDays(now()), 1, reason: '9 天前那条不该折进连续天数');
+    });
+  });
+
   group('多设备合并', () {
+    test('清单按还剩几天升序，算不出天数的沉底', () {
+      final view = MedicineView.merge([
+        MedicineDoc(device: 'pc', publishedAt: 1, medicines: [
+          medRow('m1', name: '钙片', remaining: 60),
+          medRow('m2', name: '益生菌', remaining: 5, doses: 0),
+          medRow('m3', name: '二甲双胍', remaining: 3),
+        ], logs: const []),
+      ]);
+      expect(view.byStock.map((m) => m.name), ['二甲双胍', '钙片', '益生菌']);
+
+      // 排的是渲染那一份：进来的顺序换了不该换答案，而原清单本身不动
+      final reversed = MedicineView(
+        medicines: view.medicines.reversed.toList(),
+        logs: const [],
+        publishedAt: 1,
+        devices: 1,
+      );
+      expect(reversed.byStock.map((m) => m.name), ['二甲双胍', '钙片', '益生菌']);
+      expect(reversed.medicines.map((m) => m.name), ['二甲双胍', '益生菌', '钙片'],
+          reason: '原清单没被就地排掉：排的是渲染那一份');
+    });
+
     test('同一行取 updated_at 更新的那份', () {
       final view = MedicineView.merge([
         MedicineDoc(device: 'phone-a', publishedAt: 100, medicines: [medRow('m1', updatedAt: 50, remaining: 1)], logs: const []),

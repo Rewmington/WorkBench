@@ -207,6 +207,7 @@ MedicineView demoMedicineView() => MedicineView(
         ),
       ],
       logs: [
+        ..._weekBackfill(),
         DoseLog(
           id: 'demo-l1',
           medicineId: 'demo-m1',
@@ -227,6 +228,38 @@ MedicineView demoMedicineView() => MedicineView(
         ),
       ],
     );
+
+/// 近 6 天的打卡补齐，只留两晚的降压药没打（前天与大前天）。
+///
+/// 为什么补：三环卡里「本周依从」看的就是这一周，演示数据只有今天两条的话
+/// 拍出来永远是 8%，那张图什么都说明不了。补齐后是 92% / 连续 7 天，
+/// 和真机上周期的形状一致 —— 数字仍由 `weekStats` 现算，不是写死在界面上的。
+List<DoseLog> _weekBackfill() {
+  const slots = [
+    ('demo-m1', 8, 5),
+    ('demo-m2', 8, 12),
+    ('demo-m2', 20, 3),
+    ('demo-m3', 20, 8),
+  ];
+  const missed = {2, 4}; // 漏掉晚上那格的那几天
+  final out = <DoseLog>[];
+  for (var back = 6; back >= 1; back--) {
+    for (final (med, h, mi) in slots) {
+      if (med == 'demo-m3' && missed.contains(back)) continue;
+      final at = _ms(h, mi, dayOffset: -back);
+      out.add(DoseLog(
+        id: 'demo-w$back-$med',
+        medicineId: med,
+        takenAt: at,
+        amount: 1,
+        note: '',
+        updatedAt: at,
+        deleted: false,
+      ));
+    }
+  }
+  return out;
+}
 
 Store demoStore(DemoCase c) {
   final clock = demoClock();

@@ -1640,7 +1640,18 @@ function medicineFixture(): SnapshotView {
       },
     ],
     count: 2,
-    meta: { todayTaken: 2, todayOwed: 5, lowCount: 1, nowMinutes: 900 },
+    meta: {
+      todayTaken: 2,
+      todayOwed: 5,
+      lowCount: 1,
+      nowMinutes: 900,
+      // 近 7 天：30 格里记了 26 格、标了 1 格没吃（分母已扣掉那格）—— 与 Rust 那条公式同口径
+      weekTaken: 26,
+      weekOwed: 30,
+      weekSkipped: 1,
+      weekRate: 0.867,
+      streakDays: 6,
+    },
   }
   return {
     source: 'medicine',

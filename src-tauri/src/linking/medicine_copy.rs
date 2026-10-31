@@ -11,7 +11,7 @@ use std::path::Path;
 
 use rusqlite::{Connection, OpenFlags};
 
-use super::medicine_math::{Dose, Medicine};
+use super::medicine_math::{Dose, Medicine, WEEK_DAYS};
 use super::{sig, Snapshot, Status, Today};
 use crate::error::{Error, Result};
 use crate::time::{days, Now};
@@ -176,7 +176,7 @@ pub fn snapshot_for(
     refresh(source, CloudRead::Skipped, tmp_root, now, payload_of)
 }
 
-/// 读今天的用药数据。调用方只拿聚合结果与一个新鲜度，原始行不外传。
+/// 读药箱的用药数据：药品全量 + 近 7 天的打卡。调用方只拿聚合结果与一个新鲜度，原始行不外传。
 pub fn read_today(
     src: &Path,
     tmp_root: &Path,
@@ -211,14 +211,16 @@ pub fn read_today(
         }
     }
 
-    // 只取今天的打卡：把 320 行历史读进内存没有任何用处，且这是健康数据
+    // 只取近 7 天的打卡：今天那一屏用不到更早的，而「本周依从 / 连续打卡」正好要这一周。
+    // 再往前就不读了 —— 这是健康数据，窗口每放宽一天都要说得出它为哪个数字服务。
+    let week_start = days::day_start_ms(days::shift(days::day_of_ms(day_start_ms), -WEEK_DAYS + 1));
     let mut doses = Vec::new();
     {
         let mut stmt = conn.prepare(
             "SELECT medicine_id, taken_at, amount FROM dose_logs
              WHERE deleted = 0 AND taken_at >= ?1 AND taken_at < ?2",
         )?;
-        let rows = stmt.query_map(rusqlite::params![day_start_ms, day_start_ms + 86_400_000], |r| {
+        let rows = stmt.query_map(rusqlite::params![week_start, day_start_ms + 86_400_000], |r| {
             Ok(Dose {
                 medicine_id: r.get(0)?,
                 taken_at: r.get(1)?,
@@ -282,10 +284,15 @@ mod tests {
                 [],
             )
             .unwrap();
+            // 打卡锚在 2026-10-20 这个本地日上：窗口边界要有真的在界内/界外的行才测得到
+            let at = |back: i64, minute: i64| {
+                days::day_start_ms(days::shift(20261020, -back)) + minute * 60_000
+            };
             conn.execute(
                 "INSERT INTO dose_logs (id,medicine_id,taken_at,amount,note,updated_at,deleted,dirty)
-                 VALUES ('d1','m1',?1,1,'',1,0,0), ('d2','m1',?2,0,'',1,0,0), ('d3','m1',?3,1,'',1,1,0)",
-                rusqlite::params![1_000, 2_000, 3_000],
+                 VALUES ('d1','m1',?1,1,'',1,0,0), ('d2','m1',?2,0,'',1,0,0), ('d3','m1',?3,1,'',1,1,0),
+                        ('d4','m1',?4,1,'',1,0,0), ('d5','m1',?5,1,'',1,0,0)",
+                rusqlite::params![at(0, 450), at(0, 1260), at(0, 450), at(3, 450), at(8, 450)],
             )
             .unwrap();
             if with_wal {
@@ -296,13 +303,13 @@ mod tests {
     }
 
     #[test]
-    fn reads_only_live_rows_and_only_todays_logs() {
+    fn reads_only_live_rows_and_a_week_of_logs() {
         let src_root = fixture(false);
         let tmp_root = tempfile::tempdir().unwrap();
         let db = src_root.path().join("medicine_tracker.db");
 
-        let day_start = 1_000;
-        let today = read_today(&db, tmp_root.path(), 5_000, day_start).unwrap();
+        let day_start = days::day_start_ms(20261020);
+        let today = read_today(&db, tmp_root.path(), day_start + 450 * 60_000, day_start).unwrap();
         let (meds, doses) = (&today.meds, &today.doses);
 
         assert_eq!(meds.len(), 1, "deleted=1 的那支不该出现");
@@ -310,8 +317,13 @@ mod tests {
         assert_eq!(meds[0].schedule_minutes(), vec![450, 1260]);
         assert_eq!(meds[0].days_left(), Some(30.0));
 
-        assert_eq!(doses.len(), 2, "窗口外的与 deleted=1 的都不该进来");
+        assert_eq!(doses.len(), 3, "deleted=1 的与 8 天前那条都不该进来");
         assert_eq!(doses.iter().filter(|d| d.is_skipped()).count(), 1);
+        let at = |back: i64, minute: i64| {
+            days::day_start_ms(days::shift(20261020, -back)) + minute * 60_000
+        };
+        assert!(doses.iter().any(|d| d.taken_at == at(3, 450)), "3 天前那条要进来：本周依从用的就是它");
+        assert!(!doses.iter().any(|d| d.taken_at == at(8, 450)), "窗口外那条不该进内存");
     }
 
     #[test]

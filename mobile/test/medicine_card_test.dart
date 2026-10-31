@@ -25,13 +25,18 @@ Future<Store> pump(WidgetTester tester, DemoCase c) async {
 }
 
 void main() {
-  testWidgets('卡片说清三件事：今天几次、下一次、哪种药快没了', (tester) async {
+  testWidgets('卡片用三环说今天/本周/连续，再说下一次与哪种药快没了', (tester) async {
     final store = await pump(tester, DemoCase.med);
     expect(store.todayMedicine?.taken, 2);
     expect(store.todayMedicine?.planned, 4);
 
     expect(find.text('用药'), findsOneWidget);
-    expect(find.text('今天 2/4 次'), findsOneWidget);
+    expect(find.text('今日服药'), findsOneWidget);
+    expect(find.text('2 / 4'), findsOneWidget);
+    expect(find.text('本周依从'), findsOneWidget);
+    expect(find.text('92%'), findsOneWidget, reason: '近 6 天补了 22 格 + 今天 2 格，欠 26 格');
+    expect(find.text('连续打卡'), findsOneWidget);
+    expect(find.text('7 天'), findsOneWidget);
     expect(find.text('下一次 20:00 · 钙片'), findsOneWidget);
     expect(find.text('药箱 12:03'), findsOneWidget, reason: '必须说清这份数据是什么时候发布的');
     expect(find.text('已用完：降压药'), findsOneWidget);
@@ -47,6 +52,10 @@ void main() {
     expect(find.text('只读'), findsOneWidget);
     expect(find.text('药箱发布于 12:03 · 读取于 12:34'), findsOneWidget);
     expect(find.text('这里只读；回药箱打卡并同步后才会更新'), findsOneWidget);
+    // 清单顺序：快没的先说（降压药已用完 → 维生素D 剩 2 天 → 钙片 15 天）
+    double topOf(String name) => tester.getTopLeft(find.text(name)).dy;
+    expect(topOf('降压药') < topOf('维生素D'), isTrue);
+    expect(topOf('维生素D') < topOf('钙片'), isTrue);
     expect(find.text('08:00 已服'), findsNWidgets(2));
     expect(find.text('20:00 未到'), findsNWidgets(2));
     // 只读：没有任何打卡按钮
@@ -109,7 +118,8 @@ void main() {
       forcedBrightness: Brightness.dark,
     ));
     await tester.pumpAndSettle();
-    expect(find.text('今天没有要吃的'), findsOneWidget);
+    expect(find.text('0 / 0'), findsNothing, reason: '全标了没吃就没有「0/0 次」这种数字');
+    expect(find.text('没有安排'), findsOneWidget);
     expect(find.text('今天都标记了没吃'), findsOneWidget);
   });
 }

@@ -188,6 +188,54 @@ void main() {
     expect(find.textContaining('14:00'), findsWidgets);
   });
 
+  testWidgets('‹ › 翻的是周：日期与 7 日条跟着走，且不冒充今天', (tester) async {
+    await pump(tester, DemoCase.full);
+    await tester.tap(find.text('课表'));
+    await tester.pumpAndSettle();
+
+    // 演示时钟是 2026-10-30 周五，第 9 周
+    expect(find.text('第 9 周'), findsOneWidget);
+    expect(find.text('10 月 30 日 · 周五 · 第 9 周'), findsOneWidget);
+    expect(find.text('下一节'), findsOneWidget, reason: '本周的今天确实有下一节');
+
+    await tester.tap(find.text('›'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('第 10 周'), findsOneWidget);
+    expect(find.text('11 月 6 日 · 周五 · 第 10 周'), findsOneWidget,
+        reason: '同一格星期，日期要整周挪过去');
+    expect(find.text('回本周'), findsOneWidget);
+    expect(find.text('左右滑切天'), findsNothing, reason: '那一刻要的是回去的路，不是手势提示');
+    expect(find.text('下一节'), findsNothing, reason: '别周排出来的是预告，不是此刻');
+
+    await tester.tap(find.text('回本周'));
+    await tester.pumpAndSettle();
+    expect(find.text('第 9 周'), findsOneWidget);
+    expect(find.text('左右滑切天'), findsOneWidget);
+    expect(find.text('下一节'), findsOneWidget);
+    expect(tester.takeException(), isNull, reason: '顶栏那一行最挤的一档是「第 N 周 + 提示 + 两个 48dp」');
+  });
+
+  testWidgets('翻到学期头尾：箭头按不动，也看得出来按不动', (tester) async {
+    await pump(tester, DemoCase.full);
+    await tester.tap(find.text('课表'));
+    await tester.pumpAndSettle();
+
+    for (var i = 0; i < 8; i++) {
+      await tester.tap(find.text('‹'));
+      await tester.pumpAndSettle();
+    }
+    expect(find.text('第 1 周'), findsOneWidget);
+
+    final back = tester.widget<IconButton48>(
+        find.ancestor(of: find.text('‹'), matching: find.byType(IconButton48)));
+    expect(back.onTap, isNull, reason: '到头的按钮该淡掉，而不是点了什么都不发生');
+    // 另一头还在：往回翻一格翻得动
+    await tester.tap(find.text('›'));
+    await tester.pumpAndSettle();
+    expect(find.text('第 2 周'), findsOneWidget);
+  });
+
   testWidgets('7 日条每格 ≥48dp（360dp 宽下跟着页边距缩进去就只有 45dp）', (tester) async {
     await pump(tester, DemoCase.full);
     await tester.tap(find.text('课表'));
