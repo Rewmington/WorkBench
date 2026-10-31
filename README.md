@@ -140,4 +140,4 @@ git push origin v0.1.4
 
 ## 许可
 
-本仓库尚未选择开源许可证。公开发布或允许他人分发前，请先确定许可方式。
+[MIT License](LICENSE)。

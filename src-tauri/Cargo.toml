@@ -3,6 +3,7 @@ name = "anvil"
 version = "0.1.5"
 description = "Anvil · 个人工作台"
 authors = ["Rewmington"]
+license = "MIT"
 edition = "2021"
 rust-version = "1.90"
 

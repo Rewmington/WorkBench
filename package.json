@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.5",
   "description": "Anvil — local-first personal workbench (Tauri + Vue + Rust)",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
