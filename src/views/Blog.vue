@@ -207,9 +207,6 @@ async function saveRepoDir(raw: string): Promise<string> {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  min-height: 0;
-  flex: 1;
-  overflow-y: auto;
 }
 .bar {
   display: flex;

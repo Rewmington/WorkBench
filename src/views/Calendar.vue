@@ -150,8 +150,6 @@ const dayLabel = (ms: number) => `${new Date(ms).getMonth() + 1}/${new Date(ms).
   display: flex;
   flex-direction: column;
   gap: 9px;
-  min-height: 0;
-  flex: 1;
 }
 .bar {
   display: flex;

@@ -76,9 +76,13 @@ export function renderMarkdown(source: string): RenderedNote {
 /**
  * 预览里的链接一律交给系统浏览器（§8.6 反网页感：原生软件不在自己窗口里开网页）。
  * 不安全的（已被剥掉 href 的）返回 null，调用方据此什么都不做。
+ *
+ * `#锚点` 也返回 null：它是页内跳转，交给 `ShellExecute` 只会拿到一句看不懂的失败，
+ * 而在 webview 里跳它等于让笔记反向操纵宿主窗口。
  */
 export function linkHref(target: EventTarget | null): string | null {
   const el = (target as HTMLElement | null)?.closest?.('a')
   const href = el?.getAttribute('href')
-  return href && isSafeUri(href) ? href : null
+  if (!href || !isSafeUri(href) || href.startsWith('#')) return null
+  return href
 }

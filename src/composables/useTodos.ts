@@ -51,21 +51,12 @@ export function useTodos() {
     undone.value.filter((t) => t.dueAt != null && t.dueAt < now.value),
   )
 
-  const dueToday = computed(() => {
-    const end = startOfDay(now.value) + 86_400_000
-    return undone.value.filter((t) => t.dueAt != null && t.dueAt >= now.value && t.dueAt < end)
-  })
-
   const doneToday = computed(() => {
     const floor = startOfDay(now.value)
     // 与 Rust 侧「今天完成 N 件」同口径：只看当前仍是完成态的，
     // 否则取消勾选后这里会比 KPI 数字多一条，那种对不上最难查。
     return all.value.filter((t) => t.completed && t.doneAt != null && t.doneAt >= floor)
   })
-
-  const byId = (id: string) => all.value.find((t) => t.id === id) ?? null
-
-  const childrenOf = (id: string) => all.value.filter((t) => t.parentId === id)
 
   return {
     all,
@@ -74,13 +65,10 @@ export function useTodos() {
     error,
     refresh,
     overdue,
-    dueToday,
     doneToday,
     inbox: inZone('inbox'),
     today: inZone('today'),
     later: inZone('later'),
     someday: inZone('someday'),
-    byId,
-    childrenOf,
   }
 }

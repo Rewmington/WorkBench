@@ -56,25 +56,31 @@ export function toggleMode() {
   mode.value = resolved.value === 'dark' ? 'light' : 'dark'
 }
 
-export function useTheme() {
-  // 每个轴都要「存 + 立刻生效」。只 persist 不 apply 的话，切主题要重启才看得见，
-  // 而界面不会报错 —— 这类洞在截图里看不出来，因为截图常常是直接改 data-mode 的。
-  watch(mode, (v) => {
-    persist('mode', v)
-    apply()
-  })
-  watch(preset, (v) => {
-    persist('preset', v)
-    apply()
-  })
-  watch(accent, (v) => {
-    persist('accent', v)
-    apply()
-  })
-  watch(reducedMotion, (v) => {
-    persist('reducedMotion', v)
-    apply()
-  })
+/**
+ * 每个轴都要「存 + 立刻生效」。只 persist 不 apply 的话，切主题要重启才看得见，
+ * 而界面不会报错 —— 这类洞在截图里看不出来，因为截图常常是直接改 data-mode 的。
+ *
+ * 这四个 watch 挂在**模块作用域**而不是 `useTheme()` 里：`mode/preset/accent/reducedMotion`
+ * 本来就是模块级单例（`toggleMode()` 在组件之外改 `mode.value` 就是靠这一点），
+ * 放进函数体就等于每个调用点各挂一份 —— 一次切主题发三次 `settingsSet`。
+ */
+watch(mode, (v) => {
+  persist('mode', v)
+  apply()
+})
+watch(preset, (v) => {
+  persist('preset', v)
+  apply()
+})
+watch(accent, (v) => {
+  persist('accent', v)
+  apply()
+})
+watch(reducedMotion, (v) => {
+  persist('reducedMotion', v)
+  apply()
+})
 
+export function useTheme() {
   return { mode, preset, accent, reducedMotion, resolved, load, apply, toggleMode }
 }

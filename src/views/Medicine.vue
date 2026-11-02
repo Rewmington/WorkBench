@@ -275,9 +275,6 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 11px;
-  min-height: 0;
-  flex: 1;
-  overflow-y: auto;
 }
 .bar {
   display: flex;

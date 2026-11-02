@@ -114,6 +114,7 @@ function pickDay(day: number) {
 </template>
 
 <style scoped>
+/* 滚动契约在全局 `.y-view`（src/style.css），这里不再抄一遍 */
 .bar {
   display: flex;
   align-items: center;

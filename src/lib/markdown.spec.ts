@@ -116,4 +116,15 @@ describe('预览里的链接提取', () => {
     expect(linkHref(anchor(null) as unknown as EventTarget)).toBeNull()
     expect(linkHref(null)).toBeNull()
   })
+
+  it('页内锚点不返回：那是滚动，不是要开窗口的地址', () => {
+    expect(linkHref(anchor('#section') as unknown as EventTarget)).toBeNull()
+  })
+
+  it('UNC 与相对路径照原样交出去，由命令那一侧拒绝', () => {
+    // 不在这里静默吞掉 —— 前端吞了就又是「点了没反应」，正是 open_url 曾经整条哑掉的样子。
+    // ShellExecute 会把 //host/share 当 UNC 路径拿当前凭据去访问，所以拒绝它的是 Rust。
+    expect(linkHref(anchor('//host/share') as unknown as EventTarget)).toBe('//host/share')
+    expect(linkHref(anchor('./sibling.md') as unknown as EventTarget)).toBe('./sibling.md')
+  })
 })

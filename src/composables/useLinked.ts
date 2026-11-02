@@ -67,7 +67,6 @@ export function useLinked() {
     load,
     refreshBlog,
     refreshMedicine,
-    snapOf,
     payloadOf,
     medicine,
     medicineSnap,

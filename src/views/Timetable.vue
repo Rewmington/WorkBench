@@ -31,11 +31,18 @@ const week1Draft = ref('')
 const DAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 
 async function load() {
-  st.value = await api.timetableState()
-  const w = viewing.value ?? st.value.currentWeek ?? 1
-  viewing.value = w
-  rows.value = await api.timetableWeek(w)
-  week1Draft.value = st.value.week1Monday ?? ''
+  try {
+    st.value = await api.timetableState()
+    const w = viewing.value ?? st.value.currentWeek ?? 1
+    viewing.value = w
+    rows.value = await api.timetableWeek(w)
+    week1Draft.value = st.value.week1Monday ?? ''
+    error.value = null
+  } catch (e) {
+    // 后端报错不能长得像「你还没导入过课表」：那一行会支着用户去找一份并不存在的 CSV，
+    // 而真正该查的是这台机器上这个库读不读得动。
+    error.value = errText(e)
+  }
 }
 
 onMounted(() => {
@@ -176,7 +183,7 @@ const hasData = computed(() => (st.value?.rows ?? 0) > 0)
     </div>
 
     <CollapsedRow
-      v-if="!hasData"
+      v-if="!hasData && !error"
       label="课表 · 还没有导入过"
       detail="教务导出 → Excel 另存为「CSV UTF-8(逗号分隔)」→ 点右上「导入 CSV」"
       :busy="busy"
@@ -240,8 +247,8 @@ const hasData = computed(() => (st.value?.rows ?? 0) > 0)
   display: flex;
   flex-direction: column;
   gap: 11px;
-  min-height: 0;
-  flex: 1;
+  /* 盖掉全局 `.y-view` 的 overflow-y: auto —— 这一页滚的是表格区自己（`.gridwrap`），
+     根节点再开一层滚动会出现两条滚动条，滚轮落在哪边看鼠标位置。 */
   overflow: hidden;
 }
 .bar {

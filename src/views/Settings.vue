@@ -168,6 +168,8 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown, true))
 </template>
 
 <style scoped>
+/* 滚动契约在全局 `.y-view`（src/style.css）：这一页的内部间距靠各块自己的 margin 撑，
+   所以这里不再重复声明 flex/overflow。 */
 .bar {
   display: flex;
   align-items: center;

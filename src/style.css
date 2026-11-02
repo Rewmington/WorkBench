@@ -445,6 +445,17 @@ ol {
   gap: 12px;
 }
 
+/* 每个视图的根 `<section class="y-view">` 共用这一条：撑满中间列，且内容长过窗口时能滚。
+   以前这三行被抄进各视图自己的 scoped 样式里，抄漏的那页（进度页）就没人发现 ——
+   外层 .y-ctr 与 .y-win 都是 overflow: hidden，超高内容不是"看不见了"，是连滚动条都不出现。
+   需要自己控制溢出的视图（课表用 overflow: hidden 让表格区内部滚）在局部覆盖即可，
+   scoped 选择器带 [data-v-*]，权重高于这条全局规则。 */
+.y-view {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .y-detail {
   background: var(--panel);
   border-left: 1px solid var(--line);
