@@ -13,6 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint:style": "node tools/lint-style.mjs && node tools/token-check.mjs",
+    "contract": "node tools/contract-check.mjs",
+    "version:check": "node tools/version-check.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"

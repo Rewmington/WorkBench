@@ -36,8 +36,25 @@ jobs:
           workspaces: src-tauri -> target
 
       - run: npm ci
+      # 版本一致性：四处清单互相对不上、或 tag 与清单对不上，都要在开跑前停下。
+      # 以前这种错**不会让 CI 红**：产物名跟着 tag 走，里面装的是上一个版本。
+      # 手动触发时 TAG=manual，脚本只查四处一致，不比对 tag。
+      - name: 版本一致性检查
+        shell: bash
+        run: node tools/version-check.mjs --tag="$TAG"
       - run: npm run typecheck
       - run: npm test
+      # issue #1 的 P2-18/P2-19：这两件以前在 CI 里从不执行。
+      # 223 个 Rust 测试写完从没被机器跑过一次，等于没有；lint:style 同理。
+      - run: npm run lint:style
+      - name: invoke 契约检查（N1 那一类：参数名对不上会静默失效）
+        run: node tools/contract-check.mjs
+      - name: Rust 测试
+        working-directory: src-tauri
+        run: cargo test
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D warnings
       - run: npm run tauri:build
 
       - name: 收拢安装包
@@ -90,6 +107,7 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
             mkdir -p mobile/.signing
@@ -98,7 +116,14 @@ jobs:
               "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_PASSWORD" "$ANDROID_KEY_ALIAS" \
               > mobile/android/key.properties
           else
-            echo "没有签名 secrets，回退 debug 证书"
+            # P1-18：回退 debug 证书本身是有意的（本地自测要用，见 mobile/README.md），
+            # 但**发布不许静默降级**：debug 签名的包用户装上以后再也无法覆盖升级到正式签名版，
+            # 而产物名字看着完全正常。推 tag 就是要发布，这种情况直接失败。
+            echo "::error::没有 ANDROID_KEYSTORE_BASE64 —— 这一步会打出 debug 签名的 APK，用户装完将无法覆盖升级"
+            if [ "$EVENT_NAME" = "push" ]; then
+              exit 1
+            fi
+            echo "手动触发的干跑，继续用 debug 签名产出 artifact"
           fi
 
       - name: 打 APK

@@ -56,4 +56,36 @@ if (hits.length) {
   process.exit(1)
 }
 
-console.log(`样式纪律检查通过（${walk(ROOT).length} 个文件，${RULES.length} 条规则）`)
+// 视图根的滚动契约：`flex: 1 / min-height: 0 / overflow-y: auto` 只许写在 src/style.css 的
+// 全局 `.y-view` 上。这句话以前抄在 9 个 .vue 里，抄漏的那一页内容超高时不出现滚动条，
+// 被外层 .y-win 的 overflow: hidden 直接裁掉 —— 设置页和统计页就是这样瞎了两屏。
+// 所以两个方向都拦：新视图没挂这个类要报，把三行抄回局部也要报。
+const VIEW_DIR = join(ROOT, 'views')
+const CONTRACT = [
+  [/^flex:\s*1\b/, 'flex: 1'],
+  [/^min-height:\s*0\b/, 'min-height: 0'],
+  [/^overflow-y:\s*auto\b/, 'overflow-y: auto'],
+]
+const contractHits = []
+for (const name of readdirSync(VIEW_DIR).filter((n) => n.endsWith('.vue'))) {
+  const file = join(VIEW_DIR, name)
+  const text = readFileSync(file, 'utf8')
+  if (!/class="[^"]*\by-view\b/.test(text)) {
+    contractHits.push(`${file}  视图根 <section> 没挂 .y-view —— 这一屏没有滚动契约，内容一超高就静默裁掉`)
+  }
+  // 只看 `.y-view { ... }` 这一块；局部若想自己管溢出，应改用别的类名（课表的 .y-tt 就是这么写的）
+  for (const block of text.match(/\.y-view\s*\{[^}]*\}/g) ?? []) {
+    for (const [re, label] of CONTRACT) {
+      if (block.split(/\r?\n/).some((line) => re.test(line.trim()))) {
+        contractHits.push(`${file}  .y-view 里重复声明了 ${label} —— 契约在 src/style.css，抄回来就等于又埋一个「改一处漏九处」`)
+      }
+    }
+  }
+}
+
+if (contractHits.length) {
+  console.error(`视图滚动契约违反 ${contractHits.length} 处：\n\n` + contractHits.join('\n\n'))
+  process.exit(1)
+}
+
+console.log(`样式纪律检查通过（${walk(ROOT).length} 个文件，${RULES.length} 条规则 + 视图滚动契约）`)

@@ -16,6 +16,10 @@ tools/.webdav-sync-root/
 
 # 本机数据库备份件（可能含有个人数据）
 *.abackup
+# 库文件本来都在 %APPDATA% 下，这条是防御性的：临时导出的副本别顺手 commit
+*.db
+*.db-wal
+*.db-shm
 
 # Android 发布签名（本机保留；CI 从 GitHub Secrets 还原）
 mobile/.signing/
@@ -25,7 +29,7 @@ mobile/android/key.properties
 .qoder/
 .idea/
 *.iml
-
+.claude/
 # 杂项
 *.log
 .DS_Store

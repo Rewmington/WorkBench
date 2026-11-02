@@ -41,11 +41,13 @@ const send = (res, code, body = '', type = 'text/plain; charset=utf-8', extra = 
 }
 
 // 前缀在 D: 与 s0: 之间来回换：写死前缀的解析器在这里一定会露馅
-const row = (href, { isDir, size, n = 0 }) => {
+const row = (href, { isDir, size, modified, n = 0 }) => {
   const p = n % 2 === 0 ? 'D' : 's0'
   const type = isDir ? `<${p}:resourcetype><${p}:collection/></${p}:resourcetype>` : `<${p}:resourcetype/>`
   const len = isDir ? '' : `<${p}:getcontentlength>${size}</${p}:getcontentlength>`
-  return `<${p}:response><${p}:href>${href}</${p}:href><${p}:propstat><${p}:prop>${type}${len}</${p}:prop><${p}:status>HTTP/1.1 200 OK</${p}:status></${p}:propstat></${p}:response>`
+  // 与坚果云同一形状：HTTP 日期（IMF-fixdate）。同步那一路要靠它挑"最新的 8 份信封"
+  const when = isDir || !modified ? '' : `<${p}:getlastmodified>${modified}</${p}:getlastmodified>`
+  return `<${p}:response><${p}:href>${href}</${p}:href><${p}:propstat><${p}:prop>${type}${len}${when}</${p}:prop><${p}:status>HTTP/1.1 200 OK</${p}:status></${p}:propstat></${p}:response>`
 }
 
 const readBody = async (req) => {
@@ -75,9 +77,16 @@ const server = createServer(async (req, res) => {
       const names = (await readdir(target)).sort()
       for (const [i, name] of names.entries()) {
         const abs = join(target, name)
-        if ((await stat(abs)).isDirectory()) continue
-        const { size } = await stat(abs)
-        rows.push(row(posix.join(href, encodeURIComponent(name)), { isDir: false, size, n: i + 1 }))
+        const st = await stat(abs)
+        if (st.isDirectory()) continue
+        rows.push(
+          row(posix.join(href, encodeURIComponent(name)), {
+            isDir: false,
+            size: st.size,
+            modified: st.mtime.toUTCString(),
+            n: i + 1,
+          }),
+        )
       }
       const xml = `<?xml version="1.0" encoding="utf-8"?><D:multistatus xmlns:D="DAV:" xmlns:s0="DAV:">${rows.join('')}</D:multistatus>`
       return send(res, 207, xml, 'application/xml; charset=utf-8')
