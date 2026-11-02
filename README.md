@@ -14,7 +14,7 @@
 
 **桌面端**（Tauri 2 + Vue 3 + Rust + SQLite）把一天里分散的东西放进同一屏：
 
-- **今天**：待办队列、课表空档、倒计时、便签、速达、系统资源
+- **今天**：KPI 四格、专注环、完成时间轴、下一步建议、待办队列（空档那句在待办页顶上，倒计时/便签/常用速达在「进行中」，系统读数在侧栏常驻）
 - **待办 / 课表 / 日历 / 笔记 / 进度 / 统计**
 - **外部联动**：博客仓库 JSON、药箱 SQLite（只读副本）、坚果云每日备份
 - **每日备份**：AES-256-GCM 信封加密后上传坚果云，凭据进 Windows 凭据管理器
@@ -43,7 +43,7 @@
 └──────────────┘                    └────────────┘                    └──────────────┘
         │                                   │                                  │
         │ workbench-backup/  每日备份（加密信封）                              │
-        │ workbench-sync/    待办/课表对等同步（加密信封，行级 LWW）            │
+        │ workbench-sync/    待办对等同步（加密信封，行级 LWW；课表只从桌面往下、手机只读）            │
         │ medicine-sync/     药箱 App 自己的目录（Anvil 只读，不写）           │
 ```
 
@@ -106,8 +106,12 @@ cd mobile && flutter test && flutter analyze
 推一个 `v*` tag 就会触发 [.github/workflows/release.yml](.github/workflows/release.yml)：
 
 ```bash
-git tag v0.1.4
-git push origin v0.1.4
+# 版本号有四处，必须一起抬（`npm run version:check` 会替你核对）：
+#   package.json / src-tauri/tauri.conf.json / src-tauri/Cargo.toml
+#   mobile/pubspec.yaml（`0.1.6+7`，`+` 后面是 Android 的 versionCode，每次发版也要抬）
+npm run version:check
+git tag vX.Y.Z                        # 与四份清单里那个新版本一致，例如 v0.1.6
+git push origin vX.Y.Z
 ```
 
 工作流会并行构建并挂到同一个 GitHub Release：
@@ -135,7 +139,7 @@ git push origin v0.1.4
 
 ## 状态
 
-桌面端 M0–M10 已落地；手机端 M11a–M11e 已落地（数据层、同步客户端、两屏 UI、药箱只读视图）。
+桌面端 M0–M11b 已落地（含 `sync::relay` 中转与备份页的同步状态块；桌面同步时机是开机后 60 秒那一次 + 手动，没有定时器）；手机端 M11a–M11e 已落地（数据层、同步客户端、两屏 UI、药箱只读视图）。
 真机侧还剩：实体 Android 设备、真实坚果云账号的成功往返、配额实测。详见 `docs/PLAN-MOBILE.md` §6–§7。
 
 ## 许可

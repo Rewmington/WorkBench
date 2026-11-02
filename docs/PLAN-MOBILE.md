@@ -102,7 +102,7 @@ Anvil 手机端 ──PROPFIND + GET（只读）──▶ 同一目录
 
 - **只读在类型层，不靠自觉**：`sync/medicine_sync.dart` 的 `MedicineCloud` 只有 `PROPFIND` 与 `GET`，没有 `MKCOL/PUT/DELETE`；base 只认 `/medicine-sync/` 结尾，拒绝 `workbench-sync` / `workbench-backup`。测试断言桩侧收到的动词集合就是这两个。
 - **不读同机药箱的本地库**：药箱的 SQLite 在它自己的 Android 沙箱里（`getApplicationSupportDirectory()`），Anvil 是另一个包，读不到；也不去读它存在 `shared_preferences.json` 的明文密码。
-- **凭据复用 `Anvil/webdav`**：坚果云应用密码是账号级的，任一把都能读；手机上不新增密码条目，也不向 medicine-sync 写任何东西。
+- **手机上存两条，不是一条**：`credentials.dart` 的 `SecurePasswordVault` 里 `syncKey = 'Anvil/webdav'`（工作台同步）与 `medicineKey = 'Anvil/medicine-webdav'`（药箱）各占一个 Keystore 条目。坚果云应用密码是账号级的，任一把都能读；但药箱可能是另一个账号，所以 Anvil 不拿同步那把去猜，也不向 medicine-sync 写任何东西。
 - **药箱账号可以与工作台不同**：`medicine.email` + Keystore 里的 `Anvil/medicine-webdav`；邮箱留空才回退到同步那组。应用密码是账号级的 —— 同一个坚果云账号换一把应用密码也能读，**不同账号必须单独填**。
 - **合并规则照药箱**：同 id 取 `updated_at` 更新的行；平票取发布更晚的那份、再按设备号（只读视图必须与读取顺序无关）；墓碑行不显示；`published_at` 取各文件最大者。两张表：`medicines` / `dose_logs`。
 - **新鲜度 = 药箱上次发布**，不是此刻：卡片写「药箱 12:03」，详情写「药箱发布于 12:03 · 读取于 12:05」。断网/401 时保留上一次的视图，并单独记一句「这次没读到」。
@@ -112,12 +112,12 @@ Anvil 手机端 ──PROPFIND + GET（只读）──▶ 同一目录
 
 - **没有配对、没有二维码、没有 token。** 信任边界 = 坚果云账号 + 信封密钥。桌面原 §6.5 的局域网配对整套作废，`devices` 表不建 —— 设备清单就是远端目录里那几份 `device-*.enc` 的 listing。
 - 信封**原样复用** `src-tauri/src/backup/crypto.rs`：`ANVILBKP | ver | kdf | m/t/p | salt[16] | nonce[12] | 密文`，Argon2id + AES-256-GCM，AAD 覆盖 nonce 之前的头部（kdf 参数或 salt 被换掉时认证标签直接不通过，而不是悄悄用错的钥匙解出乱码）。
-- KDF secret 仍是 `邮箱:应用密码` —— **与备份同一把凭据**，不新增第三把密码。PC 侧在 Windows 凭据管理器 `Anvil/webdav` 条目；手机首次设置时手输同一组邮箱 + 应用密码，存 Android Keystore（`flutter_secure_storage`）。**不抄药箱把应用密码明文放 `shared_preferences.json` 的缺点。**
+- KDF secret 仍是 `邮箱:应用密码` —— **与备份同一把凭据**，不新增第三把密码。桌面侧那条在 Windows 凭据管理器里是服务 `Anvil` + 账号 `webdav`（`creds.rs` 的 `Entry::new("Anvil", "webdav")`，别按拼接后的显示名去对照）；手机首次设置时手输同一组邮箱 + 应用密码，存 Android Keystore（`flutter_secure_storage`）。**不抄药箱把应用密码明文放 `shared_preferences.json` 的缺点。**
 - 信封头部自带 KDF 参数、`open()` 会夹住上限（`crypto.rs:130-147`），所以**手机可以用比日备更低的 Argon2 成本**：64MiB/3 在桌面 ~120ms，真机耗时未知（§7 第 1 条）。若实测需要降，**下限 16MiB/3，降的是成本不是算法**，两端互通不受影响。
 - **M11a 实测把这条定成了两档成本**（`mobile/test/argon2_bench_test.dart`，本机 Dart VM、纯 Dart 实现）：64MiB/3/1 单次 **632 ms**、16MiB/3/1 单次 **129 ms**、8MiB/3/1 62 ms。一次同步 = 自己 seal 一次 + 开对方一次 = 两次派生，日备那档在手机上就是 ~1.26 s 的白等，而 §7 第 1 条写的门槛正是 1 s。**所以同步信封走 16MiB/3/1**：Rust `crypto::seal_with(..., SYNC_M_KIB, ...)` 与 Dart `KdfParams.sync()` 同一档，日备仍是 64MiB（一天一次，不动）。参数写进头部，读哪份文件就用哪份的成本，所以**关键约束不是"两端参数相同"，而是"手机开 PC 那份时别被迫用 64MiB"** —— PC 发同步快照时也必须用同步那档。真机耗时仍然要回填（§7 第 1 条），但降不降参数的判断依据已经有了。**2026-10-31 Android 15（x86_64 模拟器）release/AOT 实测**（`ANVIL_BENCH=1`，48 KB 明文）：16 MiB 那档 seal 215 ms / open 87 ms → 一次同步 ≈ 302 ms；64 MiB 那档 ≈ 742 ms，两档往返都一致。**这是模拟器，不算实体机数据**；它只说明 16 MiB 的余量很大，实体机若明显更慢再按 §7 第 1 条处理。
 - Dart 侧 Argon2 实现选型（libsodium FFI vs 纯 Dart）留到 M11a 实测定。**验收是跨语言测试向量**：Rust seal → Dart open、Dart seal → Rust open 各一条进测试。
 - **"加密后才上传"必须可验证**（桌面 §8.9）：坚果云网页下载任一 `device-*.enc`，看到的就是 `ANVILBKP` 魔数开头的密文。不说"你的数据只属于你"。
-- **M11c 落地**：手机侧 `credentials.dart` 的 `SecurePasswordVault` 只用 `flutter_secure_storage` 一个键（`Anvil/webdav`，与桌面凭据管理器同名的目标），邮箱进 settings、密码不进库；测试断言整张 settings 序列化后不含密码。**一个本机工具链的坑**：该包的 Windows 实现要 ATL（`atlstr.h`），而截图构建走 Windows，会把取证链挡死；所以 `mobile/third_party/flutter_secure_storage_windows` 是同一版本的本地副本，只删掉 C++ 插件、保留 Dart FFI 实现，Android 侧仍用主包的 Keystore 实现。这是**取证工具链的补丁，不是加密方案的改动**。
+- **M11c 落地**：手机侧 `credentials.dart` 的 `SecurePasswordVault` 只用 `flutter_secure_storage` 这一个包，但里面是**两个键**（`Anvil/webdav` 与 `Anvil/medicine-webdav`，用途见 §3.7 那两条）；邮箱进 settings、密码不进库；测试断言整张 settings 序列化后不含密码。**一个本机工具链的坑**：该包的 Windows 实现要 ATL（`atlstr.h`），而截图构建走 Windows，会把取证链挡死；所以 `mobile/third_party/flutter_secure_storage_windows` 是同一版本的本地副本，只删掉 C++ 插件、保留 Dart FFI 实现，Android 侧仍用主包的 Keystore 实现。这是**取证工具链的补丁，不是加密方案的改动**。
 
 ## 5. UI 定稿
 
