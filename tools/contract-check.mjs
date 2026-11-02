@@ -15,6 +15,17 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const root = new URL('..', import.meta.url).pathname.replace(/^\/(.:)/, '$1')
+/**
+ * 相对仓库根的路径。**不能**靠切仓库目录名来算：本地克隆叫 `workbench`（小写），
+ * GitHub runner 上叫 `WorkBench`，切不出来就是 undefined，而下面 `.filter((s) => !s.file.endsWith(...))`
+ * 会当场 TypeError —— v0.1.7 第一次推 tag 就是这么在 CI 上挂掉、Release 没建出来的。
+ * 现在按 root 前缀切，切不掉就用原路径，任何机器上都不会返回 undefined。
+ */
+const relBase = root.replace(/\\/g, '/').replace(/\/+$/, '')
+const rel = (f) => {
+  const p = f.replace(/\\/g, '/')
+  return p.startsWith(`${relBase}/`) ? p.slice(relBase.length + 1) : p
+}
 const CMD_DIR = join(root, 'src-tauri', 'src', 'commands')
 const REAL_TS = join(root, 'src', 'api', 'real.ts')
 
@@ -143,7 +154,7 @@ for (const file of RUST_SRC) {
     const raw = (quoted ?? ident).trim().split('::').pop()
     const value = consts.get(raw)
     // 只关心形如 `a://b` 的事件名；别的常量当 payload 传时会走到这里，跳过。
-    if (value && value.includes('://')) emitted.set(value, file.replace(/\\/g, '/').split('workbench/')[1])
+    if (value && value.includes('://')) emitted.set(value, rel(file))
   }
 }
 
@@ -151,7 +162,7 @@ const listened = new Map() // 事件名 → 出处
 for (const file of TS_SRC) {
   const text = readFileSync(file, 'utf8')
   for (const [, name] of text.matchAll(/listen(?:<[^>]*>)?\(\s*'([^']+)'/g)) {
-    listened.set(name, file.replace(/\\/g, '/').split('workbench/')[1])
+    listened.set(name, rel(file))
   }
 }
 
@@ -183,7 +194,6 @@ for (const m of real.matchAll(/^ {2}(\w+):\s*(?:async\s*)?\(?[^=]*?\)?\s*=>\s*in
   keyByCommand.set(m[2], m[1])
 }
 
-const rel = (f) => f.replace(/\\/g, '/').split('workbench/')[1]
 const apiLayer = new Set(['src/api/real.ts', 'src/api/mock.ts', 'src/api/types.ts', 'src/api/index.ts'])
 const sources = TS_SRC.map((f) => ({ file: rel(f), text: readFileSync(f, 'utf8') })).filter(
   (s) => !apiLayer.has(s.file) && !s.file.endsWith('.spec.ts'),
