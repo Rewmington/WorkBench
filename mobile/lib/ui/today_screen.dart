@@ -23,12 +23,12 @@ class TodayScreen extends StatefulWidget {
   final ValueChanged<bool> onTab;
 
   /// 演示用：截图那一档要让撤销条先亮着（对比稿画的就是那一瞬间）
-  final String? initialUndoTitle;
+  final String? initialUndoId;
   const TodayScreen({
     required this.store,
     required this.onOpenSettings,
     required this.onTab,
-    this.initialUndoTitle,
+    this.initialUndoId,
     super.key,
   });
 
@@ -49,12 +49,14 @@ class _TodayScreenState extends State<TodayScreen> {
   /// 不冻的话它会掉到区尾 —— 而 ListView 是懒建的，区尾那格常常已经在屏幕外，
   /// 于是"留在原位划掉"会变成"点一下它凭空消失"（这条是被测试逼出来的，不是想当然）。
   Map<Section, List<String>>? _frozen;
-  String? _undoTitle;
+  /// 撤销条条幅上写的是标题，但**找回那一条靠 id**：按标题找会在同名两条时撤错那条
+  /// （「喝水」「交作业」这类标题真会撞），而撤错的那一次两边都写 dirty=1 上传出去。
+  String? _undoId;
 
   @override
   void initState() {
     super.initState();
-    if (widget.initialUndoTitle != null) _armUndo(widget.initialUndoTitle!);
+    if (widget.initialUndoId != null) _armUndo(widget.initialUndoId!);
   }
 
   @override
@@ -66,11 +68,11 @@ class _TodayScreenState extends State<TodayScreen> {
   }
 
   /// 撤销条停 4 秒：够伸手点回去，又不会一直挡着输入条
-  void _armUndo(String title) {
+  void _armUndo(String id) {
     _undoTimer?.cancel();
-    setState(() => _undoTitle = title);
+    setState(() => _undoId = id);
     _undoTimer = Timer(const Duration(seconds: 4), () {
-      if (mounted) setState(() => _undoTitle = null);
+      if (mounted) setState(() => _undoId = null);
     });
   }
 
@@ -96,7 +98,7 @@ class _TodayScreenState extends State<TodayScreen> {
       _exiting[t.id] = from;
       _frozen = before;
     });
-    _armUndo(t.title);
+    _armUndo(t.id);
     _exitTimer?.cancel();
     _exitTimer = Timer(const Duration(milliseconds: 520), () {
       if (mounted) {
@@ -114,10 +116,10 @@ class _TodayScreenState extends State<TodayScreen> {
     final store = widget.store;
     final zones = _zones(store);
     final live = zones.values.fold<int>(0, (a, b) => a + b.length);
-    final undoTarget = _undoTitle == null
+    final undoTarget = _undoId == null
         ? null
         : store.todos
-            .where((t) => t.title == _undoTitle && t.completed)
+            .where((t) => t.id == _undoId && t.completed)
             .fold<Todo?>(null, (a, b) => a ?? b);
 
     return Scaffold(
@@ -151,9 +153,9 @@ class _TodayScreenState extends State<TodayScreen> {
               ),
             ),
             // 撤销条让到输入条上面（对比稿实测：默认位置会盖住输入条，看不见自己刚写的那句）
-            if (_undoTitle != null && undoTarget != null)
+            if (_undoId != null && undoTarget != null)
               UndoBar(
-                title: _undoTitle!,
+                title: undoTarget.title,
                 onUndo: () => _toggle(undoTarget),
               ),
             _foot(context, store),
@@ -244,8 +246,10 @@ class _TodayScreenState extends State<TodayScreen> {
     final s = skinOf(context);
     final text = switch (store.sync) {
       NeverSynced() => '还没同步过 · 这里可能是空的',
-      OfflineAt(:final atMs) => '今天没有待办 —— 显示的是 ${clockTime(atMs)} 那份',
-      SyncedAt(:final atMs) => '今天没有待办 —— 上次同步于 ${clockTime(atMs)}',
+      OfflineAt(:final atMs) =>
+        '今天没有待办 —— 那份数据是 ${agoLabel(store.clock.now, atMs)}的',
+      SyncedAt(:final atMs) =>
+        '今天没有待办 —— 上次同步于 ${agoLabel(store.clock.now, atMs)}',
     };
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 22),

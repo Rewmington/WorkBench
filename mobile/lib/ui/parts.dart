@@ -20,7 +20,7 @@ String headDateLine(Clock clock, int? week, {DateTime? at}) {
   return '${d.month} 月 ${d.day} 日 · ${dow[d.weekday - 1]}$w';
 }
 
-/// 同步那行。**四态四句**（§5.5），一句都不多写：
+/// 同步那行。**五态五句**（§5.5），一句都不多写：
 /// 不出现「已同步」、不出现转圈、真空态与「还没同步过」不共用一句。
 class SyncLine extends StatelessWidget {
   final Store store;
@@ -30,15 +30,24 @@ class SyncLine extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = skinOf(context);
     final (text, color, warn) = switch (store.sync) {
+      // 试过、被拒了、一次都没成 —— 这既不是「还没同步过」（那是没试过），也不是
+      // 「没连上」（那是传输层）。真机上就是这样被一句「还没同步过」盖掉了一次 401。
+      NeverSynced() when store.syncError != null => (
+          '上次同步没成 · 原因在设置页',
+          s.red,
+          true,
+        ),
       // 这一句比空态那句短：空态那一行会把「这里可能是空的」说完，两处别说同一句
       NeverSynced() => ('还没同步过', s.t3, false),
       final SyncedAt x => (
-          '上次同步于 ${clockTime(x.atMs)} · ${store.pending} 条待上传',
+          '上次同步于 ${agoLabel(store.clock.now, x.atMs)} · ${store.pending} 条待上传',
           s.t3,
           false,
         ),
+      // 那句的时间放在末尾：`agoLabel` 越长越具体（「31 分钟前」「昨天 20:00」「10月20日」），
+      // 夹在两个中文词中间会读成断句；末尾接「的」不留空格，否则断在「的」前面
       final OfflineAt x => (
-          '没连上坚果云 · 显示的是 ${clockTime(x.atMs)} 那份',
+          '没连上坚果云 · 那份数据是 ${agoLabel(store.clock.now, x.atMs)}的',
           s.amber,
           true,
         ),
@@ -75,10 +84,21 @@ class GapLine extends StatelessWidget {
     final s = skinOf(context);
     final t = store.todayShape();
 
+    // 本机写失败排在最前：那条状态行原本会说「今天没有课」之类无关的话，
+    // 而此刻唯一值得用户知道的是「刚那一下没存上」。
+    final write = store.localWriteError;
+    if (write != null) {
+      return _line(context, write, bad: true);
+    }
+
     // 三种「说不出空档」的情况各一句话，不共用（共用就等于让"没同步到"
     // 长得像"今天真的没课"，那是 §5.5 点名的翻车方式）
     if (t.noTimetable) {
       return _line(context, '这台手机还没同步到课表');
+    }
+    if (t.needsWeek1) {
+      // 与课表屏同一句：两屏对同一个状态必须说同一句话
+      return _line(context, '电脑上的开学日还没设');
     }
     if (t.classes == 0) {
       return _line(context, '今天没有课');
@@ -110,9 +130,11 @@ class GapLine extends StatelessWidget {
     );
   }
 
-  Widget _line(BuildContext context, String text) => Padding(
+  Widget _line(BuildContext context, String text, {bool bad = false}) => Padding(
         padding: const EdgeInsets.only(left: 2, right: 2, bottom: 10),
-        child: Text(text, style: TextStyle(fontSize: Type.metaWide, color: skinOf(context).t2)),
+        child: Text(text,
+            style: TextStyle(
+                fontSize: Type.metaWide, color: bad ? skinOf(context).red : skinOf(context).t2)),
       );
 }
 

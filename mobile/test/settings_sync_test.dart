@@ -80,6 +80,43 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  /// 批次 9 的 F5：这台手机**只在打开 app 时同步一次**，不刷后台也不定时（PLAN-MOBILE §1）。
+  /// 那个窄口径本身是有意的，但从前这里只说「打开 app 时也会自动同步一次」，
+  /// 听着像它平时也会自己刷 —— 于是「电脑上改了、手机没更新」没人知道是没刷而不是没同步上。
+  testWidgets('账号已填、没有错误时，那一行要说清「只有打开时才同步」', (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final store = await tester.runAsync(() async {
+      final db = await openMemoryDatabase(databaseFactoryFfi);
+      final repo = await PhoneRepo.open(db, now: DateTime.now().millisecondsSinceEpoch);
+      final service = SyncService(
+        db: db,
+        repo: repo,
+        vault: MemoryPasswordVault('app-pass'),
+        nowMs: () => DateTime.now().millisecondsSinceEpoch,
+        base: 'http://127.0.0.1:1/dav/workbench-sync/',
+      );
+      // 只存凭据，不发请求：这一条要看的是「配好了、还没试过同步」那一格文案
+      await service.saveAccount('me@example.com', 'app-pass');
+      return Store.load(repo, clock: Clock.live(), syncer: service);
+    });
+    await tester.pumpWidget(AnvilApp(
+      store: store!,
+      initialPage: 'settings',
+      forcedBrightness: Brightness.dark,
+    ));
+    await tester.pumpAndSettle();
+
+    expect(store.accountSaved, isTrue);
+    expect(find.textContaining('只在打开 app 时同步'), findsOneWidget);
+    expect(find.textContaining('平时放着不会自己更新'), findsOneWidget);
+    expect(find.textContaining('也会自动同步'), findsNothing, reason: '那句会让人以为它平时会自己刷');
+    expect(tester.takeException(), isNull, reason: '句子变长后 360 宽仍不许溢出');
+  });
+
   testWidgets('药箱有独立账号入口：留空就用上面那组', (tester) async {
     tester.view.physicalSize = const Size(360, 800);
     tester.view.devicePixelRatio = 1.0;

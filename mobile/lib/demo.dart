@@ -319,5 +319,7 @@ int _at(Clock clock, int h, int mi) {
   return DateTime(d.year, d.month, d.day, h, mi).millisecondsSinceEpoch;
 }
 
-/// 撤销条演示用的那一条标题（对比稿画的是刚勾掉「倒垃圾」那一瞬间）
+/// 撤销条演示用的那一条（对比稿画的是刚勾掉「倒垃圾」那一瞬间）。
+/// 给 id 而不是标题：`TodayScreen` 找回那一条按 id（同名两条时标题会撤错）。
 const undoDemoTitle = '倒垃圾';
+final undoDemoId = _demoTodos().firstWhere((t) => t.title == undoDemoTitle).id;

@@ -6,7 +6,16 @@
     <application
         android:label="Anvil"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules">
+        <!-- android:allowBackup="false"（issue #1 的 P0-4）：本地库是明文的
+             （`sqflite`，加密只在出门的信封那一层），而 Android 的 Auto Backup 默认开着，
+             会把 app 私有目录整个打进云端备份 —— 待办、课表、药箱数据就会以明文离开设备。
+             备份与换机迁移一并关掉：`fullBackupContent="false"` 管 API ≤30，
+             `dataExtractionRules` 管 API 31+，两个都要给，只给一个会留一条通道。
+             真正的备份走坚果云那一份（同步目录里的 device-*.enc，加密的）。 -->
         <activity
             android:name=".MainActivity"
             android:exported="true"

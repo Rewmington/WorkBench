@@ -6,6 +6,7 @@
 /// 界面上的约定（与桌面一致）：密码框留空 = 沿用已存那条，不是「清空密码」。
 library;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 abstract interface class PasswordVault {
@@ -33,8 +34,17 @@ class SecurePasswordVault implements PasswordVault {
 
   @override
   Future<String?> read() async {
-    final v = await storage.read(key: key);
-    return (v != null && v.trim().isNotEmpty) ? v : null;
+    try {
+      final v = await storage.read(key: key);
+      return (v != null && v.trim().isNotEmpty) ? v : null;
+    } catch (e) {
+      // Keystore 里的密钥不随系统备份走：从备份恢复回来的那台机器上，这条读不出来是**预期的**。
+      // 读不出来就当没配 —— 界面会说「还没填」，用户重填一次就好。
+      // 原来这里不接异常，而启动链 `main.dart → Store.load → configured` 一路裸奔到 `runApp` 之前，
+      // 于是一台恢复过的手机会直接起不来（issue #1 的 P0-4c）。
+      debugPrint('读凭据失败，按未配置处理：$e');
+      return null;
+    }
   }
 
   @override

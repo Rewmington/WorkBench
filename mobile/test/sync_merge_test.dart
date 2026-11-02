@@ -46,6 +46,26 @@ Snapshot snapOf(
 }) =>
     Snapshot(device: 'pc-a', sealedAt: 500, tables: tables, meta: meta);
 
+/// 一行课表，列与 `_classesDdl` 对齐。
+Map<String, Object?> classRow(String id, String term, String name) => {
+      'id': id,
+      'rev': 1,
+      'created_at': 500,
+      'created_by': 'pc-a',
+      'updated_at': 500,
+      'updated_by': 'pc-a',
+      'deleted_at': null,
+      'term': term,
+      'name': name,
+      'teacher': '',
+      'room': '',
+      'day': 1,
+      'start_min': 480,
+      'end_min': 580,
+      'period': '',
+      'weeks': '1-16',
+    };
+
 Future<void> seed(Database db, String id, int at, String by, String title) =>
     db.insert('todos', {
       'id': id,
@@ -267,6 +287,46 @@ void main() {
     final got = await read(db, 't1');
     expect(got['title'], '对端写的');
     expect(got.containsKey('recurrence'), isFalse);
+  });
+
+  /// 桌面导入课表是「物理删 + 每轮新 id」，所以快照里没有的那行就是被删掉的课。
+  /// 不跟着删，手机上就会攒一批永远删不掉的幽灵课（课表在手机只读，没处手动清）。
+  test('课表跟着快照整学期替换，被删的那门不该留在手机上', () async {
+    final db = await memoryDb();
+    await db.insert('classes', classRow('old-1', '2026-2027-1', '这学期被删掉的'));
+    await applySnapshot(
+      db,
+      snapOf({
+        'classes': [classRow('new-1', '2026-2027-1', '这学期新导入的')],
+      }),
+      phoneAccepts,
+    );
+    final ids = await db.query('classes', columns: ['id']);
+    expect(ids.map((r) => r['id']), ['new-1']);
+  });
+
+  test('只动这份快照里出现过的那一学期；没带课表时一行都不动', () async {
+    final db = await memoryDb();
+    await db.insert('classes', classRow('a-1', '2026-2027-1', '这学期'));
+    await db.insert('classes', classRow('b-1', '2025-2026-2', '上一学期'));
+
+    await applySnapshot(
+      db,
+      snapOf({
+        'classes': [classRow('a-2', '2026-2027-1', '这学期新课')],
+      }),
+      phoneAccepts,
+    );
+    final after = (await db.query('classes', columns: ['id']))
+        .map((r) => r['id'] as String)
+        .toList()
+      ..sort();
+    expect(after, ['a-2', 'b-1'], reason: '上一学期不在这份快照里，不该被牵连');
+
+    // 「这轮没发课表」和「PC 上真的没课」在字节上长得一样，猜错了就是清空用户的课表
+    await applySnapshot(db, snapOf({'todos': []}), phoneAccepts);
+    await applySnapshot(db, snapOf({'classes': []}), phoneAccepts);
+    expect((await db.query('classes')).length, 2);
   });
 }
 

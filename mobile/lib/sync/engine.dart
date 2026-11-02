@@ -13,6 +13,12 @@ import 'snapshot.dart';
 import 'webdav.dart';
 
 /// 手机发出去的表只有 `todos`（`classes` 单向 PC→手机，§3.1）。
+///
+/// 这也是**手机与桌面的发布条件长得不一样的原因**（issue #1 把它报成了 P1-17）：
+/// 桌面那句 `pending > 0 || local_rows` 是为 `classes` 补的 —— 课表没有 dirty 列，
+/// 任何"看有没有变化"的优化都会漏发（2026-10-31 真机复现，见 relay.rs 的同款注释）；
+/// 而手机从不发课表，本地新增必然 `dirty=1` → `pending>0`，所以 `pendingBefore > 0` 就够。
+/// 两端条件不同是数据形状不同，不是有一边漏修。
 const phoneTables = ['todos'];
 
 class SyncOutcome {
@@ -38,6 +44,9 @@ class SyncOutcome {
   /// 远端别人的设备 id（不含本机）
   final List<String> peers;
 
+  /// `peers` 里这次**读不懂**的那几个：文件在（所以算在线），但那份改动没并进来。
+  final List<String> unreadablePeers;
+
   /// 发出去那份快照自己的时间戳；`clearDirty` 用的就是它，不是墙钟（§3.3 第 2 条）
   final int? sealedAt;
 
@@ -51,6 +60,7 @@ class SyncOutcome {
     required this.putSkipped,
     required this.pendingAfter,
     required this.peers,
+    required this.unreadablePeers,
     required this.sealedAt,
   });
 }
@@ -72,13 +82,16 @@ Future<SyncOutcome> runSync({
     var applied = 0;
     var kept = 0;
     final peers = <String>[];
+    final unreadable = <String>[];
     var read = 0;
     for (final entry in entries) {
       if (entry.name == WebDavRemote.ourFileName(repo.deviceId)) continue;
       if (read >= maxPeers) break;
       read++;
       final name = entry.name;
-      peers.add(WebDavRemote.peerIdOf(name));
+      final id = WebDavRemote.peerIdOf(name);
+      // 文件在远端就算在线；读不读得懂是另一件事（与 PC 的 relay 同一口径）
+      peers.add(id);
       try {
         final blob = await remote.get(name);
         final plain = await Envelope.open(secret, blob);
@@ -89,7 +102,8 @@ Future<SyncOutcome> runSync({
         applied += report.applied;
         kept += report.kept;
       } catch (e) {
-        throw WebDavRemote.wrapPeer(name, e);
+        // 一个读不懂的对端不该带走整轮：跳过它、记下它，其余照常合并、自己这份照常上传
+        unreadable.add(id);
       }
     }
 
@@ -125,6 +139,7 @@ Future<SyncOutcome> runSync({
       putSkipped: !uploaded,
       pendingAfter: await pending(db),
       peers: peers,
+      unreadablePeers: unreadable,
       sealedAt: sealedAt,
     );
     await record(repo, outcome, nowMs());
@@ -141,6 +156,7 @@ Future<SyncOutcome> runSync({
       // 远端断了不代表待上传数变了（§5.5 那半句仍可验证）
       pendingAfter: await pending(db).catchError((_) => 0),
       peers: const [],
+      unreadablePeers: const [],
       sealedAt: null,
     );
     await record(repo, outcome, nowMs());
@@ -157,6 +173,9 @@ Future<void> record(PhoneRepo repo, SyncOutcome out, int now) async {
     'lastError': out.ok ? null : out.error,
     'lastErrorAt': out.ok ? prev['lastErrorAt'] : out.at,
     'peers': out.ok ? out.peers : (prev['peers'] ?? const <String>[]),
+    'unreadablePeers': out.ok
+        ? out.unreadablePeers
+        : (prev['unreadablePeers'] ?? const <String>[]),
   };
   // 记不进 settings 不值得把成功的同步说成失败：那份数据已经传上去了。
   try {

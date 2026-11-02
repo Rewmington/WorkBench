@@ -38,7 +38,7 @@ void main() {
     expect(find.text('连续打卡'), findsOneWidget);
     expect(find.text('7 天'), findsOneWidget);
     expect(find.text('下一次 20:00 · 钙片'), findsOneWidget);
-    expect(find.text('药箱 12:03'), findsOneWidget, reason: '必须说清这份数据是什么时候发布的');
+    expect(find.text('药箱 31 分钟前'), findsOneWidget, reason: '必须说清这份数据是什么时候发布的');
     expect(find.text('已用完：降压药'), findsOneWidget);
     expect(find.text('维生素D 剩 2 天'), findsOneWidget);
     expect(tester.takeException(), isNull, reason: '360 宽下不能溢出');
@@ -50,7 +50,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('只读'), findsOneWidget);
-    expect(find.text('药箱发布于 12:03 · 读取于 12:34'), findsOneWidget);
+    expect(find.text('药箱发布于 31 分钟前 · 读取于 刚刚'), findsOneWidget);
     expect(find.text('这里只读；回药箱打卡并同步后才会更新'), findsOneWidget);
     // 清单顺序：快没的先说（降压药已用完 → 维生素D 剩 2 天 → 钙片 15 天）
     double topOf(String name) => tester.getTopLeft(find.text(name)).dy;

@@ -64,11 +64,25 @@ String doneLabel(int now, int? doneAt) {
       '${DateTime.fromMillisecondsSinceEpoch(doneAt).day}日完成';
 }
 
-/// 「N 分钟前」，同步状态那行用。超过一小时就不装精确了。
+/// 「N 分钟前 / 3 天前 / 10月21日」—— 越远越具体，不写「很久以前」。
+///
+/// 与桌面 `relTime` 一字不差（文件头那条规矩）。它原先在一小时后退回 `clockTime`，
+/// 于是**昨天 09:12 和今天 09:12 在界面上长得一样** —— 而同步那行正好用它，
+/// 用户会以为手机今天连上过。未来的时间戳夹一下，理由同桌面（时钟回拨会念出「即将」）。
 String agoLabel(int now, int? then) {
   if (then == null) return '还没同步过';
-  final diff = now - then;
+  final diff = now - (then < now ? then : now);
   if (diff < _minute) return '刚刚';
   if (diff < _hour) return '${diff ~/ _minute} 分钟前';
-  return clockTime(then);
+  final thenDay = dayInt(DateTime.fromMillisecondsSinceEpoch(then));
+  final nowDay = dayInt(DateTime.fromMillisecondsSinceEpoch(now));
+  if (diff < _day && nowDay == thenDay) return '${diff ~/ _hour} 小时前';
+  final days = daysBetween(thenDay, nowDay);
+  if (days == 1) return '昨天 ${clockTime(then)}';
+  if (days < 7) return '$days 天前';
+  final d = DateTime.fromMillisecondsSinceEpoch(then);
+  final n = DateTime.fromMillisecondsSinceEpoch(now);
+  return d.year == n.year
+      ? '${d.month}月${d.day}日'
+      : '${d.year}年${d.month}月${d.day}日';
 }

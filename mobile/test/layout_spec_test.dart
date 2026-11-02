@@ -64,7 +64,7 @@ void main() {
     }
 
     // 同步那行：两个数都可验证 —— 时间来自最后一次成功同步，条数来自 dirty
-    expect(find.text('上次同步于 12:03 · 2 条待上传'), findsOneWidget);
+    expect(find.text('上次同步于 31 分钟前 · 2 条待上传'), findsOneWidget);
     expect(store.pending, 2, reason: '那句「2 条」不是写死的，它和计数同源');
 
     // 空档摘要（课表屏那条测试再来对一次）
@@ -117,7 +117,7 @@ void main() {
     await tester.tap(find.text('撤销'));
     await tester.pumpAndSettle();
     expect(find.byType(UndoBar), findsNothing);
-    expect(store.todos.firstWhere((t) => t.title == undoDemoTitle).completed, false);
+    expect(store.todos.firstWhere((t) => t.id == undoDemoId).completed, false);
   });
 
   testWidgets('勾选 → 延迟消失 + 撤销条', (tester) async {
@@ -145,7 +145,7 @@ void main() {
 
   testWidgets('空态那两句话分得清（§5.5 末两行）', (tester) async {
     await pump(tester, DemoCase.empty);
-    expect(find.text('今天没有待办 —— 上次同步于 12:03'), findsOneWidget,
+    expect(find.text('今天没有待办 —— 上次同步于 31 分钟前'), findsOneWidget,
         reason: '真空态必须带同步时间，否则和「没同步到」长得一样');
 
     await pump(tester, DemoCase.firstRun);
@@ -156,7 +156,7 @@ void main() {
 
   testWidgets('离线态不伪装实时、不转圈', (tester) async {
     await pump(tester, DemoCase.offline);
-    expect(find.text('没连上坚果云 · 显示的是 12:03 那份'), findsOneWidget);
+    expect(find.text('没连上坚果云 · 那份数据是 31 分钟前的'), findsOneWidget);
     expect(find.textContaining('已同步'), findsNothing);
     expect(find.byType(CircularProgressIndicator), findsNothing, reason: '原生软件从不转圈');
   });

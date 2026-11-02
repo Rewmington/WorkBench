@@ -25,7 +25,28 @@ class Clock {
   static Clock demo(int y, int mo, int d, int h, int mi) =>
       Clock(() => DateTime(y, mo, d, h, mi).millisecondsSinceEpoch);
 
-  factory Clock.live() => Clock(() => DateTime.now().millisecondsSinceEpoch);
+  factory Clock.live() => Clock(_live);
+
+  /// 真机时钟：**写出时间戳的单调下限就在这一处夹住**，与 PC 的 `SystemNow::ms` 同一句规则。
+  /// 手机比 PC 更容易撞回拨：换 SIM、自动时间、跨时区。回拨一次会让新改动被旧数据覆盖，
+  /// 而那行还会被标成「已同步」从此不再重发 —— 所以宁可暂时跑在未来，等真实时间追上。
+  /// 下限只由本机自己写过的行垫高（见 `raiseFloor`），不用对端写来的戳，否则等于把
+  /// 别人家的错钟变成本机永远赢的优势。
+  static int _floorMs = 0;
+
+  static void raiseFloor(int ms) {
+    if (ms > _floorMs) _floorMs = ms;
+  }
+
+  /// 墙钟与下限之间取哪一个。**同一毫秒里的多次写入不该 +1**，只有真回拨才前进一格。
+  /// 抽出来是因为墙钟没法在测试里伪造，而这条规则本身能钉住（PC 侧同名同规则）。
+  static int forwardOf(int wall, int floor) => wall >= floor ? wall : floor + 1;
+
+  static int _live() {
+    final issued = forwardOf(DateTime.now().millisecondsSinceEpoch, _floorMs);
+    _floorMs = issued;
+    return issued;
+  }
 
   DateTime get date => DateTime.fromMillisecondsSinceEpoch(now);
 
@@ -83,12 +104,27 @@ class Store extends ChangeNotifier {
   /// 已在设置里填过的邮箱；没填过为 null（界面显示「未填」）
   String? accountEmail;
 
+  /// 本机写入失败的那句话（磁盘满、库被锁、库坏了）。
+  ///
+  /// 为什么单独立一条：勾选/新建是**先改内存再写库**的，写失败以前只落到 logcat，
+  /// 于是界面会显示「已完成 2」并弹撤销条，而库里那条还是未完成 —— 重开一下就"凭空丢了"。
+  /// 那是让界面讲一条不存在的事实，比不响应更糟。写失败时这一条会顶掉今天屏那行状态。
+  String? localWriteError;
+
   /// 同步进行中（设置页那行据此说「正在同步」，不是转圈）
   bool syncing = false;
 
   /// 上次同步失败的那句话；成功或还没试过时为 null
   String? syncError;
+
+  /// settings 里那条 sync.state 读不出来（半截 JSON、或根本不是那个对象）。
+  /// 与「还没同步过」是两句话：后者会让人重做一遍动作，前者点一次同步就自愈。
+  /// 批次 7 曾把它借道 `syncError` 显示，真机上那行被「还没填坚果云账号」那个分支挡住
+  /// ——看不见。状态归状态、错误归错误，各占各的行。
+  bool syncStateUnreadable = false;
   List<String> peers = const [];
+  /// `peers` 里这次读不懂的那几个（文件在，改动没并进来）。与 PC 的 `unreadablePeers` 同义。
+  List<String> unreadablePeers = const [];
 
   /// 药箱只读视图。null = 还没读过；空视图 = 药箱还没同步过 / 没有药。
   MedicineView? medicine;
@@ -141,12 +177,21 @@ class Store extends ChangeNotifier {
     final r = repo;
     if (r != null) {
       todos = await r.todos();
+      // 单调下限要跨重启也成立：用本机自己写过的最晚一条垫高。
+      // 只扫 todos —— 它的戳才是 LWW 裁决的依据；对端写来的行不算在本机名下。
+      Clock.raiseFloor(todos
+          .where((t) => t.updatedBy == r.deviceId)
+          .fold(0, (m, t) => t.updatedAt > m ? t.updatedAt : m));
       week1Monday = await r.week1Monday();
       final term = await r.term();
       classes = await r.classesFor(term);
       totalWeeks = await r.totalWeeks(term);
       final state = await r.syncState();
       _applyState(state);
+      // 那条读不出来时 `_applyState` 只看到一份空 Map，界面于是会说「还没同步过」——
+      // 那是缺席的口径，不是故障的口径（与 PC `settings::get_json` 同一句区分）。
+      // 单独一个布尔，由「上次同步」那一行说；点一次同步就会把它重写回来。
+      syncStateUnreadable = await r.syncStateUnreadable();
       final s = syncer;
       accountEmail = s == null ? null : await s.email;
       accountSaved = s != null && await s.configured;
@@ -171,6 +216,10 @@ class Store extends ChangeNotifier {
     peers = rawPeers is List
         ? [for (final p in rawPeers) if (p is String) p]
         : const [];
+    final rawBad = state['unreadablePeers'];
+    unreadablePeers = rawBad is List
+        ? [for (final p in rawBad) if (p is String) p]
+        : const [];
     sync = switch (at) {
       int ms when errAt is int && errAt > ms => OfflineAt(ms),
       int ms => SyncedAt(ms),
@@ -182,6 +231,15 @@ class Store extends ChangeNotifier {
 
   /// 待上传计数唯一来源：本机写过的行数（§3.4，与桌面同一个口径）。
   int get pending => todos.where((t) => t.dirty).length;
+
+  /// 「远端设备」那一行。读不懂的那几台必须当场说出来 —— 少一台和一台都没同步，
+  /// 光看列表会长得一模一样，而那正是最需要知道的区别。
+  String get peersLine {
+    if (sync is NeverSynced) return '还没列过';
+    if (peers.isEmpty) return '没发现其他设备';
+    if (unreadablePeers.isEmpty) return peers.join('、');
+    return '${peers.join('、')} · ${unreadablePeers.join('、')} 那份读不懂，这次没并进来';
+  }
 
   int? get currentWeek => weekOf(week1Monday, clock.date, totalWeeks);
 
@@ -232,18 +290,22 @@ class Store extends ChangeNotifier {
     int classes,
     ({int start, int end})? gap,
     bool noTimetable,
+    bool needsWeek1,
     bool afterLast,
   }) todayShape() {
     if (classes.isEmpty) {
-      return (classes: 0, gap: null, noTimetable: true, afterLast: false);
+      return (classes: 0, gap: null, noTimetable: true, needsWeek1: false, afterLast: false);
     }
     if (currentWeek == null) {
-      // 开学日没设：周次算不出来，也就无从知道「今天」有没有课
-      return (classes: 0, gap: null, noTimetable: true, afterLast: false);
+      // 课在，但开学日没设：算不出「今天」有没有课。这**不是**「没同步到课表」——
+      // 那句会把人推去点同步（点了也没用），真该做的是在电脑上设开学日。
+      // 课表屏早就分得开这两种（`timetable_screen.dart` 那句三元），今天屏以前共用一个
+      // `noTimetable`，于是两屏说的是两句话。
+      return (classes: 0, gap: null, noTimetable: false, needsWeek1: true, afterLast: false);
     }
     final rows = classesToday();
     if (rows.isEmpty) {
-      return (classes: 0, gap: null, noTimetable: false, afterLast: false);
+      return (classes: 0, gap: null, noTimetable: false, needsWeek1: false, afterLast: false);
     }
     final nowMin = minutesOfDay(clock.date);
     final gap = nextFreeGap(
@@ -255,6 +317,7 @@ class Store extends ChangeNotifier {
       classes: rows.length,
       gap: gap,
       noTimetable: false,
+      needsWeek1: false,
       afterLast: gap == null && nowMin >= lastEnd,
     );
   }
@@ -265,7 +328,8 @@ class Store extends ChangeNotifier {
   Future<void> setDone(String id, bool done) async {
     final i = todos.indexWhere((t) => t.id == id);
     if (i < 0) return;
-    final next = todos[i].copyWith(
+    final prev = todos[i];
+    final next = prev.copyWith(
       completed: done,
       // 完成时刻只在勾上的那一刻写；取消时留着旧值，统计那格不能空
       doneAt: done ? now : null,
@@ -275,7 +339,14 @@ class Store extends ChangeNotifier {
     );
     todos = [...todos]..[i] = next;
     notifyListeners();
-    await repo?.saveDone(next);
+    try {
+      await repo?.saveDone(next);
+      _clearWriteError();
+    } catch (e) {
+      // 库里没改成，那界面上那条就不算改过。回滚比"留着让用户自己发现"诚实。
+      todos = [...todos]..[i] = prev;
+      _reportWriteError(e);
+    }
   }
 
   /// 新建。没有截止时间 → 落「随时」（§5.3 的第三条规则），不在这里偷偷替用户选今天。
@@ -297,23 +368,76 @@ class Store extends ChangeNotifier {
     );
     todos = [...todos, t];
     notifyListeners();
-    await repo?.insertTodo(t);
+    try {
+      await repo?.insertTodo(t);
+      _clearWriteError();
+    } catch (e) {
+      todos = [...todos]..removeWhere((x) => x.id == t.id);
+      _reportWriteError(e);
+    }
     return t;
+  }
+
+  void _reportWriteError(Object e) {
+    localWriteError = '这条改动没写进本机数据（重开就会回到原样）：${_brief(e)}';
+    notifyListeners();
+  }
+
+  /// sqflite 的异常会把整条 SQL 和参数拼在后面 —— 那一屏用户读不完，还顺带把行 id 摊在界面上。
+  /// 只留括号里那句真正的原因；认不出来这个形状时截断，别让它长到把整屏挤走。
+  static String _brief(Object e) {
+    final s = '$e';
+    final cut = s.indexOf(") sql '");
+    if (cut > 0) return s.substring(0, cut + 1);
+    return s.length > 160 ? '${s.substring(0, 160)}…' : s;
+  }
+
+  void _clearWriteError() {
+    // 下一次写成功就把那句撤掉 —— 它不是一条需要人去清的残留
+    if (localWriteError != null) {
+      localWriteError = null;
+      notifyListeners();
+    }
   }
 
   /// 手动同步（设置页那颗）。打开 app 时也走同一条。
   /// 没有服务（演示/截图）时什么都不做 —— 不去画一个按下去什么都不做的按钮。
+  ///
+  /// **这一条不往外抛**：两个调用点都不 catch（开机那次是 `unawaited`，设置页那个
+  /// `try/finally` 只管把按钮放回原位），所以从前它一抛就只进 logcat，而界面停在
+  /// 「同步过了，列表还是旧的」——那是把故障说成没事，与本机写失败同一类。
   Future<void> syncNow() async {
     final s = syncer;
     if (s == null || syncing) return;
     syncing = true;
     notifyListeners();
     try {
-      await s.run();
+      Object? runFailure;
+      try {
+        await s.run();
+      } catch (e) {
+        // 来不及写进 settings 的那一类（Keystore 拒了、库读不动）：状态自己不会说它，
+        // 只能在这儿补一句
+        runFailure = e;
+      }
+      Object? reloadFailure;
+      try {
+        await reload();
+      } catch (e) {
+        reloadFailure = e;
+      }
+      // 两种坏法各说一句，不合并：「这一轮没跑完」与「跑完了但屏幕还是旧的」教的动作不同。
+      // 两个都坏时以 run 为准 —— 那时候根本没有"结果"可读回来。
+      if (runFailure != null) {
+        syncError = '这一轮同步没跑完'
+            '${reloadFailure == null ? '' : '（界面还是旧的）'}：${_brief(runFailure)}';
+      } else if (reloadFailure != null) {
+        syncError = '同步的结果没读回本机（界面还是旧的）：${_brief(reloadFailure)}';
+      }
     } finally {
       syncing = false;
+      notifyListeners();
     }
-    await reload();
   }
 
   /// 今天用药计划；没有药箱视图或没有药时返回 null（界面据此不画卡片）。

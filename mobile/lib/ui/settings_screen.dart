@@ -75,11 +75,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _row(
                 context,
                 key: '上次同步',
-                sub: switch (store.sync) {
-                  NeverSynced() => '这台手机还没成功同步过一次',
-                  SyncedAt(:final atMs) => '${clockTime(atMs)} · ${store.pending} 条待上传',
-                  OfflineAt(:final atMs) => '没连上 · 显示的是 ${clockTime(atMs)} 那份',
-                },
+                // 读不出来时不许说「还没同步过」：那句教的动作（去填账号/重做一遍）此时是错的
+                sub: store.syncStateUnreadable
+                    ? '上次同步的状态读不出来（不是还没同步过）：settings 里那条坏了，点一次同步会重写它'
+                    : switch (store.sync) {
+                        NeverSynced() => '这台手机还没成功同步过一次',
+                        SyncedAt(:final atMs) =>
+                          '${agoLabel(store.clock.now, atMs)} · ${store.pending} 条待上传',
+                        OfflineAt(:final atMs) =>
+                          '没连上 · 那份数据是 ${agoLabel(store.clock.now, atMs)}的',
+                      },
                 trailing: store.pending > 0 ? _unsentDot(s) : null,
               ),
               _row(
@@ -97,7 +102,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   sub: !store.accountSaved
                       ? '还没填坚果云账号，先去上面那行填完'
                       : (store.syncError ??
-                          (store.syncing ? '正在读远端目录并合并' : '打开 app 时也会自动同步一次')),
+                          (store.syncing
+                              ? '正在读远端目录并合并'
+                              // 「不自动定时」是 PLAN-MOBILE §3 的取舍，但从前这里只说
+                              // 「打开 app 时也会同步一次」，听起来像它平时也会自己同步 ——
+                              // 于是电脑上改了课表而手机没刷新，没人知道是没刷而不是没同步上
+                              : '只在打开 app 时同步这一次；平时放着不会自己更新，要新数据点我')),
                   value: !store.accountSaved
                       ? '去填'
                       : (store.syncing ? '同步中' : (store.syncError != null ? '重试' : '同步')),
@@ -111,9 +121,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   context,
                   key: '远端设备',
                   sub: '只认 device-*.enc；自己那份不读回来合并',
-                  value: store.sync is NeverSynced
-                      ? '还没列过'
-                      : (store.peers.isEmpty ? '没发现其他设备' : store.peers.join('、')),
+                  value: store.peersLine,
                 ),
             ]),
             if (store.medicineService != null)
@@ -140,7 +148,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ? '读取中'
                       : (store.medicine?.fetchedAt == null
                           ? '—'
-                          : clockTime(store.medicine!.fetchedAt!)),
+                          : agoLabel(store.clock.now, store.medicine!.fetchedAt)),
                   onTap: store.medicineEnabled && !store.medicineFetching
                       ? _readMedicine
                       : null,
@@ -212,7 +220,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final err = store.medicineError;
     if (err != null) return err;
     final published = store.medicine?.publishedAt;
-    if (published != null) return '药箱发布于 ${clockTime(published)}';
+    if (published != null) return '药箱发布于 ${agoLabel(store.clock.now, published)}';
     if (store.medicine?.fetchedAt != null) return '药箱还没同步过';
     return '还没读过；打开 app 时会自动读一次';
   }
@@ -231,6 +239,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (_email.text.trim().isEmpty) {
       _snack('邮箱不能为空');
       return;
+    }
+    final next = _email.text.trim();
+    if (!mounted) return;
+    // 只改邮箱、密码留空 = 当场把加密口令换掉（口令是 `邮箱:应用密码` 派生的，见
+    // `SyncService.run`）。后果是**双向静默断同步**：这台手机发出去的文件别的设备读不懂，
+    // 反过来也一样，而界面上它只是一次普通保存。所以这一种保存必须先问一句。
+    if (changesTheKey(
+      previousEmail: store.accountEmail,
+      nextEmail: next,
+      passwordLeftBlank: _password.text.trim().isEmpty,
+    )) {
+      final go = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('这会换掉加密口令'),
+          content: Text('备份的口令是「邮箱:应用密码」一起派生的。邮箱从 ${store.accountEmail} '
+              '换成 $next 而密码留空，旧文件会互相读不懂 —— 要改邮箱请连应用密码一起重填。'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false), child: const Text('先不改')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('仍要只改邮箱')),
+          ],
+        ),
+      );
+      if (go != true) return;
     }
     await syncer.saveAccount(_email.text, _password.text);
     _password.clear();
@@ -458,3 +493,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
         decoration: BoxDecoration(color: s.amber, shape: BoxShape.circle),
       );
 }
+
+/// 这一次保存会不会把加密口令换掉。
+///
+/// 信封的口令是 `邮箱:应用密码` 派生的（`SyncService.run`），而"密码留空 = 沿用已存那条"
+/// 是明写的约定 —— 两件事叠在一起：**只改邮箱**就会换掉口令，旧文件从此互相读不懂，
+/// 界面上却只是一次普通保存（唯一的线索要等到同步时变成一串「那份读不懂」）。
+/// 判据抽成纯函数，是为了让"什么时候该问"这件事能被钉住。
+bool changesTheKey({
+  required String? previousEmail,
+  required String nextEmail,
+  required bool passwordLeftBlank,
+}) =>
+    passwordLeftBlank &&
+    previousEmail != null &&
+    previousEmail.isNotEmpty &&
+    previousEmail != nextEmail;
+

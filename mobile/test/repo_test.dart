@@ -7,6 +7,7 @@ import 'package:anvil_mobile/db.dart';
 import 'package:anvil_mobile/repo.dart';
 import 'package:anvil_mobile/store.dart';
 import 'package:anvil_mobile/sync/merge.dart';
+import 'package:anvil_mobile/timetable.dart' show dayInt;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -186,5 +187,88 @@ void main() {
     }, fixedNow);
     store = await Store.load(repo, clock: Clock(() => fixedNow));
     expect(store.sync, isA<NeverSynced>());
+  });
+
+  /// 与 PC 的 `forward_of` 同一条规则，两端各钉一遍（规则只有一句，改一边这里会红）。
+  test('墙钟回拨不会让本机写出更旧的时间戳', () {
+    expect(Clock.forwardOf(200, 100), 200, reason: '正常前进就照墙钟');
+    expect(Clock.forwardOf(100, 100), 100, reason: '同一毫秒里的多次写入不该 +1');
+    expect(Clock.forwardOf(50, 100), 101, reason: '回拨时前进一格，而不是退回 50');
+  });
+
+  /// P1-14 在手机上的形状，而且比 PC 更危险：`device.id` 读不出来时**不许**换一把新的写回去。
+  /// id 一变，本机每一行的 `updated_by` 就成了「别人写的」—— 平票裁决、待上传计数、
+  /// 靠本机历史垫高的时间下限全押在这个串上。PC 那边写回的是一个默认值，这边写掉的是身份本身，
+  /// 所以这里的处置是拒绝启动，而不是折成「没设过」再生成。
+  test('device.id 读不出来时不换身份，坏的那行原样留着', () async {
+    final db = await memoryDb();
+    await db.insert('settings', {
+      'key': 'device.id',
+      'value_json': '"phone-abc', // 半截 JSON：解不开，但不是没设过
+      'updated_at': fixedNow,
+      'updated_by': 'phone-abc',
+    });
+
+    await expectLater(
+        loadOrCreateDeviceId(db, fixedNow), throwsA(isA<StateError>()));
+
+    final row = (await db.query('settings', where: "key = 'device.id'")).single;
+    expect(row['value_json'], '"phone-abc', reason: '坏的那条是唯一线索，不能被一把新 id 盖掉');
+  });
+
+  /// 「上次同步的状态读不出来」与「还没同步过」在界面上必须是两句话：后者会让人以为手机从没
+  /// 上过云（然后重做一遍动作），前者点一次同步就能自愈。占的是已有的 `syncError` 那一行。
+  test('sync.state 坏了说「读不出来」，不冒充「还没同步过」', () async {
+    final db = await memoryDb();
+    final repo = await PhoneRepo.open(db, now: fixedNow);
+    expect(await repo.syncStateUnreadable(), isFalse, reason: '真没同步过不算故障');
+
+    Future<void> putState(String raw) => db.insert(
+          'settings',
+          {
+            'key': keySyncState,
+            'value_json': raw,
+            'updated_at': fixedNow,
+            'updated_by': repo.deviceId,
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+
+    await putState('{解不开');
+    expect(await repo.syncStateUnreadable(), isTrue);
+    expect(await repo.syncState(), isEmpty, reason: '内容侧仍是空，故障由那一句单独说');
+    var store = await Store.load(repo, clock: Clock(() => fixedNow));
+    expect(store.syncStateUnreadable, isTrue, reason: '故障由那一条状态说，不混进 syncError');
+
+    // 解得开、但根本不是那个对象：同样没法用来讲「上次同步于几点」
+    await putState('"就是一串字"');
+    expect(await repo.syncStateUnreadable(), isTrue);
+
+    // 一次真同步把那条重写回来，红行就该消失 —— 不是一条需要人去清的残留
+    await repo.saveSyncState({'lastSyncAt': fixedNow}, fixedNow);
+    expect(await repo.syncStateUnreadable(), isFalse);
+    store = await Store.load(repo, clock: Clock(() => fixedNow));
+    expect(store.syncStateUnreadable, isFalse, reason: '一次真同步重写那条之后，故障口径要自己消失');
+  });
+
+  /// 手机上完成的那一格也要进统计：桌面三处（今天完成数、热力图、连续天数）只读 `done_day`，
+  /// 手机不写那一列 = 在手机上完成的事永远不存在。取消勾选时那一格留着不动（与 PC 同一句规则）。
+  test('手机上勾选会落下 done_day，取消时不清空', () async {
+    final db = await memoryDb();
+    final repo = await PhoneRepo.open(db, now: fixedNow);
+    final store = await Store.load(repo, clock: Clock(() => fixedNow));
+    final t = await store.create('打疫苗');
+
+    await store.setDone(t.id, true);
+    var row = (await db.query('todos', where: 'id = ?', whereArgs: [t.id])).single;
+    expect(
+        row['done_day'],
+        dayInt(DateTime.fromMillisecondsSinceEpoch(row['done_at'] as int)),
+        reason: 'done_day 是 done_at 的另一半，只写一半桌面那三处统计就读不到');
+
+    await store.setDone(t.id, false);
+    row = (await db.query('todos', where: 'id = ?', whereArgs: [t.id])).single;
+    expect(row['completed'], 0);
+    expect(row['done_day'], isNotNull, reason: '取消勾选不清空完成日 —— 与 PC set_done 同一句规则');
   });
 }

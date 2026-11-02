@@ -39,6 +39,60 @@ class SnapshotException implements Exception {
   String toString() => message;
 }
 
+/// 解压后的字节上限，与 Rust `sync::snapshot::MAX_SNAPSHOT_BYTES` 是**同一把尺子**
+/// （64 MiB，同步那一档；备份还原另给 512 MiB）。两端各留一份常量是没办法的事，
+/// 数值必须一样 —— 写死在这里并点名对面，是为了哪天只改一边时能被发现。
+const maxSnapshotBytes = 64 * 1024 * 1024;
+
+/// 越界哨兵：只对 [gunzipBounded] 自己可见，转成 [SnapshotException] 后再给外面看。
+class _OverBudget implements Exception {}
+
+/// 只会往上限里收字节的那只 sink。
+///
+/// 先收满再量长度不算夹住 —— 炸弹在量之前就已经把内存吃掉了。所以边解边截：
+/// 每个分片进来先问一句「收得下吗」，收不下当场抛（与 Rust 的 `take(max + 1)` 同一意图）。
+///
+/// `implements` 而不是 `extends`：`ChunkedConversionSink` 是 `abstract interface class`，
+/// 库外不许继承。接口只承诺 `add`/`close` 两个方法，分片入口就是 `add`。
+class _CappedSink implements ChunkedConversionSink<List<int>> {
+  final int max;
+  final BytesBuilder _out = BytesBuilder(copy: true);
+
+  _CappedSink(this.max);
+
+  @override
+  void add(List<int> chunk) {
+    if (_out.length + chunk.length > max) throw _OverBudget();
+    _out.add(chunk);
+  }
+
+  @override
+  void close() {}
+
+  Uint8List get bytes => _out.toBytes();
+}
+
+/// 解压并夹住输出大小：对应 Rust `sync::snapshot::gunzip_bounded`。
+/// 上限之外**多一个字节都不收**，所以越界时也不会把整份炸弹解完。
+///
+/// 越界翻成 [SnapshotException] 而不是让私有哨兵逃出去：那句话在两个调用点（这一层与
+/// `Snapshot.fromBytes`）都得是同一句，而私有类型在外面根本没法断言 —— 测试要钉的是
+/// 「不接」这句，不是 `_OverBudget` 这个类名。
+Uint8List gunzipBounded(List<int> bytes, {int max = maxSnapshotBytes}) {
+  final sink = _CappedSink(max);
+  final decoder = GZipCodec().decoder;
+  final input = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
+  try {
+    decoder.startChunkedConversion(sink)
+      ..add(input)
+      ..close();
+  } on _OverBudget {
+    // 与 Rust 同一句：越界不是「解不开」，是「不接」—— 两句话的下一步动作完全不同
+    throw SnapshotException('解压后超过 $max 字节上限，这份文件我不接（多半是被人为构造过的）');
+  }
+  return sink.bytes;
+}
+
 class Snapshot {
   final String device;
   final int sealedAt;
@@ -67,9 +121,12 @@ class Snapshot {
   }
 
   static Snapshot fromBytes(List<int> bytes) {
-    late List<int> plain;
+    late Uint8List plain;
     try {
-      plain = gzip.decode(bytes);
+      plain = gunzipBounded(bytes);
+    } on SnapshotException {
+      // 上限那句已经说清了，别再包成「解不开 gzip」——「不接」和「认不出」是两件事
+      rethrow;
     } catch (_) {
       throw SnapshotException('快照解不开 gzip：传输出来的不是 Anvil 的同步文件');
     }

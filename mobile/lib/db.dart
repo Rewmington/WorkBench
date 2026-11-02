@@ -80,6 +80,10 @@ Future<Database> openAppDatabase({DatabaseFactory? factory, String? path}) async
   return f.openDatabase(
     file,
     options: OpenDatabaseOptions(
+      // 升 `version` 必须同时补 `onUpgrade` —— 现在只有 onCreate。
+      // 版本号涨上去却没写迁移 = 老设备上的库永远停在旧结构，而 `sync/merge.dart`
+      // 会按「本机没有这一列」把新列静默跳过（那是刻意的，见那边那段注释），
+      // 于是同步看着成功、新字段却一直不存在。
       version: 1,
       // 测试每个用例都要一份干净的内存库；`:memory:` 同名会被缓存成同一个实例。
       // 应用只在启动时开一次，所以关掉缓存没有代价。

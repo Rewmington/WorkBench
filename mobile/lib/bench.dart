@@ -13,7 +13,13 @@ import 'package:flutter/foundation.dart';
 
 import 'sync/envelope.dart';
 
-const _secret = 'bench@wmddd.online:bench-pass';
+/// KDF 计时只需要一把**形状真实**的 secret（`邮箱:应用密码`），耗时与值的真假无关。
+/// 这里原来硬编码了一个真实账号形状的字面量 —— 而这是个公开仓库，那串字符会一直留在
+/// git 历史里。计时用不着一把真凭据，所以换成不可能存在的域名；
+/// 真想用自己账号量一次，构建时传 `--dart-define=ANVIL_BENCH_SECRET=邮箱:应用密码`。
+const _benchSecretFromDefine = String.fromEnvironment('ANVIL_BENCH_SECRET');
+String get _secret =>
+    _benchSecretFromDefine.isEmpty ? 'bench@invalid.invalid:bench-pass' : _benchSecretFromDefine;
 
 Future<void> runKdfBench() async {
   // 30 KB 是 §3.5 估的那份 gzip 后全量快照的大小，不用假字节凑数

@@ -111,6 +111,37 @@ void main() {
     );
   });
 
+  /// 与 PC 的 `one_unreadable_peer_does_not_stop_the_others_from_merging` 对称：
+  /// 一个读不懂的对端文件过去会把整轮带走，于是所有设备一起停摆。
+  test('一个读不懂的对端不该带走整轮，但它要被点名', () async {
+    final db = await phoneDb();
+    final repo = await PhoneRepo.open(db, now: fixedNow);
+    final good = Snapshot(
+      device: 'pc-a',
+      sealedAt: fixedNow,
+      tables: {
+        'todos': [todoRow('pc-1', '能读进来的那台', fixedNow - 500)],
+      },
+      meta: const {},
+    );
+    stub.files['device-pc-a.enc'] = await Envelope.seal(secret, good.toBytes());
+    // 合法文件名 + 完全不是信封的字节（旧版本写的、截断的、被改坏的）
+    stub.files['device-pc-b.enc'] = [0, 1, 2, 3];
+
+    final out = await runSync(
+      db: db,
+      repo: repo,
+      secret: secret,
+      remote: WebDavRemote(stub.base, user, pass),
+      nowMs: () => fixedNow,
+    );
+
+    expect(out.ok, isTrue, reason: out.error ?? '');
+    expect(out.applied, 1, reason: '能读的那台该并进来');
+    expect(out.unreadablePeers, ['pc-b']);
+    expect(out.peers, containsAll(['pc-a', 'pc-b']), reason: '文件在远端就算在线');
+  });
+
   test('拉取：别人的 device 文件合并进本地，学期/开学日跟着 meta 到位', () async {
     final db = await phoneDb();
     final repo = await PhoneRepo.open(db, now: fixedNow);

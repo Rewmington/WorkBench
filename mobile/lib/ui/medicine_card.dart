@@ -25,7 +25,27 @@ class MedicineCard extends StatelessWidget {
     if (!store.medicineEnabled) return const SizedBox.shrink();
     final view = store.medicine;
     final plan = store.todayMedicine;
-    if (view == null || view.isEmpty || plan == null) return const SizedBox.shrink();
+    if (view == null || view.isEmpty || plan == null) {
+      // 读挂了以前和「没药 / 还没缓存过」长得一模一样：整卡不画，于是"用药"这件事在主屏
+      // 完全沉默，而那句错误只在设置页的一小格里。补一行矮卡，主屏就能看见它坏了。
+      final err = store.medicineError;
+      if (err == null) return const SizedBox.shrink();
+      final skin = skinOf(context);
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 9),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(11, 9, 11, 9),
+          decoration: BoxDecoration(
+            color: skin.surf,
+            border: Border.all(color: skin.line),
+            borderRadius: BorderRadius.circular(Metrics.radiusSm),
+          ),
+          child: Text('药箱这次没读到：$err',
+              style: TextStyle(fontSize: Type.metaWide, color: skin.red)),
+        ),
+      );
+    }
 
     final s = skinOf(context);
     final now = store.clock.date;
@@ -60,7 +80,7 @@ class MedicineCard extends StatelessWidget {
                   Text(
                     view.publishedAt == null
                         ? '药箱发布时间未知'
-                        : '药箱 ${clockTime(view.publishedAt!)}',
+                        : '药箱 ${agoLabel(store.clock.now, view.publishedAt!)}',
                     style: TextStyle(fontSize: Type.meta, color: s.t3),
                   ),
                 ],
@@ -342,18 +362,20 @@ class MedicineSheet extends StatelessWidget {
     final err = store.medicineError;
     final published = view?.publishedAt;
     final fetched = view?.fetchedAt;
+    // 这两处都用 `agoLabel` 而不是钟点：药箱那份可能是好几天前发布的，
+    // 「药箱 09:12」会被读成"今天 09:12"，而用药这件事最需要的就是知道它旧不旧
     if (err != null) {
       return Text(
         published == null
             ? '这次没读到：$err'
-            : '这次没读到：$err · 显示的是药箱 ${clockTime(published)} 那份',
+            : '这次没读到：$err · 屏上那份是 ${agoLabel(store.clock.now, published)}的',
         style: TextStyle(fontSize: Type.meta, height: 1.5, color: s.amber),
       );
     }
     if (published != null) {
       return Text(
-        '药箱发布于 ${clockTime(published)}'
-        '${fetched == null ? '' : ' · 读取于 ${clockTime(fetched)}'}',
+        '药箱发布于 ${agoLabel(store.clock.now, published)}'
+        '${fetched == null ? '' : ' · 读取于 ${agoLabel(store.clock.now, fetched)}'}',
         style: TextStyle(fontSize: Type.meta, color: s.t3),
       );
     }

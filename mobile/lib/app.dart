@@ -102,7 +102,7 @@ class _AnvilAppState extends State<AnvilApp> {
                   )
                 : TodayScreen(
                     store: widget.store,
-                    initialUndoTitle: widget.demo == DemoCase.undo ? undoDemoTitle : null,
+                    initialUndoId: widget.demo == DemoCase.undo ? undoDemoId : null,
                     onOpenSettings: () => setState(() => _page = _Page.settings),
                     onTab: (v) => setState(() => _page = v ? _Page.timetable : _Page.today),
                   ),

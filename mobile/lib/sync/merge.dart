@@ -65,6 +65,27 @@ Future<({int applied, int kept})> _applyTable(
   String table,
   List<Map<String, Object?>> rows,
 ) async {
+  // 课表是「PC 那一份的完整副本」：桌面导入是物理删 + 每轮新 id（`timetable::import`），
+  // 所以这份快照里没有的那一行就是被删掉的课。不删就会在手机上攒一批永远删不掉的幽灵课 ——
+  // 而课表在手机只读，用户连手动清掉的地方都没有。
+  //
+  // 两处保守：只删「这份快照里出现过的 term」，不牵连别的学期；
+  // 快照没带 classes、或带的是空数组时**一律不动** —— 「这轮没发课表」和「PC 上真的没课」
+  // 在字节上长得一样，猜错的代价是清空用户手机里的课表，那是不可逆的。
+  if (table == 'classes' && rows.isNotEmpty) {
+    final terms = <String>{};
+    for (final r in rows) {
+      final t = r['term'];
+      if (t is! String) {
+        throw SnapshotException('classes 有一行没带 term，无法判断该替换哪一学期');
+      }
+      terms.add(t);
+    }
+    for (final term in terms) {
+      await db.rawDelete('DELETE FROM classes WHERE term = ?', [term]);
+    }
+  }
+
   final localCols = (await wireColumns(db, table)).toSet();
   // `todos` 有 dirty，`classes` 没有（手机对课表只读，整表随快照发布即可）。
   // 所以「并进来的行不算本机欠账」这句只在有该列的表上写成 SET dirty = 0。

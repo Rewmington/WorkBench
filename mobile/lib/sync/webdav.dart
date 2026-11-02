@@ -210,11 +210,6 @@ class WebDavRemote {
 
   void close() => client.close();
 
-  /// 对端文件的失败要点名是哪一台机器：「读远端失败」和「读远端 device-phone-a.enc 失败：…」
-  /// 是两种可执行程度完全不同的句子。
-  static WebDavException wrapPeer(String name, Object e) =>
-      WebDavException('读远端 $name 失败：${e is WebDavException ? e.message : e}');
-
   static String peerIdOf(String name) => _peerId(name);
   static String ourFileName(String device) => fileNameFor(device);
 }
