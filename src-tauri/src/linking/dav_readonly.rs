@@ -52,6 +52,22 @@ pub struct ReadRemote {
     pass: String,
 }
 
+/// 主机之后、查询串之前的**路径分段**（顺手做百分号解码，不让 `%77orkbench` 这种写法多一个洞）。
+/// 不引 `url` crate：这里只要分段，为一条校验加依赖不值得。
+fn path_segments(base: &str) -> Vec<String> {
+    let after_host = base
+        .split_once("://")
+        .map_or(base, |(_, rest)| rest)
+        .split(['?', '#'])
+        .next()
+        .unwrap_or_default();
+    let path = after_host.split_once('/').map_or("", |(_, rest)| rest);
+    path.split('/')
+        .filter(|s| !s.is_empty())
+        .map(crate::backup::propfind::percent_decode)
+        .collect()
+}
+
 impl ReadRemote {
     /// 只判地址本身，不碰凭据 —— 设置页存目录之前先用它挡一次，
     /// 免得填错的地址要等到下次刷新才暴露。
@@ -60,16 +76,27 @@ impl ReadRemote {
         if trimmed.is_empty() {
             return Err(Error::msg("还没填药箱的同步目录地址"));
         }
-        // 反向钉子：这个客户端不该去读工作台自己的备份目录。
+        // 反向钉子：这个客户端不该去读工作台自己的两个目录。
         // 读不到东西是小事，把两份数据混成一个"药箱进度"是大事。
-        if trimmed.contains("/workbench-backup/") {
-            return Err(Error::msg("那是工作台自己的备份目录，不是药箱的同步目录"));
-        }
-        // §3.6 的第三颗钉子（M11b 补）：手机同步目录也不许读。
-        // 那边全是 device-*.enc —— keep_device 虽只认 .json 而拿不到内容，
-        // 但"对药箱目录只读"的可辩护性靠的是类型层拒绝，不靠那层后缀过滤侥幸。
-        if trimmed.contains("/workbench-sync/") {
-            return Err(Error::msg("那是工作台的手机同步目录，不是药箱的同步目录"));
+        //
+        // 按**分段相等**判，不按子串：`contains("/workbench-backup/")` 漏得掉两种真填法 ——
+        // 末尾不带斜杠的 `…/workbench-backup`、以及大小写不同的 `Workbench-Backup`。
+        // （写侧 `backup::webdav::Remote::new` 用的是 `ends_with` 正向白名单，本来就是闭的，
+        // 所以这个洞只在读侧。）
+        const OFF_LIMITS: [(&str, &str); 2] = [
+            ("workbench-backup", "那是工作台自己的备份目录，不是药箱的同步目录"),
+            ("workbench-sync", "那是工作台的手机同步目录，不是药箱的同步目录"),
+        ];
+        for seg in path_segments(trimmed) {
+            // §3.6 的第三颗钉子（M11b 补）：手机同步目录也不许读。
+            // 那边全是 device-*.enc —— keep_device 虽只认 .json 而拿不到内容，
+            // 但"对药箱目录只读"的可辩护性靠的是类型层拒绝，不靠那层后缀过滤侥幸。
+            if let Some((_, why)) = OFF_LIMITS
+                .iter()
+                .find(|(name, _)| seg.eq_ignore_ascii_case(name))
+            {
+                return Err(Error::msg(*why));
+            }
         }
         Ok(())
     }
@@ -225,6 +252,23 @@ mod tests {
         assert!(err.contains("手机同步目录"), "{err}");
         // new() 走的是同一条 check_dir：填错当场拒，不等第一次刷新才发现
         assert!(ReadRemote::new("https://dav.jianguoyun.com/dav/workbench-sync/", "me@x.com", "p").is_err());
+    }
+
+    /// 子串判据漏得掉的几种真填法，分段之后都得拦住（P1-11 那半条的实际内容）。
+    #[test]
+    fn off_limits_are_caught_without_a_trailing_slash_or_under_other_casing() {
+        for bad in [
+            "https://dav.jianguoyun.com/dav/workbench-backup",
+            "https://dav.jianguoyun.com/dav/Workbench-Backup/",
+            "https://dav.jianguoyun.com/dav//workbench-backup//",
+            "https://dav.jianguoyun.com/dav/workbench-sync?a=1",
+            "https://dav.jianguoyun.com/dav/%77orkbench-backup/",
+        ] {
+            assert!(ReadRemote::check_dir(bad).is_err(), "{bad} 该被拦住");
+        }
+        // 反过来：不是那一段路径的名字不该被误杀，否则药箱换个目录名就用不了了
+        assert!(ReadRemote::check_dir("https://dav.jianguoyun.com/dav/workbench-backup-notes/").is_ok());
+        assert!(ReadRemote::check_dir("https://dav.jianguoyun.com/dav/medicine-sync/").is_ok());
     }
 
     #[test]

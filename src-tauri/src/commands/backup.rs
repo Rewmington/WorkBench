@@ -139,31 +139,46 @@ pub struct RemoteFile {
     pub readable: bool,
 }
 
+/// 非 async 的命令在主线程执行，而这里要发 PROPFIND —— 网络一慢就是整个窗口冻住。
+/// 与 `backup_restore` 同款结构：`State<'_>` 不是 `'static`，所以在阻塞任务里重新取。
 #[tauri::command]
-pub fn backup_list_remote(state: State<'_, AppState>) -> Result<Vec<RemoteFile>, Error> {
-    let conn = state.lock();
-    let files = backup::list(&conn)?;
-    Ok(files
-        .into_iter()
-        .map(|f| {
-            let readable = f.name.starts_with("anvil-");
-            RemoteFile {
-                name: f.name,
-                size: f.size,
-                readable,
-            }
-        })
-        .collect())
+pub async fn backup_list_remote(app: AppHandle) -> Result<Vec<RemoteFile>, Error> {
+    let handle = app.clone();
+    let files = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<RemoteFile>, Error> {
+        let state = handle.state::<AppState>();
+        let conn = state.lock();
+        Ok(backup::list(&conn)?
+            .into_iter()
+            .map(|f| {
+                let readable = f.name.starts_with("anvil-");
+                RemoteFile {
+                    name: f.name,
+                    size: f.size,
+                    readable,
+                }
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| Error::msg(format!("列远端快照没跑起来：{e}")))??;
+    Ok(files)
 }
 
 /// 「测试连接」：只列目录，不写任何东西。用户填完凭据后最想要的一个按钮。
+/// 两次网络往返（MKCOL + PROPFIND），同样不能摆在主线程上。
 #[tauri::command]
-pub fn backup_test_connection(state: State<'_, AppState>) -> Result<usize, Error> {
-    let email = backup::webdav_email(&state.lock())?;
-    let password = creds::webdav_password()?;
-    let remote = Remote::from_env(&email, &password)?;
-    remote.ensure_dir()?;
-    Ok(remote.list()?.len())
+pub async fn backup_test_connection(app: AppHandle) -> Result<usize, Error> {
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<usize, Error> {
+        let state = handle.state::<AppState>();
+        let email = backup::webdav_email(&state.lock())?;
+        let password = creds::webdav_password()?;
+        let remote = Remote::from_env(&email, &password)?;
+        remote.ensure_dir()?;
+        Ok(remote.list()?.len())
+    })
+    .await
+    .map_err(|e| Error::msg(format!("测试连接没跑起来：{e}")))?
 }
 
 /// 换机还原的最后一步是重启应用：库文件被整个换掉了，
@@ -187,10 +202,16 @@ pub async fn backup_restore(app: AppHandle, name: String) -> Result<backup::Outc
 }
 
 /// 加解密往返自证：不需要网络就能证明「换机能解开」这条链路。
+/// 不联网但**很费 CPU** —— 日备那一档 Argon2id 是 64 MiB × 3 轮，一次要派生两把，
+/// 放在主线程上就是几秒的窗口冻结，所以照样走 `spawn_blocking`。
 #[tauri::command]
-pub fn backup_self_test(email: String, password: String) -> Result<bool, Error> {
-    let sample = b"anvil self test payload".to_vec();
-    let sealed = crypto::seal(&format!("{email}:{password}"), &sample)?;
-    let opened = crypto::open(&format!("{email}:{password}"), &sealed)?;
-    Ok(opened == sample)
+pub async fn backup_self_test(email: String, password: String) -> Result<bool, Error> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<bool, Error> {
+        let sample = b"anvil self test payload".to_vec();
+        let sealed = crypto::seal(&format!("{email}:{password}"), &sample)?;
+        let opened = crypto::open(&format!("{email}:{password}"), &sealed)?;
+        Ok(opened == sample)
+    })
+    .await
+    .map_err(|e| Error::msg(format!("自证没跑起来：{e}")))?
 }

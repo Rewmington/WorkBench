@@ -48,6 +48,27 @@ const syncLine = computed(() => (ss.value ? syncSentence(ss.value) : null))
 const syncFailure = computed(() => (ss.value ? currentFailure(ss.value) : null))
 
 /**
+ * 「清理我读不懂的对端文件」是这一页唯一的删除动作，而且删的是**别人**发到坚果云的信封，
+ * 跨设备不可逆。所以它只做两步内联确认（与笔记「彻底删除」、速达磁贴同一条节奏、同一个时长），
+ * 不做原生 `confirm()`，也不做任何自动清理。
+ */
+const armedClean = ref(false)
+let armedTimer: number | undefined
+
+function askCleanPeers() {
+  if (armedClean.value) {
+    window.clearTimeout(armedTimer)
+    armedClean.value = false
+    void sync.cleanPeers()
+    return
+  }
+  armedClean.value = true
+  armedTimer = window.setTimeout(() => {
+    armedClean.value = false
+  }, 5000)
+}
+
+/**
  * 失败条只在「最近一次确实还没缓过来」时出现：已被成功覆盖的旧失败，流水里那一行就够了，
  * 不该在页面顶上常驻一条红色警报。返回 status 本身，模板里 v-if 就能收窄类型。
  */
@@ -147,7 +168,10 @@ onMounted(async () => {
   }
 })
 
-onBeforeUnmount(() => unlisten?.())
+onBeforeUnmount(() => {
+  window.clearTimeout(armedTimer)
+  unlisten?.()
+})
 </script>
 
 <template>
@@ -244,6 +268,14 @@ onBeforeUnmount(() => unlisten?.())
           立即同步
         </button>
       </div>
+      <!-- 节奏要说清楚，而且要说对：这台电脑**有一次**自动同步 —— 开机后 60 秒那一次
+           （`sync/schedule.rs`，失败不重试），此外没有任何定时器。
+           顺带交代中途退出会怎样：PUT 在清 dirty 之前（`relay::run_with`），PC 那一侧每轮都发全量，
+           所以没发完的下一轮照样发 —— 不是"大概不丢"，是代码路径就这么排的。 -->
+      <p class="why">
+        开机后 60 秒会自动同步这一次，之后没有定时器：新改动要等下一次点「立即同步」，或者明天开机。
+        中途退出不会丢：这一轮没发完的改动，下一轮照常带上。
+      </p>
       <p v-if="ss && !ss.configured" class="none">先在上面的「凭据」里填好坚果云邮箱与应用密码，同步才会走。</p>
       <p v-else-if="ss && !ss.peers.length" class="why">远端还没有别的设备：手机第一次同步后，它的 id 会出现在这里。</p>
       <ul v-if="ss?.peers.length" class="list">
@@ -252,6 +284,54 @@ onBeforeUnmount(() => unlisten?.())
           <span class="id">device-{{ p }}.enc</span>
         </li>
       </ul>
+      <!-- 同步本身成了，但那几台的文件读不懂：它们的改动这次没并进来。
+           这一行不能省 —— 少报一台和一台都没同步，在界面上会长得一模一样。 -->
+      <p v-if="ss?.unreadablePeers.length" class="why">
+        {{ ss.unreadablePeers.join('、') }} 那份文件这台机器读不懂（解不开、版本不认识，或这次没读到），
+        这次没并进它们的改动。其余照常同步，自己这份照常上传。
+      </p>
+      <!-- 清理是一个**可选**动作，而且删的是别人发布的数据：只做显式入口 + 两步确认，
+           没有任何自动删除路径（与笔记「彻底删除」、速达磁贴同一套节奏）。
+           文案要说清"只有能解开却读不懂的才会被删"——解不开的那类通常是另一组凭据写的，
+           那是那台设备唯一的云端历史，删它等于销毁别人的数据。 -->
+      <div v-if="ss?.unreadablePeers.length" class="row">
+        <button
+          type="button"
+          class="y-ghost tiny danger btn"
+          :class="{ armed: armedClean }"
+          :disabled="sync.cleaning.value"
+          @click="askCleanPeers"
+        >
+          {{
+            armedClean
+              ? `再点一次删掉能证明是垃圾的那几份（最多 ${ss.unreadablePeers.length} 份）`
+              : '清理我读不懂的对端文件'
+          }}
+        </button>
+      </div>
+      <p v-if="armedClean" class="bad">
+        删除前每一份都会重新验一次：只有**这台机器能解开、内容却读不懂**的才会被删。
+        解不开的那种通常意味着它是另一组凭据写的（比如换过应用密码的设备），
+        那是它自己唯一的云端历史 —— 这一份不会动，只会在下面告诉你为什么。
+      </p>
+      <p v-else-if="sync.cleaned.value" class="why">
+        <template v-if="sync.cleaned.value.deleted.length">
+          删掉了 {{ sync.cleaned.value.deleted.join('、') }}。
+        </template>
+        <template v-if="sync.cleaned.value.skipped.length">
+          没删 {{ sync.cleaned.value.skipped.length }} 份：{{
+            sync.cleaned.value.skipped.map((f) => `${f.name} —— ${f.why}`).join('；')
+          }}
+        </template>
+        <template v-if="sync.cleaned.value.failed.length">
+          没删成 {{ sync.cleaned.value.failed.length }} 份：{{
+            sync.cleaned.value.failed.map((f) => `${f.name}（${f.why}）`).join('、')
+          }}
+        </template>
+        <template v-if="!sync.cleaned.value.deleted.length && !sync.cleaned.value.skipped.length && !sync.cleaned.value.failed.length">
+          没有需要删的：远端 listing 里已经没有这几份了（可能那台设备自己清过）。
+        </template>
+      </p>
     </div>
 
     <div class="blk">
@@ -288,6 +368,9 @@ onBeforeUnmount(() => unlisten?.())
           </button>
         </li>
       </ul>
+      <!-- 还原失败就落在这一堆按钮的正下方：这一行的价值在于让人**不再点第二次**，
+           写在凭据那块或动作那块等于没写（隔着一整页，看不出是没成还是没反应）。 -->
+      <p v-if="backup.restoreError.value" class="bad">{{ backup.restoreError.value }}</p>
     </div>
 
     <div class="blk">
@@ -322,9 +405,6 @@ onBeforeUnmount(() => unlisten?.())
   display: flex;
   flex-direction: column;
   gap: 12px;
-  min-height: 0;
-  flex: 1;
-  overflow-y: auto;
 }
 .bar {
   display: flex;

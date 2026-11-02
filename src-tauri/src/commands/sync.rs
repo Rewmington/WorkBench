@@ -36,21 +36,38 @@ pub struct SyncStatus {
     pub pending: i64,
     /// 远端设备 listing（最后一次成功列目录看到的别人的设备 id，不含本机）。
     pub peers: Vec<String>,
+    /// `peers` 里这次读不懂的那几个 id：在线，但它们的改动没并进来。
+    pub unreadable_peers: Vec<String>,
 }
 
-fn view(conn: &Connection, device: &str) -> Result<SyncStatus, Error> {
-    let st = relay::stored_state(conn)?;
-    let peers = st
-        .get("peers")
+/// 从 sync.state 那份 JSON 里取一个 id 数组。两处（在线列表 / 读不懂列表）同一种取法，
+/// 写成一个小函数而不是再复制一遍 `as_array` 的六行。
+fn ids_of(st: &serde_json::Value, key: &str) -> Vec<String> {
+    st.get(key)
         .and_then(serde_json::Value::as_array)
         .map(|arr| {
             arr.iter()
                 .filter_map(|v| v.as_str().map(str::to_owned))
                 .collect()
         })
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+fn view(conn: &Connection, device: &str) -> Result<SyncStatus, Error> {
+    let st = relay::stored_state(conn)?;
+    let peers = ids_of(&st, "peers");
     Ok(SyncStatus {
-        configured: backup::credentials(conn).is_some(),
+        // 与备份页 `read_status` 同一口径：这一位是给界面「按钮先别开、提示先去填」用的，
+        // 不是对凭据下结论。真故障不在这里冒充判词，也不许被折成没配后没人知道 ——
+        // 开机与定时那两次会把它记进 sync.state，`lastError` 那一行才是原话。
+        configured: match backup::credentials(conn) {
+            Ok(Some(_)) => true,
+            Ok(None) => false,
+            Err(e) => {
+                log::warn!("同步状态页读坚果云凭据失败：{e}");
+                false
+            }
+        },
         my_device: device.to_owned(),
         last_sync_at: st.get("lastSyncAt").and_then(serde_json::Value::as_i64),
         last_error: st
@@ -60,6 +77,7 @@ fn view(conn: &Connection, device: &str) -> Result<SyncStatus, Error> {
         last_error_at: st.get("lastErrorAt").and_then(serde_json::Value::as_i64),
         pending: merge::pending(conn)?,
         peers,
+        unreadable_peers: ids_of(&st, "unreadablePeers"),
     })
 }
 
@@ -89,6 +107,33 @@ pub async fn sync_now(app: AppHandle) -> Result<SyncStatus, Error> {
     .await
     .map_err(|e| Error::msg(format!("同步任务没跑起来：{e}")))??;
     Ok(status)
+}
+
+/// 「清理我读不懂的对端文件」（issue #1 的 P1-9 步骤 3）。
+///
+/// 删的是**别人设备上已经发布出来的信封**，跨设备不可逆，所以这里没有自动路径：
+/// 只有这一条命令，只有界面把人列出的那几份确认之后才会调到这里；判据也只认
+/// 这一轮本机真读不懂的那些 id（`sync.state.unreadablePeers`），不做任何猜测。
+/// 自己的那份即便被列进名单也不删 —— 那是本机唯一的云端历史（`relay::clean_targets`）。
+/// 结构与 `sync_now` 同款：网络类命令走 `spawn_blocking`，锁只在那个任务自己的作用域里取。
+#[tauri::command]
+pub async fn sync_clean_peers(app: AppHandle) -> Result<relay::Cleaned, Error> {
+    let cleaned = tauri::async_runtime::spawn_blocking(move || -> Result<relay::Cleaned, Error> {
+        let state = app.state::<AppState>();
+        let conn = state.lock();
+        let Some((email, password)) = backup::credentials(&conn)? else {
+            return Err(Error::msg(
+                "先在备份页填好坚果云邮箱与应用密码（手机同步与备份共用这一组凭据）",
+            ));
+        };
+        let remote = relay::Remote::from_env(&email, &password)?;
+        // 口令与同步那一路同形（`email:password`）：清理前要用它再解一次，
+        // 解不开的就不删（见 `relay::cleanable_now`）
+        relay::clean_unreadable(&conn, &state.device_id, &format!("{email}:{password}"), &remote, &SystemNow)
+    })
+    .await
+    .map_err(|e| Error::msg(format!("清理任务没跑起来：{e}")))??;
+    Ok(cleaned)
 }
 
 #[cfg(test)]

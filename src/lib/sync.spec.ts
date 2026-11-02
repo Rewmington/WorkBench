@@ -16,6 +16,7 @@ const base = (part: Partial<SyncStatus>): SyncStatus => ({
   lastErrorAt: null,
   pending: 0,
   peers: [],
+  unreadablePeers: [],
   ...part,
 })
 

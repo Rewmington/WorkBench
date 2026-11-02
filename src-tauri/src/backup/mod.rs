@@ -10,7 +10,7 @@ pub mod propfind;
 pub mod schedule;
 pub mod webdav;
 
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::Path;
 
 use rusqlite::{params, Connection};
@@ -35,7 +35,15 @@ pub struct Outcome {
 }
 
 /// 保留多少份本地暂存副本。远端保留数由设置决定，默认不动远端历史。
+///
+/// 注意 `snap-{ms}.db` 与 `app.pre-restore-{ms}.db` 都是**明文**库文件，留 3 份是刻意的：
+/// 崩在换库中间时那是本机唯一还能读回原样的东西（`prune_local` / `prune_pre_restore`
+/// 只删超出这 3 份的旧件）。想改成「即用即删」之前，先想清楚 P0-2 那条失败路径怎么收场。
 pub const KEEP_LOCAL: usize = 3;
+
+/// 还原时解压上限：备份就是这台机器的库，比同步快照大得多，但仍要有个数 ——
+/// 「不设上限」和「设一个装得下的数」是两件不同的事。
+const MAX_RESTORED_DB_BYTES: usize = 512 * 1024 * 1024;
 
 /// 属于**这台机器**的四项设置：两个坚果云邮箱（它解释凭据管理器里那条密码属于谁）
 /// 与两个外部程序的绝对路径。
@@ -156,12 +164,24 @@ pub(crate) fn webdav_email(conn: &Connection) -> Result<String> {
 /// `kind` 是 `'daily'` 或 `'manual'`，只影响流水里怎么显示，判据都是「今天成功过没有」。
 /// 凭据齐不齐是「跳过」而不是「失败」：没填邮箱不该进失败退避，也不该记一条流水。
 ///
+/// **但「凭据管理器读不出来」不是没配**：那必须算失败、进退避、记流水，界面才会在
+/// 该红的地方红着。原来这里 `.ok()?` 把故障折成 `None`，于是服务被锁这类真故障
+/// 只会说「你还没填密码」，用户就去重填一个本来就填对了的密码（THREAT-MODEL 承诺的不是这样）。
+///
 /// `pub(crate)`：`sync::relay` 复用**同一组**凭据与同一个构造方式（PLAN-MOBILE §4），
 /// 不新增第三把密码，也正因为共用这一个入口，才绝不会误读药箱存在它自己凭据管理器里的那把。
-pub(crate) fn credentials(conn: &Connection) -> Option<(String, String)> {
-    let email = webdav_email(conn).ok()?;
-    let password = creds::webdav_password().ok()?;
-    Some((email, password))
+pub(crate) fn credentials(conn: &Connection) -> Result<Option<(String, String)>> {
+    let email = settings::get_json(conn, settings::KEY_WDAV_EMAIL)?
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .filter(|s| !s.trim().is_empty());
+    let Some(email) = email else {
+        return Ok(None);
+    };
+    if !creds::webdav_password_present()? {
+        return Ok(None);
+    }
+    // 上面刚说有、这里却拿不到，或压根读不出来：原样上抛，别再冒充「还没填」。
+    Ok(Some((email, creds::webdav_password()?)))
 }
 
 /// 备份的纯逻辑：远端与密钥由调用方给，所以 `tests/webdav_e2e.rs` 能对着本地桩跑完整链路，
@@ -211,17 +231,33 @@ pub fn run_with(
 }
 
 /// 生产入口：凭据不齐是「跳过」而不是「失败」—— 没填邮箱不该进失败退避，也不该记一条流水。
+/// 但**读凭据用不了是失败**，不是没配：它记流水、进退避，界面才不会再把它说成"你还没填"。
 pub fn run(conn: &Connection, tmp_dir: &Path, now: &dyn Now, kind: &str) -> Outcome {
     let ms = now.ms();
-    let Some((email, password)) = credentials(conn) else {
-        return Outcome {
-            at: ms,
-            ok: false,
-            bytes: None,
-            remote_path: None,
-            error: Some("还没配好坚果云凭据，备份先不跑".to_owned()),
-            skipped: true,
-        };
+    let (email, password) = match credentials(conn) {
+        Ok(Some(pair)) => pair,
+        Ok(None) => {
+            return Outcome {
+                at: ms,
+                ok: false,
+                bytes: None,
+                remote_path: None,
+                error: Some("还没配好坚果云凭据，备份先不跑".to_owned()),
+                skipped: true,
+            };
+        }
+        Err(e) => {
+            let out = Outcome {
+                at: ms,
+                ok: false,
+                bytes: None,
+                remote_path: None,
+                error: Some(e.to_string()),
+                skipped: false,
+            };
+            record(conn, &out, kind);
+            return out;
+        }
     };
     match Remote::from_env(&email, &password) {
         Ok(remote) => run_with(
@@ -329,6 +365,99 @@ pub fn restore(conn: &mut Connection, paths: &Paths, remote_name: &str, now: &dy
     }
 }
 
+/// 把还原用的库文件换进来：现库 -> `app.pre-restore-{ms}.db`，`incoming` -> 现库。
+///
+/// 第二步失败时必须把第一步改回去：此时进程里已经没有可用连接了，而真库躺在一个
+/// 带 `pre-restore` 名字的位置上 —— 半个换库比不换更糟，界面上什么都看不见的空库
+/// 会让人以为数据没了，接着再还原一次，把唯一那份也盖掉。
+/// 回滚本身也失败时不假装没事：错误里必须写清该手工改哪个文件。
+fn swap_db(paths: &Paths, incoming: &Path, ms: i64) -> Result<()> {
+    let backup_of_current = paths.root.join(format!("app.pre-restore-{ms}.db"));
+    let moved_current = paths.db.exists();
+    if moved_current {
+        std::fs::rename(&paths.db, &backup_of_current)?;
+    }
+    for suffix in ["-wal", "-shm"] {
+        let side = format!("{}{suffix}", paths.db.display());
+        let _ = std::fs::remove_file(&side);
+    }
+
+    match std::fs::rename(incoming, &paths.db) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            if !moved_current {
+                // 原来就没有现库（全新机器），没什么可回滚的
+                return Err(Error::msg(format!("还原没完成（{e}），这台机器上本来还没有库")));
+            }
+            if std::fs::rename(&backup_of_current, &paths.db).is_ok() {
+                return Err(Error::msg(format!(
+                    "还原没完成（{e}），这台机器的库已经改回原样，你的数据一条没动"
+                )));
+            }
+            Err(Error::msg(format!(
+                "还原没完成（{e}），而且没能自动改回去：现库在 {}，先别再造新的，把它改回 {} 再启动",
+                backup_of_current.display(),
+                paths.db.display()
+            )))
+        }
+    }
+}
+
+/// 盘上的 `app.pre-restore-*.db`，新的在前。文件名里就是毫秒时间戳，
+/// 位数相同所以按字符串倒序等于按时间倒序（真实时间戳一律 13 位）。
+fn pre_restores(root: &Path) -> Vec<(String, std::path::PathBuf)> {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut found: Vec<_> = entries
+        .flatten()
+        .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path()))
+        .filter(|(name, _)| name.starts_with("app.pre-restore-"))
+        .collect();
+    found.sort_by(|a, b| b.0.cmp(&a.0));
+    found
+}
+
+/// 最近一份「还原前的库」—— 上一次还原中断时，这是本机唯一的退路。
+pub fn newest_pre_restore(root: &Path) -> Option<(std::path::PathBuf, String)> {
+    pre_restores(root).first().map(|(name, path)| (path.clone(), name.clone()))
+}
+
+/// 换库留下的 `app.pre-restore-*.db` 是本机唯一的「还原前状态」，一份都不该乱删；
+/// 但还原做多了会堆一串明文库，所以按时间只留最近 `KEEP_LOCAL` 份（与快照同一口径）。
+fn prune_pre_restore(root: &Path) {
+    for (_, path) in pre_restores(root).into_iter().skip(KEEP_LOCAL) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// 启动时发现本机库是新建的、而盘上躺着 `app.pre-restore-*`：上一次还原走到一半断了。
+///
+/// **只报不修**：自动把它改名回 `app.db` 会盖掉用户在这之后写进新库的东西，
+/// 那是第二次不可逆损失，而且多半是在用户不知情的时候发生的。
+pub fn notice_interrupted_restore(conn: &Connection, now: &dyn Now, root: &Path) {
+    let Some((path, _)) = newest_pre_restore(root) else {
+        return;
+    };
+    let msg = format!(
+        "上一次还原没走完：现在这个库是新建的空库，旧数据在 {}。先别再点还原，把那个文件改名回 app.db 再启动",
+        path.display()
+    );
+    log::error!("{msg}");
+    record(
+        conn,
+        &Outcome {
+            at: now.ms(),
+            ok: false,
+            bytes: None,
+            remote_path: None,
+            error: Some(msg),
+            skipped: false,
+        },
+        "restore",
+    );
+}
+
 /// 还原的纯逻辑，同 `run_with`：远端与密钥由调用方给，测试里不碰凭据管理器。
 pub fn restore_with(
     conn: &mut Connection,
@@ -349,9 +478,7 @@ pub fn restore_with(
     let sealed = remote.get(remote_name)?;
     let gz = crypto::open(secret, &sealed)?;
 
-    let mut gunzip = flate2::read::GzDecoder::new(&gz[..]);
-    let mut db_bytes = Vec::new();
-    gunzip.read_to_end(&mut db_bytes)?;
+    let db_bytes = crate::sync::snapshot::gunzip_bounded(&gz, MAX_RESTORED_DB_BYTES)?;
 
     let incoming = paths.backups.join(format!("incoming-{ms}.db"));
     std::fs::write(&incoming, &db_bytes)?;
@@ -369,24 +496,41 @@ pub fn restore_with(
         }
     }
 
-    // 换库：先放开文件句柄（丢掉连接会顺带 checkpoint WAL），再改名
+    // 换库：先放开文件句柄（丢掉连接会顺带 checkpoint WAL），再改名。
+    // 那个内存连接是为「让 Windows 允许 rename」付出的代价 —— 中途失败时进程手里就
+    // 没有活库了，所以换库本身必须能把文件改回去，并把连接重新指回真库。
     *conn = Connection::open_in_memory()?;
     let stamp = days::day_of_ms(ms);
-    let backup_of_current = paths.root.join(format!("app.pre-restore-{ms}.db"));
-    if paths.db.exists() {
-        std::fs::rename(&paths.db, &backup_of_current)?;
+    if let Err(e) = swap_db(paths, &incoming, ms) {
+        // 那份明文副本到此没用了：留着就是"备份目录里躺着整库明文"，而 `prune_local` 只扫
+        // `snap-*`、`prune_pre_restore` 只扫 `app.pre-restore-*`，谁都不会来收它。
+        let _ = std::fs::remove_file(&incoming);
+        // 回滚成没成都要把手里的连接指回 `paths.db`：带着一个没有表的内存库继续跑，
+        // 下一条命令只会报 "no such table"，那是把一次能解释清楚的失败变成满屏乱码。
+        *conn = crate::db::open(&paths.db)?;
+        return Err(e);
     }
-    for suffix in ["-wal", "-shm"] {
-        let side = format!("{}{suffix}", paths.db.display());
-        let _ = std::fs::remove_file(&side);
+
+    // 换库成功也要把连接指回真库。原来这一句只有失败分支有，于是成功之后进程手里那个
+    // 还是空内存库，一直留到 `app.restart()` 才死 —— 中间在 mutex 上排队的每条命令都会
+    // 报 "no such table"（还原含一次网络 GET，那几秒是常态）。打开失败不该把已经成功的
+    // 还原说成失败 —— 库已经换好了 —— 重启会修好，日志要说清。
+    match crate::db::open(&paths.db) {
+        Ok(reopened) => *conn = reopened,
+        Err(e) => log::error!("还原后重新打开真库失败，重启前的命令会读不到表：{e}"),
     }
-    std::fs::rename(&incoming, &paths.db)?;
 
     // 设备 id 必须换新的：整文件恢复会把旧机器的 created_by 带回来，
     // 不换的话「最后写入设备」在两台机器上会说同一个名字。
     let fresh = format!("pc-{}", uuid::Uuid::now_v7().simple());
-    std::fs::write(&paths.device_id, &fresh)?;
-    log::info!("已还原快照 {remote_name}（{stamp}），新设备 id {fresh}");
+    match std::fs::write(&paths.device_id, &fresh) {
+        Ok(()) => log::info!("已还原快照 {remote_name}（{stamp}），新设备 id {fresh}"),
+        // 库已经换好了，这一步失败不该把还原说成失败（那会诱发第二次还原）。
+        // 继续用旧 id 的后果是「最后写入设备」暂时还是旧机器那台，日志要说清。
+        Err(e) => log::error!("新设备 id 没写进去（{e}），这台机器暂时还沿用旧设备 id 上报"),
+    }
+
+    prune_pre_restore(&paths.root);
 
     // 还原进来的每一行都要重新标脏（见 `mark_all_pending`）。
     // 这一步失败不该把已经成功的还原说成失败 —— 库已经换好了 —— 但它会让手机端
@@ -429,6 +573,31 @@ mod tests {
         .unwrap()
     }
 
+    /// 「没配」与「读不出来」是两句话（P2-7）。`DROP TABLE settings` 是最便宜的真故障，
+    /// 而且不用碰凭据管理器 —— 后者在一台没填过 Anvil 的机器上根本没法测。
+    /// 这里断言的正是那条不许再犯的形状：故障折成 `None`，界面就只会催人重填一个
+    /// 本来就填对了的密码。
+    #[test]
+    fn a_broken_settings_read_is_a_failure_not_an_absence() {
+        let conn = fresh_db();
+        conn.execute("DROP TABLE settings", []).unwrap();
+        let err = credentials(&conn).expect_err("读库故障必须是 Err，不能是 None");
+        assert!(
+            !err.to_string().contains("还没配"),
+            "故障的措辞不能借用没配那句：{err}"
+        );
+    }
+
+    /// 反过来那半：真没填（没有行，或填了一串空白）必须是 `Ok(None)`，并且**走不到凭据管理器**。
+    /// 这条测试能在任何机器上跑，正因为邮箱缺席时函数就地返回了。
+    #[test]
+    fn an_absent_or_blank_mailbox_is_an_absence_not_a_failure() {
+        let conn = fresh_db();
+        assert!(credentials(&conn).unwrap().is_none(), "空库是没配，不是故障");
+        settings::set_json(&conn, settings::KEY_WDAV_EMAIL, &json!("   "), 1, "pc-test").unwrap();
+        assert!(credentials(&conn).unwrap().is_none(), "一串空白的邮箱也是没填");
+    }
+
     /// 备份不许带凭据，但还原也不该把这台机器自己的设置清掉 —— 两头都要测，
     /// 因为它们是同一份名单（`MACHINE_LOCAL_KEYS`）。
     #[test]
@@ -449,9 +618,8 @@ mod tests {
         }
 
         let gz = export(&conn, &tmp, ms).expect("导出");
-        let mut gunzip = flate2::read::GzDecoder::new(&gz[..]);
-        let mut raw = Vec::new();
-        gunzip.read_to_end(&mut raw).unwrap();
+        // 走生产那一条有上限的解压路径，而不是在测试里另写一份无上限的
+        let raw = crate::sync::snapshot::gunzip_bounded(&gz, MAX_RESTORED_DB_BYTES).unwrap();
         let file = tmp.join("restored.db");
         std::fs::write(&file, &raw).unwrap();
 
@@ -586,5 +754,67 @@ mod tests {
         assert!(machine_local_rows(&conn).unwrap().is_empty());
         assert_eq!(keep_machine_local(&file, &[], 1, "pc-new").unwrap(), 0);
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// 换库的失败面只有一种测法：让第二步的 rename 真失败（目标不存在）。
+    #[test]
+    fn a_half_done_swap_puts_the_real_database_back_where_it_was() {
+        let tmp = Paths::under(std::env::temp_dir().join(format!("anvil-swap-{}", uuid::Uuid::now_v7())));
+        std::fs::create_dir_all(&tmp.root).unwrap();
+        std::fs::create_dir_all(&tmp.backups).unwrap();
+        std::fs::write(&tmp.db, "这一年的待办都在这一份里").unwrap();
+        let missing_incoming = tmp.backups.join("incoming-7.db");
+
+        let err = swap_db(&tmp, &missing_incoming, 7).unwrap_err().to_string();
+        assert!(err.contains("改回原样"), "{err}");
+        assert!(tmp.db.exists(), "现库必须还在原位");
+        assert_eq!(std::fs::read(&tmp.db).unwrap(), "这一年的待办都在这一份里".as_bytes());
+        assert!(!tmp.root.join("app.pre-restore-7.db").exists(), "回滚后不该留下改名件");
+
+        std::fs::remove_dir_all(&tmp.root).ok();
+    }
+
+    #[test]
+    fn a_successful_swap_keeps_the_previous_database_on_disk() {
+        let tmp = Paths::under(std::env::temp_dir().join(format!("anvil-swap-ok-{}", uuid::Uuid::now_v7())));
+        std::fs::create_dir_all(&tmp.root).unwrap();
+        std::fs::create_dir_all(&tmp.backups).unwrap();
+        std::fs::write(&tmp.db, "旧的").unwrap();
+        let incoming = tmp.backups.join("incoming-8.db");
+        std::fs::write(&incoming, "快照里的那份").unwrap();
+
+        swap_db(&tmp, &incoming, 8).expect("两步都顺就该成功");
+        assert_eq!(std::fs::read(&tmp.db).unwrap(), "快照里的那份".as_bytes());
+        assert_eq!(
+            std::fs::read(tmp.root.join("app.pre-restore-8.db")).unwrap(),
+            "旧的".as_bytes(),
+            "还原前的状态是唯一的可退路，得留在盘上"
+        );
+        assert!(!incoming.exists(), "换进来的那份不该再留着");
+
+        std::fs::remove_dir_all(&tmp.root).ok();
+    }
+
+    #[test]
+    fn pre_restore_files_are_pruned_to_keep_local_newest() {
+        let root = std::env::temp_dir().join(format!("anvil-prune-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&root).unwrap();
+        for ms in [1_000_i64, 2_000, 3_000, 4_000, 5_000] {
+            std::fs::write(root.join(format!("app.pre-restore-{ms}.db")), b"x").unwrap();
+        }
+        // 名字里带数字宽度不同，字典序会把 1000 排在 200 前面 —— 这里全用同宽时间戳，
+        // 真实文件名（毫秒）本来就同宽
+        prune_pre_restore(&root);
+        let left: Vec<_> = std::fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("app.pre-restore-"))
+            .collect();
+        assert_eq!(left.len(), KEEP_LOCAL, "{left:?}");
+        for ms in [3_000_i64, 4_000, 5_000] {
+            assert!(root.join(format!("app.pre-restore-{ms}.db")).exists(), "{ms} 该留下");
+        }
+        std::fs::remove_dir_all(&root).ok();
     }
 }

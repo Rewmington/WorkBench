@@ -39,6 +39,26 @@ pub const PC_TABLES: &[&str] = &["todos", "classes"];
 /// 白名单而不是整张 settings 表：主题、快捷键、路径同步过去是错的。
 pub const META_KEYS: &[&str] = &["timetable.term", "timetable.week1Monday"];
 
+/// 解压后的字节上限。压缩侧已经夹住（`relay::MAX_BYTES` 32 MiB），但 gzip 能几百倍
+/// 膨胀，一份构造过的"炸弹"就足以把这台机器的内存吃满 —— 在解压这一步拒绝最便宜。
+pub const MAX_SNAPSHOT_BYTES: usize = 64 * 1024 * 1024;
+
+/// 解压并夹住输出大小：**多取一个字节**就为了知道"越界了"，而不是全部算完才发现内存没了。
+/// 备份还原的库也走这里（换一份上限），所以实现只有一份。
+pub(crate) fn gunzip_bounded(bytes: &[u8], max: usize) -> Result<Vec<u8>> {
+    let mut out = Vec::new();
+    flate2::read::GzDecoder::new(bytes)
+        .take((max + 1) as u64)
+        .read_to_end(&mut out)
+        .map_err(|_| Error::msg("解不开 gzip：传输出来的不是 Anvil 的文件"))?;
+    if out.len() > max {
+        return Err(Error::msg(format!(
+            "解压后超过 {max} 字节上限，这份文件我不接（多半是被人为构造过的）"
+        )));
+    }
+    Ok(out)
+}
+
 /// 一台设备发到云上的那份快照。
 ///
 /// `tables` 用 `BTreeMap`：列目录顺序稳定，同一份库两次导出的明文字节才一致，
@@ -73,10 +93,8 @@ impl Snapshot {
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Snapshot> {
-        let mut json = Vec::new();
-        flate2::read::GzDecoder::new(bytes)
-            .read_to_end(&mut json)
-            .map_err(|_| Error::msg("快照解不开 gzip：传输出来的不是 Anvil 的同步文件"))?;
+        let json = gunzip_bounded(bytes, MAX_SNAPSHOT_BYTES)
+            .map_err(|e| Error::msg(format!("{e}")))?;
         let root: Value = serde_json::from_slice(&json)
             .map_err(|_| Error::msg("快照不是合法 JSON：文件被改过或版本不认识"))?;
         let ver = root
@@ -220,6 +238,28 @@ mod tests {
         let mut c = db::open_in_memory().unwrap();
         db::migrations::migrate(&mut c).unwrap();
         c
+    }
+
+    fn gz(payload: &[u8]) -> Vec<u8> {
+        use std::io::Write;
+        let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::new(9));
+        enc.write_all(payload).unwrap();
+        enc.finish().unwrap()
+    }
+
+    /// 「压缩侧夹住了、解压侧没夹」正是 gzip 炸弹的入口：4 MiB 的零压完只有几 KB。
+    #[test]
+    fn a_decompression_bomb_is_refused_instead_of_allocated() {
+        let bomb = gz(&vec![0u8; 4 << 20]);
+        assert!(bomb.len() < 8192, "零字节流该压得极小，不然这条测试没意义：{}", bomb.len());
+        let err = gunzip_bounded(&bomb, 1 << 20).unwrap_err().to_string();
+        assert!(err.contains("上限"), "{err}");
+
+        // 同一份实现得放行合法的小文件，别把上限写成"全都拒"
+        assert_eq!(gunzip_bounded(&gz(b"ok"), 1 << 20).unwrap(), b"ok");
+        // 根本不是 gzip 的输入照旧报"解不开"，不是报上限
+        let not_gzip = gunzip_bounded(b"just text", 1 << 20).unwrap_err().to_string();
+        assert!(not_gzip.contains("gzip"), "{not_gzip}");
     }
 
     #[test]

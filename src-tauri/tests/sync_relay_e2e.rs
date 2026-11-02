@@ -153,7 +153,14 @@ fn phone_snapshot_merges_in_and_the_pc_uploads_its_own_envelope() {
     // 远端 listing：只认 device-*.enc；桩预放的 stray-note.txt 与任何邮箱字样都不许出现。
     // （§6 M11b：设备 listing 出得来，邮箱不进文件名 —— KDF secret 是 email:password，
     // 文件名一旦带上它就等于把账号写在了公开目录里。）
-    let names: Vec<String> = r.list().unwrap().into_iter().map(|e| e.name).collect();
+    let listed = r.list().unwrap();
+    let names: Vec<String> = listed.iter().map(|e| e.name.clone()).collect();
+    // 「按最近写过挑窗口」靠的是这一列：PROPFIND 不请求 getlastmodified、或解析不动，
+    // 这里就会全是 None —— 单测里的 Entry 是手搓的，只有对着真服务器才验得出这一环。
+    assert!(
+        listed.iter().all(|e| e.modified.is_some()),
+        "对端信封要带得上最后写入时间：{listed:?}"
+    );
     assert!(names.contains(&"device-phone-a.enc".to_owned()), "{names:?}");
     assert!(names.contains(&relay::file_name("pc-e2e")), "{names:?}");
     assert!(!names.iter().any(|n| n.contains("stray")), "非 device-*.enc 不该被列出来：{names:?}");
@@ -398,4 +405,124 @@ fn a_pull_only_sync_still_publishes_on_the_next_run() {
     assert!(out.ok, "{}", out.error.unwrap_or_default());
     assert!(out.uploaded && !out.put_skipped, "远端没有自己那份就要补发");
     assert!(r.get(&relay::file_name("pc-pull")).is_ok());
+}
+
+/// issue #1 的 P1-9：一个读不懂的对端文件会把整轮同步带走，而那个文件永远删不掉，
+/// 于是所有设备一起停摆。桩目录就是本地文件系统，所以"塞一个坏文件进去"直接写字节
+/// 就行，不需要故障注入框架 —— 这也是为什么它值得钉在 e2e 而不是单测里。
+#[test]
+#[ignore = "需要 tools/webdav-stub.mjs 在跑；请用 node tools/m11b-check.mjs"]
+fn one_unreadable_peer_does_not_stop_the_others_from_merging() {
+    wipe_device_files();
+    let r = remote();
+    r.ensure_dir().expect("MKCOL");
+
+    let good = phone_row("e2e-good-1", MS - 2_000, "phone-b", "能读进来的那台");
+    r.put(
+        "device-phone-b.enc",
+        &phone_envelope("phone-b", MS - 2_000, vec![good]),
+    )
+    .unwrap();
+    // 合法文件名 + 完全不是信封的字节：旧版本写的、传输截断的、被改坏的都长这样
+    r.put("device-phone-c.enc", "这不是 Anvil 的信封".as_bytes())
+        .unwrap();
+
+    let c = conn();
+    let out = relay::run_with(&c, "pc-e2e", SECRET, &r, &FixedNow(MS));
+
+    assert!(
+        out.ok,
+        "一轮里有个读不懂的对端，不该把整轮说成失败：{}",
+        out.error.unwrap_or_default()
+    );
+    assert!(out.applied >= 1, "能读的那台该并进来：{}", out.applied);
+    assert_eq!(out.unreadable, vec!["phone-c".to_owned()], "读不懂的那台要被点名");
+    assert!(
+        out.peers.contains(&"phone-b".to_owned()) && out.peers.contains(&"phone-c".to_owned()),
+        "文件在远端就该算在线，读不读得懂是另一件事：{:?}",
+        out.peers
+    );
+
+    // 并进来的是真数据，不只是回报了一个数字
+    let title: String = c
+        .query_row(
+            "SELECT title FROM todos WHERE id = 'e2e-good-1'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("phone-b 那条待办该落在库里");
+    assert_eq!(title, "能读进来的那台");
+}
+
+/// 「清理我读不懂的对端文件」（P1-9 步骤 3）对着真桩跑完整一遍。
+/// 这里要的不是"能删"，而是**只删可证明是垃圾的那一份**：解不开的（可能是另一组凭据写的，
+/// 那是那台设备唯一的云端历史）不删并说明理由，读得懂的一份没少，删掉的才从名单里摘掉。
+#[test]
+#[ignore = "需要 tools/webdav-stub.mjs 在跑；请用 node tools/m11b-check.mjs"]
+fn cleanup_deletes_only_the_provable_junk_and_says_why_for_the_rest() {
+    wipe_device_files();
+    let r = remote();
+    r.ensure_dir().expect("MKCOL");
+
+    let good = phone_row("e2e-keep-1", MS - 2_000, "phone-b", "读得懂的那台");
+    r.put(
+        "device-phone-b.enc",
+        &phone_envelope("phone-b", MS - 2_000, vec![good]),
+    )
+    .unwrap();
+    // (a) 连信封都不是：`crypto::open` 就失败 —— 这一类**不许删**。"解不开"最常见的原因是
+    // 那台设备用的是另一组凭据（换过应用密码），那份正是它自己唯一的云端历史
+    r.put("device-phone-c.enc", "这不是 Anvil 的信封".as_bytes())
+        .unwrap();
+    // (b) 合法信封、内容不是快照：解得开却读不懂 —— 对我们才是可证明的垃圾
+    r.put(
+        "device-phone-d.enc",
+        &crypto::seal_with(
+            SECRET,
+            "解得开，但这不是 Snapshot 的字节".as_bytes(),
+            crypto::SYNC_M_KIB,
+            crypto::SYNC_T_COST,
+            crypto::SYNC_P_COST,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+
+    let c = conn();
+    let out = relay::run_with(&c, "pc-e2e", SECRET, &r, &FixedNow(MS));
+    assert_eq!(out.unreadable.len(), 2, "{:?}", out.unreadable);
+
+    // 本机这轮是"空库拉进来别人的"，按口径不会上传自己那份 —— 所以断言写成
+    // "消失的只有该消失的那一份"，而不是"自己那份还在"。
+    let before: Vec<String> = r.list().unwrap().into_iter().map(|e| e.name).collect();
+    let cleaned =
+        relay::clean_unreadable(&c, "pc-e2e", SECRET, &r, &FixedNow(MS + 1_000)).unwrap();
+    assert_eq!(
+        cleaned.deleted,
+        vec!["device-phone-d.enc".to_owned()],
+        "只该删「能解开却读不懂内容」的那一份：{cleaned:?}"
+    );
+    assert!(cleaned.failed.is_empty(), "{cleaned:?}");
+    assert_eq!(cleaned.skipped.len(), 1, "解不开的那份要被留下并说明：{cleaned:?}");
+    assert_eq!(cleaned.skipped[0].name, "device-phone-c.enc");
+    assert!(
+        cleaned.skipped[0].why.contains("解不开") && cleaned.skipped[0].why.contains("不删"),
+        "理由要说清为什么不删：{}",
+        cleaned.skipped[0].why
+    );
+
+    let after: Vec<String> = r.list().unwrap().into_iter().map(|e| e.name).collect();
+    let gone: Vec<String> = before.iter().filter(|n| !after.contains(n)).cloned().collect();
+    assert_eq!(gone, vec!["device-phone-d.enc".to_owned()], "{before:?} → {after:?}");
+    for keep in ["device-phone-b.enc", "device-phone-c.enc"] {
+        assert!(after.contains(&keep.to_owned()), "{keep} 不该被动：{after:?}");
+    }
+
+    let st = relay::stored_state(&c).unwrap();
+    let still: Vec<String> = st
+        .get("unreadablePeers")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .unwrap_or_default();
+    assert_eq!(still, vec!["phone-c".to_owned()], "删掉的那台该摘掉，没删的留着：{st:?}");
 }

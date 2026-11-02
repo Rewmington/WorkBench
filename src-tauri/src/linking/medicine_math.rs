@@ -334,7 +334,7 @@ pub fn streak_days(doses: &[Dose], today: i32) -> usize {
             continue; // 标记「这顿没吃」不算打卡
         }
         let back = days_between(day_of_ms(d.taken_at), today);
-        if back < 0 || back >= WEEK_DAYS {
+        if !(0..WEEK_DAYS).contains(&back) {
             continue;
         }
         counts[(WEEK_DAYS - 1 - back) as usize] += 1;
@@ -362,7 +362,7 @@ pub fn streak_days(doses: &[Dose], today: i32) -> usize {
 ///
 /// 口径照药箱自己的统计页（`stats_page.dart`）：算不出天数的记成 9999 沉底，同值按名字 ——
 /// 两个程序排出来的顺序得一样，不然用户对照着看会以为其中一边算错了。
-pub fn by_stock_risk<'a>(meds: &'a [Medicine]) -> Vec<&'a Medicine> {
+pub fn by_stock_risk(meds: &[Medicine]) -> Vec<&Medicine> {
     const UNKNOWN: f64 = 9999.0;
     let mut ordered: Vec<&Medicine> = meds.iter().collect();
     ordered.sort_by(|a, b| {

@@ -114,7 +114,14 @@ fn put_propfind_get_and_restore_against_the_stub() {
     let bytes = backup::restore_with(&mut conn2, &target, &r, SECRET, &name, at).expect("还原");
     assert!(bytes > 0);
 
-    // 换库之后旧连接是内存占位，要还原后的文件重开才能查
+    // 还原成功之后，传进来的那个连接必须已经指回真库。以前它停在内存占位上，要等
+    // `app.restart()` 才死；中间在 mutex 上排队的每条命令都会报 "no such table"。
+    assert_eq!(
+        count(&conn2, "SELECT count(*) FROM todos"),
+        count(&probe, "SELECT count(*) FROM todos"),
+        "restore_with 回来就能用那个连接查，不该逼调用方重开一个"
+    );
+
     let reopened = Connection::open(&target.db).expect("还原后的库");
     let src_version: i64 = probe
         .query_row("PRAGMA user_version", [], |r| r.get(0))

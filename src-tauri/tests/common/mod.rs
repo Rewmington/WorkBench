@@ -74,15 +74,16 @@ pub fn lived_in(conn: &mut Connection, n_todos: usize) {
     for (key, value) in [
         (
             settings::KEY_BLOG_REPO_DIR,
-            "D:\\ADevelop\\Repositories\\Mine\\Rewmington-Blog-main",
+            "D:\\fixture\\blog-repo-not-a-real-path",
         ),
         (
             settings::KEY_MEDICINE_DB,
-            "C:\\Users\\hp\\AppData\\Roaming\\dev.mine\\medicine_tracker\\medicine_tracker.db",
+            "C:\\fixture\\medicine_tracker-not-a-real-path.db",
         ),
-        (settings::KEY_WDAV_EMAIL, "me@wmddd.online"),
-        // 药箱那边用的邮箱：同样是邮箱，一样不能出门
-        (settings::KEY_MEDICINE_EMAIL, "me@wmddd.online"),
+        (settings::KEY_WDAV_EMAIL, "webdav-fixture@example.com"),
+        // 药箱那边用的邮箱：同样是邮箱，一样不能出门。
+        // 两条故意给不同的值 —— 相等就测不出「剥的是键，不是某一键」
+        (settings::KEY_MEDICINE_EMAIL, "medicine-fixture@example.com"),
         // 目录地址是机器无关的，故意留着 —— 还原后仍然有效
         (
             settings::KEY_MEDICINE_DAV_DIR,
