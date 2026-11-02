@@ -108,9 +108,9 @@ cd mobile && flutter test && flutter analyze
 ```bash
 # 版本号有四处，必须一起抬（`npm run version:check` 会替你核对）：
 #   package.json / src-tauri/tauri.conf.json / src-tauri/Cargo.toml
-#   mobile/pubspec.yaml（`0.1.6+7`，`+` 后面是 Android 的 versionCode，每次发版也要抬）
+#   mobile/pubspec.yaml（`0.1.7+8`，`+` 后面是 Android 的 versionCode，每次发版也要抬）
 npm run version:check
-git tag vX.Y.Z                        # 与四份清单里那个新版本一致，例如 v0.1.6
+git tag vX.Y.Z                        # 与四份清单里那个新版本一致，例如 v0.1.7
 git push origin vX.Y.Z
 ```
 

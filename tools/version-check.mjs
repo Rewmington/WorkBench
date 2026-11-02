@@ -23,7 +23,7 @@ const sources = [
   { name: 'src-tauri/tauri.conf.json', version: () => JSON.parse(read('src-tauri/tauri.conf.json')).version },
   // 只取 `^version = ` 那一行：依赖写的是 `foo = { version = … }`，行首是包名，不会误中。
   { name: 'src-tauri/Cargo.toml', version: () => /^version\s*=\s*"([^"]+)"/m.exec(read('src-tauri/Cargo.toml'))?.[1] },
-  // pubspec 是 `0.1.6+7`，`+` 后面是 Android 的 versionCode，不参与版本号比对。
+  // pubspec 写的是 `X.Y.Z+N`，`+` 后面是 Android 的 versionCode，不参与版本号比对。
   {
     name: 'mobile/pubspec.yaml',
     version: () => /^version:\s*([0-9.]+)(?:\+(\d+))?/m.exec(read('mobile/pubspec.yaml'))?.[1],
