@@ -279,6 +279,24 @@ export interface SyncStatus {
   pending: number
   /** 远端别人的设备 id —— 就是云上那几份 device-*.enc 的 listing，不含邮箱 */
   peers: string[]
+  /** `peers` 里这次读不懂的：文件在（所以算在线），但它那份改动没并进来 */
+  unreadablePeers: string[]
+}
+
+/**
+ * 「清理我读不懂的对端文件」的结果（`commands::sync::sync_clean_peers`）。
+ * 删成什么样就报成什么样：一份没删成不该把已经删掉的隐掉，也不该停住剩下的。
+ * 名字用的是文件名而不是 id，因为那才是远端真实存在的东西。
+ */
+export interface CleanedPeers {
+  deleted: string[]
+  failed: { name: string; why: string }[]
+  /**
+   * 验过之后**故意没删**的那些，连同理由。与 failed 分开：那是"想删没删成"，
+   * 这是"不该删"。最常见的一条是那份文件这台机器解不开 —— 解不开通常意味着
+   * 它是**另一组凭据**写的（换过应用密码的那台设备），那份是它自己唯一的云端历史。
+   */
+  skipped: { name: string; why: string }[]
 }
 
 // ---- M5 工作台 ----
@@ -524,8 +542,7 @@ export interface TimetableImportReport {
 }
 
 export interface Api {
-  paths(): Promise<PathsView>
-  deviceId(): Promise<string>
+  /** 设置页要的数据路径与设备 id 从这里一次给全，不再另开同义命令 */
   settingsAll(): Promise<SettingsView>
   settingsGet(key: string): Promise<unknown>
   settingsSet(key: string, value: unknown): Promise<void>
@@ -538,7 +555,6 @@ export interface Api {
   todosList(zone: TodoZone): Promise<Todo[]>
   /** 跨分区的活动待办：日历与驾驶舱要的是「一天」，不是四个区各查一遍 */
   todosAll(): Promise<Todo[]>
-  todosListUndone(zone: TodoZone): Promise<Todo[]>
   todosGet(id: string): Promise<Todo | null>
   todosChildren(id: string): Promise<Todo[]>
   todosCreate(draft: TodoDraft): Promise<Todo>
@@ -602,6 +618,11 @@ export interface Api {
   syncStatus(): Promise<SyncStatus>
   /** 手动「立即同步」。失败折进返回的状态里，只多一行字，不弹窗 */
   syncNow(): Promise<SyncStatus>
+  /**
+   * 「清理我读不懂的对端文件」：删掉这一轮真读不懂的那几份 `device-*.enc`。
+   * 删的是别人设备上已发布的数据，跨设备不可逆 —— 界面上必须先列出来、由人确认第二次。
+   */
+  syncCleanPeers(): Promise<CleanedPeers>
 
   /** 首屏一次拿全：KPI + 环 + 队列 + 时间轴。全部来自 SQLite，不等任何外部源 */
   dashSummary(): Promise<DashSummary>
@@ -630,7 +651,6 @@ export interface Api {
   /** folderId 传 null = 不过滤（看全部），不是「只看没有文件夹的」 */
   notesList(folderId: string | null): Promise<Note[]>
   notesTrashed(): Promise<Note[]>
-  notesGet(id: string): Promise<Note | null>
   notesCreate(draft: NoteDraft): Promise<Note>
   notesUpdate(id: string, patch: NotePatch): Promise<Note>
   notesSetTags(id: string, tags: string[]): Promise<void>

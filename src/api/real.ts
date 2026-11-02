@@ -12,7 +12,6 @@ import type {
   Note,
   NoteFolder,
   PaletteHit,
-  PathsView,
   RemoteFile,
   Resource,
   SettingsView,
@@ -22,6 +21,7 @@ import type {
   Sticky,
   Suggestion,
   SyncStatus,
+  CleanedPeers,
   SysLoad,
   TimetableImportReport,
   TimetableState,
@@ -31,18 +31,15 @@ import type {
 
 // 命令名 = Rust 函数名（snake_case）；参数对象用 camelCase 键。
 export const realApi: Api = {
-  paths: () => invoke<PathsView>('paths'),
-  deviceId: () => invoke<string>('device_id'),
   settingsAll: () => invoke<SettingsView>('settings_all'),
   settingsGet: (key) => invoke<unknown>('settings_get', { key }),
   settingsSet: (key, value) => invoke<void>('settings_set', { key, value }),
   contextMenu: (target) => invoke<void>('context_menu', { target }),
   openDataDir: () => invoke<void>('open_data_dir'),
-  openUrl: (url) => invoke<void>('open_url', { url }),
+  openUrl: (url) => invoke<void>('open_url', { target: url }),
 
   todosList: (zone) => invoke<Todo[]>('todos_list', { zone }),
   todosAll: () => invoke<Todo[]>('todos_all'),
-  todosListUndone: (zone) => invoke<Todo[]>('todos_list_undone', { zone }),
   todosGet: (id) => invoke<Todo | null>('todos_get', { id }),
   todosChildren: (id) => invoke<Todo[]>('todos_children', { id }),
   todosCreate: (draft) => invoke<Todo>('todos_create', { draft }),
@@ -97,6 +94,7 @@ export const realApi: Api = {
 
   syncStatus: () => invoke<SyncStatus>('sync_status'),
   syncNow: () => invoke<SyncStatus>('sync_now'),
+  syncCleanPeers: () => invoke<CleanedPeers>('sync_clean_peers'),
 
   dashSummary: () => invoke<DashSummary>('dash_summary'),
   dashSuggestions: () => invoke<Suggestion[]>('dash_suggestions'),
@@ -116,7 +114,6 @@ export const realApi: Api = {
 
   notesList: (folderId) => invoke<Note[]>('notes_list', { folderId }),
   notesTrashed: () => invoke<Note[]>('notes_trashed'),
-  notesGet: (id) => invoke<Note | null>('notes_get', { id }),
   notesCreate: (draft) => invoke<Note>('notes_create', { draft }),
   notesUpdate: (id, patch) => invoke<Note>('notes_update', { id, patch }),
   notesSetTags: (id, tags) => invoke<void>('notes_set_tags', { id, tagsInput: tags }),

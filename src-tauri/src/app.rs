@@ -1,6 +1,6 @@
 //! 组合根：状态、插件、托盘、窗口事件、命令注册。
 
-use std::sync::atomic::{AtomicBool, AtomicU32};
+use std::sync::atomic::{AtomicU32, AtomicU8};
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
@@ -29,9 +29,31 @@ fn seed_flag() -> Option<i32> {
 fn bootstrap() -> Result<(Connection, Paths, String)> {
     let paths = Paths::local_app_data()?;
     paths.ensure()?;
+    crate::logger::use_dir(&paths.logs);
+    // 新建与否必须在看开库**之前**问一次：`db::open` 会顺手把缺失的文件建出来，
+    // 之后就再也分不出「这是用户的库」和「这是还原中断后新建的空库」。
+    let opened_fresh = !paths.db.exists();
     let mut conn = db::open(&paths.db)?;
     let applied = db::migrations::migrate(&mut conn)?;
     let device_id = device::load_or_create(&paths.device_id)?;
+
+    // 把「本机自己写过的最晚时刻」垫成时间戳下限，让单调性跨重启也成立（只读查询）。
+    // 只算 `updated_by = 本机`：对端设备若时钟超前，它写来的行会把我们的下限顶到未来，
+    // 之后本机每一条写入都会白赢过那台机器 —— 那是把别人的错变成自己的优势，比回拨更难查。
+    let seen: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(updated_at), 0) FROM (
+            SELECT updated_at FROM todos WHERE updated_by = ?1
+            UNION ALL
+            SELECT updated_at FROM classes WHERE updated_by = ?1
+         )",
+        rusqlite::params![device_id],
+        |r| r.get(0),
+    )?;
+    crate::time::raise_floor(seen);
+
+    if opened_fresh {
+        crate::backup::notice_interrupted_restore(&conn, &crate::time::SystemNow, &paths.root);
+    }
 
     // 只给 debug 构建用的造数据入口（M5 的满数据截图、M7 的逐图核对都靠它）
     #[cfg(debug_assertions)]
@@ -53,19 +75,24 @@ fn bootstrap() -> Result<(Connection, Paths, String)> {
 }
 
 pub fn run() {
+    // 装在最前：bootstrap 里任何一句 log 与任何一次 panic 都要有去处。
+    crate::logger::install();
     let (conn, paths, device_id) = match bootstrap() {
         Ok(v) => v,
         Err(e) => {
-            // 起不来就没有 UI 可显示，只能走 stderr + 非零退出码。
-            eprintln!("Anvil 启动失败：{e}");
+            // 起不来就没有 UI：eprintln 在 release 里无处可去，所以同一句话必须也落进文件。
+            crate::logger::startup_failure(&e.to_string());
             std::process::exit(2);
         }
     };
 
     let state = AppState {
         db: Mutex::new(conn),
+        // 先放默认值：setup 里 `register_at_startup` 成功注册后才换成库里那条。
+        // 没注册成功时系统根本不会回调，这份默认值不会被读到。
+        hotkey: Mutex::new(crate::hotkeys::DEFAULT_SHOW.to_owned()),
         device_id: Arc::from(device_id.as_str()),
-        tray_hint_shown: AtomicBool::new(false),
+        tray_hint: AtomicU8::new(0),
         backup_failures: AtomicU32::new(0),
         paths,
     };
@@ -83,10 +110,12 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        // 钉子：这个窗口只渲染自己的界面，往站外的导航一律取消（§8.6）。
+        // 笔记预览那处点击已经 `preventDefault`，这一层管的是**以后漏掉的那些**，
+        // 以及页面自己写 `location.href=` 的情况 —— 被带走的不只是一个页面，是整个界面。
+        .plugin(navigation_guard())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
-            commands::system::paths,
-            commands::system::device_id,
             commands::system::context_menu,
             commands::system::open_data_dir,
             commands::system::open_url,
@@ -95,7 +124,6 @@ pub fn run() {
             commands::settings::settings_set,
             commands::todos::todos_list,
             commands::todos::todos_all,
-            commands::todos::todos_list_undone,
             commands::todos::todos_get,
             commands::todos::todos_children,
             commands::todos::todos_create,
@@ -135,7 +163,6 @@ pub fn run() {
             commands::widgets::sys_load,
             commands::notes::notes_list,
             commands::notes::notes_trashed,
-            commands::notes::notes_get,
             commands::notes::notes_create,
             commands::notes::notes_update,
             commands::notes::notes_set_tags,
@@ -176,6 +203,7 @@ pub fn run() {
             commands::backup::backup_self_test,
             commands::sync::sync_status,
             commands::sync::sync_now,
+            commands::sync::sync_clean_peers,
         ])
         // 托盘与右键菜单的点击都汇到这一个分发口。
         .on_menu_event(|app, event| menus::handle(app, event.id().as_ref()))
@@ -211,4 +239,70 @@ pub fn run() {
                 log::info!("Anvil 退出");
             }
         });
+}
+
+/// 只放行应用自己的界面地址。dev 是 `http://localhost:1420`，装出来的版本在 Windows 上
+/// 是 `http://tauri.localhost`（`tauri://` 那条留给别的平台）。
+///
+/// 判据写成纯函数，是因为这条一旦搞错就是「打开一个空窗口」级别的事故，得能钉住。
+fn is_app_url(url: &tauri::Url) -> bool {
+    match (url.scheme(), url.host_str()) {
+        ("tauri", _) => true,
+        ("http" | "https", Some("localhost")) | ("http" | "https", Some("127.0.0.1")) => true,
+        ("http" | "https", Some("tauri.localhost")) => true,
+        // WebView2 起手会过一次 about:blank
+        ("about", None) => true,
+        _ => false,
+    }
+}
+
+/// 全局导航闸门。用插件挂，是因为 `tauri::Builder` 上没有 `on_navigation`，
+/// 而插件的这条回调对**每个窗口**都生效 —— 界面被站外地址带走这件事，不该靠每个
+/// `<a>` 的点击处理各自记得。
+fn navigation_guard<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri::plugin::Builder::new("navigation-guard")
+        .on_navigation(|_webview, url| {
+            if is_app_url(url) {
+                return true;
+            }
+            log::warn!("拒绝在应用窗口里打开：{url}");
+            false
+        })
+        .build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_app_url;
+    use tauri::Url;
+
+    fn u(s: &str) -> Url {
+        Url::parse(s).expect("测试里的地址必须能解析")
+    }
+
+    #[test]
+    fn the_apps_own_addresses_get_through() {
+        for s in [
+            "http://localhost:1420/",
+            "http://127.0.0.1:1420/#/notes",
+            "http://tauri.localhost/index.html",
+            "tauri://localhost",
+            "about:blank",
+        ] {
+            assert!(is_app_url(&u(s)), "{s} 是界面自己的地址，拦了就剩一个空窗口");
+        }
+    }
+
+    #[test]
+    fn everything_else_is_refused_a_site_cannot_hijack_the_window() {
+        for s in [
+            "https://example.net/",
+            "https://example.net/x?a=1",
+            "http://localhost.evil.com/",
+            "file:///C:/Windows/win.ini",
+            "mailto:someone@example.com",
+        ] {
+            assert!(!is_app_url(&u(s)), "{s} 该交给系统浏览器，不是这个窗口");
+        }
+    }
 }

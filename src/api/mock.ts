@@ -23,6 +23,7 @@ import type {
   Sticky,
   Suggestion,
   SyncStatus,
+  CleanedPeers,
   SysLoad,
   Todo,
   TodoDraft,
@@ -44,6 +45,13 @@ import { weekOf } from '../lib/timetable'
  * 但语义要跟 Rust 一致，否则「看着对」是假的：rev 每次写入 +1、取消勾选只翻 completed
  * 而不清 done_at、删除是打墓碑、排序取邻居中点。这些规则在这里各写一遍，是因为它们同时也是渲染前提。
  * 两边对不上时以 Rust 为准改这里。
+ *
+ * 已经逐条镜像过的（`src/api/mock-divergence.spec.ts` 一条一条钉着，改任何一边都会红）：
+ * 空标题建待办要拒、命令面板每类各 8 条、药箱目录禁令按分段相等判（不是子串）、
+ * 补买待办的三支文案、便签与倒计时删除是墓碑。
+ * 唯一故意没镜像的：`resourceDelete` 在这里仍是物理移除 —— 后端的墓碑（`resources.deleted_at`）
+ * 没有任何恢复入口，界面上"消失"这一件事两边完全等价，而 `Resource` 类型里根本没有
+ * `deletedAt` 这个字段，加进去等于把后端的内部列摊到前端契约上。
  */
 
 const paths: PathsView = {
@@ -229,6 +237,8 @@ interface SyncSeed {
   /** 待上传数：浏览器里手动演示「勾一条 → N 加一」，来源就是下面 pendingChange 的调用方 */
   pending: number
   peers: string[]
+  /** 这次读不懂的那些对端 id：文件在 listing 里，但改动没并进来（与 Rust 的 unreadablePeers 同义） */
+  unreadable: string[]
 }
 
 function freshSync(): SyncSeed {
@@ -240,6 +250,7 @@ function freshSync(): SyncSeed {
     lastErrorAt: null,
     pending: 2,
     peers: ['phone-a'],
+    unreadable: [],
   }
 }
 
@@ -256,6 +267,26 @@ interface MedicineSeed {
 }
 
 const MEDICINE_DAV_DEFAULT = 'https://dav.jianguoyun.com/dav/medicine-sync/'
+
+/**
+ * 取 URL 的路径段（去掉协议与主机名，逐段还原百分号编码），与 Rust
+ * `dav_readonly::path_segments` 同一件事。药箱目录那条禁令要靠它做**分段相等**的比较。
+ */
+function urlPathSegments(raw: string): string[] {
+  const m = /^[a-z][a-z0-9+.-]*:\/\/[^/]*(.*)$/i.exec(raw.trim())
+  const path = m ? m[1] : raw.trim()
+  return path
+    .split('/')
+    .filter((s) => s !== '')
+    .map((s) => {
+      try {
+        return decodeURIComponent(s)
+      } catch {
+        // 畸形的 %XX 原样留着：宁可比较一个奇怪的名字，也不要把整条地址判成"没填"
+        return s
+      }
+    })
+}
 const MEDICINE_EMAIL_KEY = 'linked.medicine.email'
 const MEDICINE_DB_DEFAULT = String.raw`C:\Users\hp\AppData\Roaming\dev.mine\medicine_tracker\medicine_tracker.db`
 
@@ -459,7 +490,7 @@ function seedCountdowns(): Countdown[] {
 
 function freshStore(): Store {
   if (EMPTY) {
-    return { todos: [], resources: [], zones: [], secrets: {}, settings: {}, backup: { email: null, hasPass: false, log: [], remote: [] }, sync: { lastSyncAt: null, lastError: null, lastErrorAt: null, pending: 0, peers: [] }, medicine: freshMedicine(), timetable: freshTimetable(), stickies: [], countdowns: [], notes: [], folders: [] }
+    return { todos: [], resources: [], zones: [], secrets: {}, settings: {}, backup: { email: null, hasPass: false, log: [], remote: [] }, sync: { lastSyncAt: null, lastError: null, lastErrorAt: null, pending: 0, peers: [], unreadable: [] }, medicine: freshMedicine(), timetable: freshTimetable(), stickies: [], countdowns: [], notes: [], folders: [] }
   }
   return {
     todos: seedTodos(),
@@ -526,7 +557,7 @@ function byPinnedPriority(a: Todo, b: Todo): number {
 let sysSampled = 0
 
 function needCountdown(id: string): Countdown {
-  const c = store.countdowns.find((v) => v.id === id)
+  const c = store.countdowns.find((v) => v.id === id && v.deletedAt === null)
   if (!c) throw new Error('这个倒计时不存在或已被删除')
   return c
 }
@@ -772,8 +803,6 @@ function mockPaths(): SourcePaths {
 }
 
 export const mockApi: Api = {
-  paths: async () => paths,
-  deviceId: async () => DEVICE_ID,
   settingsAll: async (): Promise<SettingsView> => ({ values: store.settings, paths, deviceId: DEVICE_ID }),
   settingsGet: async (key) => store.settings[key] ?? null,
   settingsSet: async (key, value) => {
@@ -792,15 +821,18 @@ export const mockApi: Api = {
 
   todosList: async (zone) => sortedInZone(zone).map((t) => ({ ...t })),
   todosAll: async () => store.todos.filter(live).map((t) => ({ ...t })),
-  todosListUndone: async (zone) => sortedInZone(zone).filter((t) => !t.completed).map((t) => ({ ...t })),
   todosGet: async (id) => {
     const t = byId(id)
     return t ? { ...t } : null
   },
   todosChildren: async (id) => store.todos.filter((t) => t.parentId === id && live(t)).map((t) => ({ ...t })),
   todosCreate: async (draft: TodoDraft) => {
+    // 空标题在真后端是拒绝（repos/todos.rs 的 create），不是"存一条空白待办"。
+    // mock 演不出这一条，在浏览器里验收的人就会以为按个回车也能建。
+    const title = draft.title.trim()
+    if (!title) throw new Error('待办标题不能为空')
     const t = makeTodo({
-      title: draft.title.trim(),
+      title,
       note: draft.note ?? '',
       zone: draft.zone ?? 'inbox',
       priority: draft.priority ?? 2,
@@ -817,7 +849,11 @@ export const mockApi: Api = {
   todosUpdate: async (id, patch: TodoPatch) => {
     const t = byId(id)
     if (!t) throw new Error('这条待办不存在或已被删除')
-    if (patch.title !== undefined) t.title = patch.title.trim()
+    if (patch.title !== undefined) {
+      const next = patch.title.trim()
+      if (!next) throw new Error('待办标题不能为空')
+      t.title = next
+    }
     if (patch.note !== undefined) t.note = patch.note ?? ''
     if (patch.zone !== undefined) t.zone = patch.zone
     if (patch.priority !== undefined) t.priority = patch.priority
@@ -951,8 +987,14 @@ export const mockApi: Api = {
     save()
   },
   resourceMove: async (id, zoneId) => {
+    // 真后端是 `get(conn, id)?` 找不到就 Err：静默 no-op 会让界面以为挪成功了，
+    // 下一轮刷新才发现条目还在原分区，那种"看起来生效了其实没有"最难查。
     const r = store.resources.find((x) => x.id === id)
-    if (r) r.zoneId = zoneId
+    // 真后端是 get(conn, id)? 找不到就 Err：静默 no-op 会让界面以为挪成功了，
+    // 下一轮刷新才发现条目还在原分区。mock 这边条目是硬删的，所以只按 id 找。
+    if (!r) throw new Error('速达条目不存在')
+    r.zoneId = zoneId
+    touch(r)
     save()
   },
   resourceDelete: async (id) => {
@@ -960,7 +1002,12 @@ export const mockApi: Api = {
     save()
   },
   resourceSetSecret: async (id, text) => {
-    store.secrets[id] = text
+    // 真后端这里是 `UPDATE ... WHERE id = ?1`：条目不存在就是 0 行，不报错。
+    // 判"清除"用的是 trim 之后为空，但存下去的是**原文**（不 trim）—— 两条都得照着来。
+    const r = store.resources.find((x) => x.id === id)
+    if (!r) return
+    store.secrets[id] = text.trim() === '' ? '' : text
+    touch(r)
     save()
   },
   resourceRevealSecret: async (id) => store.secrets[id] ?? null,
@@ -980,18 +1027,24 @@ export const mockApi: Api = {
   paletteSearch: async (query) => {
     const q = query.trim().toLowerCase()
     if (!q) return []
-    const hits: PaletteHit[] = []
-    for (const t of store.todos.filter(live)) {
-      if (t.title.toLowerCase().includes(q) || t.note.toLowerCase().includes(q)) {
-        hits.push({ kind: 'todo', id: t.id, label: t.title, sub: t.note.slice(0, 40) || null })
-      }
-    }
-    for (const r of store.resources) {
-      if (r.name.toLowerCase().includes(q) || r.target.toLowerCase().includes(q)) {
-        hits.push({ kind: 'resource', id: r.id, label: r.name, sub: r.kind })
-      }
-    }
-    return hits.slice(0, 16)
+    // 与 commands/palette.rs 同一条形状：**每类各取 8 条**、各自有顺序，
+    // 而不是混在一起砍前 16 条。混着砍会出现"待办挤掉了速达"，
+    // 而在浏览器里看着正常的那份列表，真后端给的是另一份。
+    const PER_GROUP = 8
+    const todoHits: PaletteHit[] = store.todos
+      .filter(live)
+      .filter((t) => t.title.toLowerCase().includes(q) || t.note.toLowerCase().includes(q))
+      // 真后端的排序是 `pinned DESC, sort_key ASC`
+      .sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.sortKey - b.sortKey)
+      .slice(0, PER_GROUP)
+      .map((t) => ({ kind: 'todo', id: t.id, label: t.title, sub: t.note.slice(0, 40) || null }))
+    const resourceHits: PaletteHit[] = store.resources
+      .filter((r) => r.name.toLowerCase().includes(q) || r.target.toLowerCase().includes(q))
+      // 真后端按使用次数降序取前 8（`ORDER BY use_count DESC LIMIT ?2`）
+      .sort((a, b) => b.useCount - a.useCount)
+      .slice(0, PER_GROUP)
+      .map((r) => ({ kind: 'resource', id: r.id, label: r.name, sub: r.kind }))
+    return [...todoHits, ...resourceHits]
   },
 
   // ---- 外部联动：浏览器里读不到本机仓库，给一份与真实形状一致的夹具，只用于看版式 ----
@@ -1013,7 +1066,16 @@ export const mockApi: Api = {
   linkedRefreshMedicine: async () => medicineFixture(),
   linkedRestockTodo: async (name, daysLeft) =>
     mockApi.todosCreate({
-      title: `补买 ${name}（${daysLeft == null ? '库存待确认' : `剩余 ${daysLeft} 天`}）`,
+      // 与 commands::linked::linked_restock_todo 同三支分叉：≤0 是「已用完」，
+      // 其余保留一位小数（Rust 是 `(d * 10.0).round() / 10.0`，整数不带 `.0`），
+      // 只有 null 才说「库存待确认」。少那一支的话，界面上会出现「剩余 -1.7 天」。
+      title: `补买 ${name}（${
+        daysLeft == null
+          ? '库存待确认'
+          : daysLeft <= 0
+            ? '已用完'
+            : `剩余 ${String(Math.round(daysLeft * 10) / 10)} 天`
+      }）`,
       zone: 'today',
       priority: 1,
       tags: ['跑腿'],
@@ -1045,11 +1107,22 @@ export const mockApi: Api = {
     return mockPaths()
   },
   linkedSetMedicineDir: async (dir) => {
-    // 与 Rust 的 ReadRemote::check_dir 同一条规则：只有反向钉子，不校验地址格式
+    // 与 Rust 的 ReadRemote::check_dir 同一条规则：**分段相等**判，不按子串。
+    // 子串判据漏得掉两种真填法 —— 末尾不带斜杠的 `…/workbench-backup`、
+    // 以及大小写不同的 `Workbench-Backup`。留空 = 回到默认地址（真后端同一条），
+    // 那条不校验格式，因为它是"清空"这个动作本身。
     const next = dir.trim()
-    if (next.includes('/workbench-backup/')) throw new Error('那是工作台自己的备份目录，不是药箱的同步目录')
-    if (next.includes('/workbench-sync/')) throw new Error('那是工作台的手机同步目录，不是药箱的同步目录')
-    store.medicine.davDir = next || MEDICINE_DAV_DEFAULT
+    if (!next) {
+      store.medicine.davDir = MEDICINE_DAV_DEFAULT
+      save()
+      return MEDICINE_DAV_DEFAULT
+    }
+    for (const seg of urlPathSegments(next)) {
+      const lower = seg.toLowerCase()
+      if (lower === 'workbench-backup') throw new Error('那是工作台自己的备份目录，不是药箱的同步目录')
+      if (lower === 'workbench-sync') throw new Error('那是工作台的手机同步目录，不是药箱的同步目录')
+    }
+    store.medicine.davDir = next.replace(/^"+|"+$/g, '')
     save()
     return store.medicine.davDir
   },
@@ -1127,6 +1200,7 @@ export const mockApi: Api = {
       lastErrorAt: s.lastErrorAt,
       pending: s.pending,
       peers: s.peers,
+      unreadablePeers: s.unreadable,
     }
   },
   syncNow: async (): Promise<SyncStatus> => {
@@ -1144,6 +1218,18 @@ export const mockApi: Api = {
     s.peers = ['phone-a']
     save()
     return mockApi.syncStatus()
+  },
+  // 与 commands::sync::sync_clean_peers 同一判据：只清这一轮真读不懂的那几份，
+  // 清完就从名单里去掉（下一次 syncStatus 不该还报它们读不懂）。
+  syncCleanPeers: async (): Promise<CleanedPeers> => {
+    const s = store.sync
+    if (!store.backup.email || !store.backup.hasPass) {
+      throw new Error('先在备份页填好坚果云邮箱与应用密码（手机同步与备份共用这一组凭据）')
+    }
+    const deleted = s.unreadable.map((id) => `device-${id}.enc`)
+    s.unreadable = []
+    save()
+    return { deleted, failed: [], skipped: [] }
   },
 
   // ---- M5 工作台：聚合口径与 Rust 的 repos/dashboard.rs 逐条对齐 ----
@@ -1238,6 +1324,7 @@ export const mockApi: Api = {
       out.push({ rule: 'due-today-untouched', headline: untouched.title, detail: '今天到期，建完还没动过', todoId: untouched.id, view: 'todos' })
     }
     const soon = store.countdowns
+      .filter((c) => c.deletedAt === null)
       .filter((c) => c.state === 'running' && !c.paused && c.endsAt != null && c.endsAt > t && c.endsAt <= t + 2 * HOUR)
       .sort((a, b) => (a.endsAt ?? 0) - (b.endsAt ?? 0))[0]
     if (soon) {
@@ -1259,9 +1346,12 @@ export const mockApi: Api = {
   },
 
   statsReport: async () => mockStats(),
-  stickiesList: async () => [...store.stickies].sort((a, b) => a.slot - b.slot).map((s) => ({ ...s })),
+  stickiesList: async () =>
+    [...store.stickies.filter((s) => s.deletedAt === null)].sort((a, b) => a.slot - b.slot).map((s) => ({ ...s })),
   stickySave: async (slot, content) => {
-    const found = store.stickies.find((s) => s.slot === slot)
+    // 已清空（墓碑）的那一格不当"存在"：真后端 `find_slot` 筛 `deleted_at IS NULL`，
+    // 清空后再打字是新建一条，不是把墓碑那条改回来
+    const found = store.stickies.find((s) => s.slot === slot && s.deletedAt === null)
     if (found) {
       // 内容没变就不推 rev：防抖多发一次不该留下写入痕迹（与 Rust 同一条规则）
       if (found.content !== content) {
@@ -1287,14 +1377,19 @@ export const mockApi: Api = {
     return { ...created }
   },
   stickyClear: async (slot) => {
-    const i = store.stickies.findIndex((s) => s.slot === slot)
-    if (i < 0) return false
-    store.stickies.splice(i, 1)
+    // 与 `stickies::clear` 同一条：写墓碑 + 推 rev，不是把这行抹掉。
+    // 已经空着的那一格返回 false（真后端读不到未删除的那行就是这个答案），
+    // 界面据此决定要不要重画。
+    const found = store.stickies.find((s) => s.slot === slot && s.deletedAt === null)
+    if (!found) return false
+    found.deletedAt = now()
+    touch(found)
     save()
     return true
   },
 
-  countdownsList: async () => store.countdowns.map((c) => ({ ...c })),
+  countdownsList: async () =>
+    store.countdowns.filter((c) => c.deletedAt === null).map((c) => ({ ...c })),
   countdownAdd: async (label, mode, spec) => {
     const t = now()
     const created: Countdown = {
@@ -1362,8 +1457,11 @@ export const mockApi: Api = {
     return { ...c }
   },
   countdownDelete: async (id) => {
-    const i = store.countdowns.findIndex((c) => c.id === id)
-    if (i >= 0) store.countdowns.splice(i, 1)
+    // `countdowns::remove` 是写墓碑（rev 也要推），不是把这行抹掉
+    const c = store.countdowns.find((v) => v.id === id && v.deletedAt === null)
+    if (!c) return
+    c.deletedAt = now()
+    touch(c)
     save()
   },
 
@@ -1391,10 +1489,6 @@ export const mockApi: Api = {
       .filter((n) => n.deletedAt === null && n.trashedAt !== null)
       .sort((a, b) => (b.trashedAt ?? 0) - (a.trashedAt ?? 0))
       .map((n) => ({ ...n })),
-  notesGet: async (id) => {
-    const n = store.notes.find((v) => v.id === id && v.deletedAt === null)
-    return n ? { ...n } : null
-  },
   notesCreate: async (draft) => {
     const title = draft.title.trim()
     if (!title) throw new Error('笔记标题不能为空')

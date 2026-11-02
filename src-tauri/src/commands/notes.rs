@@ -23,12 +23,6 @@ pub fn notes_trashed(state: State<'_, AppState>) -> Result<Vec<Note>, Error> {
 }
 
 #[tauri::command]
-pub fn notes_get(state: State<'_, AppState>, id: String) -> Result<Option<Note>, Error> {
-    let conn = state.lock();
-    notes::get(&conn, &id)
-}
-
-#[tauri::command]
 pub fn notes_create(state: State<'_, AppState>, draft: NoteDraft) -> Result<Note, Error> {
     let now = SystemNow;
     let device = state.device_id.to_string();
