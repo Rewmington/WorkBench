@@ -27,10 +27,15 @@ fn put(account: &str, password: &str) -> Result<()> {
         .map_err(|e| Error::msg(format!("写入凭据管理器失败：{e}")))
 }
 
+/// 取一条凭据。**「管理器里没有这一条」和「管理器用不了」是两件事**：
+/// 只有前者才该说"还没填"。原来任何错误都被折成同一句话，于是服务被锁、
+/// 访问被拒这类真故障会让人去重填一个本来就填对了的密码。
 fn take(account: &str, unset: &str) -> Result<String> {
-    entry(account)?
-        .get_password()
-        .map_err(|_| Error::msg(unset.to_owned()))
+    match entry(account)?.get_password() {
+        Ok(secret) => Ok(secret),
+        Err(keyring::Error::NoEntry) => Err(Error::msg(unset.to_owned())),
+        Err(e) => Err(Error::msg(format!("读凭据管理器里 {account} 那条失败了：{e}"))),
+    }
 }
 
 fn drop_credential(account: &str) {
@@ -38,8 +43,37 @@ fn drop_credential(account: &str) {
     let _ = entry(account).map(|e| e.delete_credential());
 }
 
-fn has(account: &str) -> bool {
-    matches!(entry(account).map(|e| e.get_password()), Ok(Ok(_)))
+/// 「确实没有这一条」与「管理器读不出来」分开：只有前者才是 `Ok(false)`。
+/// 上面 `take()` 那条理由在这里同样成立，只是这里要的是布尔而不是秘密。
+fn password_present(account: &str) -> Result<bool> {
+    match entry(account)?.get_password() {
+        Ok(_) => Ok(true),
+        Err(keyring::Error::NoEntry) => Ok(false),
+        Err(e) => Err(Error::msg(format!("读凭据管理器里 {account} 那条失败了：{e}"))),
+    }
+}
+
+/// 给「框里空着算不算沿用」这类**决策**用的布尔版：折成 `false` 的代价只是让他重打
+/// 一遍密码，不会写坏任何东西，所以可以折 —— 但必须留一行日志，因为故障本身是真的。
+/// 「要不要跑备份/同步」那种停摆级判断**不许**用这个，走 `password_present`。
+fn present_or_false(account: &str) -> bool {
+    match password_present(account) {
+        Ok(yes) => yes,
+        Err(e) => {
+            log::warn!("{e}");
+            false
+        }
+    }
+}
+
+pub fn webdav_password_present() -> Result<bool> {
+    password_present(ACCOUNT_WEBDAV)
+}
+
+/// 药箱那条应用密码在不在。**「没有这一条」与「管理器读不出来」分开**，理由同 `webdav_password_present`：
+/// 药箱卡片拿它决定「要不要显示云端那一行」，折成 false 就等于把一次真故障说成「你还没配」。
+pub fn medicine_password_present() -> Result<bool> {
+    password_present(ACCOUNT_MEDICINE)
 }
 
 /// 界面上那个密码框**留空**是什么意思：沿用凭据管理器里已有那条，不是"清空"。
@@ -76,7 +110,7 @@ pub fn clear_webdav_password() {
 }
 
 pub fn webdav_configured() -> bool {
-    has(ACCOUNT_WEBDAV)
+    present_or_false(ACCOUNT_WEBDAV)
 }
 
 pub fn set_medicine_password(password: &str) -> Result<()> {
@@ -92,26 +126,44 @@ pub fn clear_medicine_password() {
 }
 
 pub fn medicine_configured() -> bool {
-    has(ACCOUNT_MEDICINE)
+    present_or_false(ACCOUNT_MEDICINE)
 }
 
 /// 本机加密密钥（32 字节，base64）。第一次用的时候随机生成。
+///
+/// 已经有内容却读不成 32 字节时**不再静默换一把**：换钥会让所有旧密文永久解不开，
+/// 而当时界面只会说"设置成功"。宁可报出来让人去看那条 `Anvil / local-key`，
+/// 也不能把一次可解释的坏状态换成一批不可解释的乱码。
+/// 这里只报不修：删条目是用户在凭据管理器里的显式动作，软件不替他删凭据。
 pub fn local_key() -> Result<Vec<u8>> {
     let e = entry(ACCOUNT_LOCAL_KEY)?;
-    if let Ok(existing) = e.get_password() {
-        if let Ok(bytes) = base64_decode(&existing) {
-            if bytes.len() == 32 {
-                return Ok(bytes);
+    match e.get_password() {
+        Ok(stored) => {
+            let bytes = base64_decode(&stored).map_err(|_| {
+                Error::msg(
+                    "凭据管理器里 Anvil / local-key 那条不是一把合法密钥（可能被别的程序改过）。修法：控制面板 → 凭据管理器 → Windows 凭据 → 删掉 Anvil / local-key。删掉之后那几条存成密文的速达备注会读不回来，其余照常。",
+                )
+            })?;
+            if bytes.len() != 32 {
+                return Err(Error::msg(format!(
+                    "凭据管理器里 Anvil / local-key 那条是 {} 字节、不是 32。修法同上：凭据管理器 → Windows 凭据 → 删掉 Anvil / local-key；删掉之后那几条存成密文的速达备注会读不回来，其余照常",
+                    bytes.len()
+                )));
             }
+            Ok(bytes)
         }
+        // 只有「确实没有这一条」才生成新的
+        Err(keyring::Error::NoEntry) => {
+            let key: [u8; 32] = {
+                use rand::RngExt;
+                rand::rng().random()
+            };
+            e.set_password(&base64_encode(&key))
+                .map_err(|err| Error::msg(format!("生成本机密钥失败：{err}")))?;
+            Ok(key.to_vec())
+        }
+        Err(err) => Err(Error::msg(format!("读凭据管理器里的本机密钥失败了：{err}"))),
     }
-    let key: [u8; 32] = {
-        use rand::RngExt;
-        rand::rng().random()
-    };
-    e.set_password(&base64_encode(&key))
-        .map_err(|err| Error::msg(format!("生成本机密钥失败：{err}")))?;
-    Ok(key.to_vec())
 }
 
 fn base64_encode(bytes: &[u8]) -> String {
