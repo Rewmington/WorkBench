@@ -20,6 +20,11 @@ const busy = ref<{ run: boolean; remote: boolean; test: boolean; restore: boolea
 })
 const result = ref<BackupOutcome | null>(null)
 const error = ref<string | null>(null)
+/**
+ * 还原专用的那一行。故意不复用 `error`：`error` 渲染在凭据那一块，而还原按钮在
+ * 远端快照的列表里 —— 隔着一整页，失败原因看不见就会让人再点一次「确认还原」。
+ */
+const restoreError = ref<string | null>(null)
 /** 「测试连接」的回话不是备份结果，别混进 result 里假装成 Outcome */
 const notice = ref<string | null>(null)
 
@@ -42,6 +47,9 @@ export function useBackup() {
   }
 
   async function runNow() {
+    // 命令面板那条路（Ctrl+K → 立即备份）不经过按钮，按钮上的 :disabled 拦不到它：
+    // 连按两下就会排起两份同时加密上传同一天的快照，白烧一倍配额。
+    if (busy.value.run) return
     busy.value = { ...busy.value, run: true }
     error.value = null
     notice.value = null
@@ -57,6 +65,7 @@ export function useBackup() {
   }
 
   async function testConnection() {
+    if (busy.value.test) return
     busy.value = { ...busy.value, test: true }
     error.value = null
     notice.value = null
@@ -102,12 +111,18 @@ export function useBackup() {
 
   async function restore(name: string) {
     busy.value = { ...busy.value, restore: true }
-    error.value = null
+    restoreError.value = null
     try {
-      result.value = await api.backupRestore(name)
-      return result.value.ok
+      const outcome = await api.backupRestore(name)
+      if (outcome.ok) return true
+      // 还原失败有两种形状：抛出来的，和折进 Outcome 的（Rust 侧把远端取不回、
+      // 完整性检查不过都折成 ok=false）。之前后者只会写进 `result`，于是渲染在
+      // 「动作」那块 —— 那块讲的是备份，用户点的却是快照列表里那一行。
+      // 这里也不再写 `result`：让「这次没成」继续只表示备份的结果。
+      restoreError.value = outcome.error ?? '还原没成，当前这个库没被动过'
+      return false
     } catch (e) {
-      error.value = errText(e)
+      restoreError.value = errText(e)
       return false
     } finally {
       busy.value = { ...busy.value, restore: false }
@@ -131,6 +146,7 @@ export function useBackup() {
     busy,
     result,
     error,
+    restoreError,
     notice,
     load,
     refreshRemote,

@@ -73,9 +73,12 @@ async function runHit(hit: PaletteHit) {
   }
 }
 
-async function runRow(row: Row, keepOpen: boolean) {
-  await row.run()
+function runRow(row: Row, keepOpen: boolean) {
+  // 先关面板再跑：以前是 `await row.run()` 再 close，于是「立即备份」按下去后
+  // 这层模态要一直压到整份加密上传结束（几十秒），底下的备份页什么都看不见。
+  // 动作自己的结果与流水都渲染在各页面上，面板的任务只是把这一脚踢出去。
   if (!keepOpen) close()
+  void row.run()
 }
 
 function close() {
@@ -85,6 +88,39 @@ function close() {
   cursor.value = 0
 }
 
+/**
+ * 面板声明了 `role="dialog" aria-modal="true"`，那两句承诺的是：
+ * 打开时焦点进得来、Tab 出不去、关掉时焦点回到原来那把椅子上。
+ * 从前 Esc 只绑在 `<input>` 上 —— 焦点一旦 Tab 到列表按钮或跑到遮罩后面，
+ * Esc 就不再生效，而遮罩下的控件照样 Tab 得到，等于承诺没兑现。
+ */
+const pal = ref<HTMLElement | null>(null)
+let restoreFocusTo: HTMLElement | null = null
+
+/** 面板里能接住 Tab 的元素。不用 `offsetParent` 过滤可见性：jsdom 里它恒为 null。 */
+function focusables(): HTMLElement[] {
+  const root = pal.value
+  if (!root) return []
+  return Array.from(
+    root.querySelectorAll<HTMLElement>('input, button, [tabindex]:not([tabindex="-1"])'),
+  ).filter((el) => !el.hasAttribute('disabled') && !el.closest('[hidden]'))
+}
+
+function trapTab(event: KeyboardEvent) {
+  const items = focusables()
+  if (items.length === 0) return
+  event.preventDefault()
+  const here = items.indexOf(document.activeElement as HTMLElement)
+  const next = event.shiftKey
+    ? here <= 0
+      ? items.length - 1
+      : here - 1
+    : here === items.length - 1
+      ? 0
+      : here + 1
+  items[next]?.focus()
+}
+
 function move(delta: number) {
   const total = rows.value.length
   if (!total) return
@@ -92,10 +128,16 @@ function move(delta: number) {
 }
 
 watch(open, async (v) => {
-  if (!v) return
+  if (!v) {
+    restoreFocusTo?.focus?.()
+    restoreFocusTo = null
+    return
+  }
   query.value = ''
   hits.value = []
   cursor.value = 0
+  restoreFocusTo =
+    document.activeElement instanceof HTMLElement ? document.activeElement : null
   await nextTick()
   input.value?.focus()
 })
@@ -119,6 +161,9 @@ watch(query, (q) => {
 
 function onKeydown(event: KeyboardEvent) {
   switch (event.key) {
+    case 'Tab':
+      trapTab(event)
+      break
     case 'ArrowDown':
       event.preventDefault()
       move(1)
@@ -136,6 +181,11 @@ function onKeydown(event: KeyboardEvent) {
       cursor.value = Math.max(0, rows.value.length - 1)
       break
     case 'Enter': {
+      // 焦点已经落在某一行按钮上时让浏览器自己按它：handler 绑在容器上，
+      // 在这里 preventDefault 会把"按下焦点那一行"换成"按下光标那一行"
+      const onButton =
+        event.target instanceof HTMLElement && event.target.closest('button') !== null
+      if (onButton) break
       event.preventDefault()
       const row = rows.value[cursor.value]
       if (row) void runRow(row, event.shiftKey)
@@ -152,7 +202,14 @@ function onKeydown(event: KeyboardEvent) {
 <template>
   <Teleport to="body">
     <div v-if="open" class="scrim" @mousedown.self="close">
-      <div class="pal" role="dialog" aria-modal="true" aria-label="命令面板">
+      <div
+        ref="pal"
+        class="pal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="命令面板"
+        @keydown="onKeydown"
+      >
         <div class="field">
           <Search :size="15" />
           <input
@@ -164,7 +221,6 @@ function onKeydown(event: KeyboardEvent) {
             aria-expanded="true"
             aria-controls="pal-list"
             :aria-activedescendant="rows[cursor] ? `pal-${cursor}` : undefined"
-            @keydown="onKeydown"
           />
           <kbd>Esc</kbd>
         </div>
