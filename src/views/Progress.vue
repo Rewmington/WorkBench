@@ -129,26 +129,46 @@ function onType(slot: number, el: Event) {
   w.edit(slot, value)
 }
 
+/**
+ * 清掉一个便签槽位（`sticky_clear` 以前没有入口：能写能改，唯独删不掉一行，
+ * 只能把字手动删光 —— 那只是存了个空串）。两步内联确认，与速达磁贴/分区同一个 5 秒。
+ */
+const armedClear = ref<number | null>(null)
+let clearTimer: number | undefined
+
+async function askClearSlot(slot: number) {
+  if (armedClear.value !== slot) {
+    armedClear.value = slot
+    window.clearTimeout(clearTimer)
+    clearTimer = window.setTimeout(() => (armedClear.value = null), 5000)
+    return
+  }
+  armedClear.value = null
+  window.clearTimeout(clearTimer)
+  drafts.value = { ...drafts.value, [slot]: '' }
+  await w.clearSlot(slot)
+}
+
 const slots = [1, 2]
 
-let flushBlur: (() => void) | null = null
-let flushVis: (() => void) | null = null
+// 同 Notes.vue：引用要在挂载之前就定死，否则「载入没回来就切走」拆不掉监听（见该文件注释）
+const flushBlur = () => void w.flushAll()
+const flushVis = () => {
+  if (document.visibilityState === 'hidden') void w.flushAll()
+}
 
 onMounted(async () => {
-  await Promise.all([w.loadAll(), api.resourcesList().then((r) => (resources.value = r)), loadOrder()])
-
-  // 防抖窗口里的字不能因为切视图/失焦/收进托盘而丢
-  flushBlur = () => void w.flushAll()
-  flushVis = () => {
-    if (document.visibilityState === 'hidden') void w.flushAll()
-  }
   window.addEventListener('blur', flushBlur)
   document.addEventListener('visibilitychange', flushVis)
+
+  // 防抖窗口里的字不能因为切视图/失焦/收进托盘而丢
+  await Promise.all([w.loadAll(), api.resourcesList().then((r) => (resources.value = r)), loadOrder()])
 })
 
 onBeforeUnmount(() => {
-  if (flushBlur) window.removeEventListener('blur', flushBlur)
-  if (flushVis) document.removeEventListener('visibilitychange', flushVis)
+  window.removeEventListener('blur', flushBlur)
+  document.removeEventListener('visibilitychange', flushVis)
+  window.clearTimeout(clearTimer)
   void w.flushAll()
 })
 </script>
@@ -215,16 +235,27 @@ onBeforeUnmount(() => {
         @hide="hide('stickies')"
       >
         <div class="notes">
-          <label v-for="s in slots" :key="s" class="note">
-            <span class="nh">槽位 {{ s }}</span>
-            <textarea
-              class="ta"
-              rows="4"
-              :value="drafts[s] ?? ''"
-              :placeholder="`便签 ${s} · 打字后 0.6 秒自动存`"
-              @input="onType(s, $event)"
-            />
-          </label>
+          <div v-for="s in slots" :key="s" class="note">
+            <label class="nlab">
+              <span class="nh">槽位 {{ s }}</span>
+              <textarea
+                class="ta"
+                rows="4"
+                :value="drafts[s] ?? ''"
+                :placeholder="`便签 ${s} · 打字后 0.6 秒自动存`"
+                @input="onType(s, $event)"
+              />
+            </label>
+            <!-- 「清空」与「把字删光」不是一回事：后者只是存了个空串，这一条走 sticky_clear -->
+            <button
+              type="button"
+              class="ycl"
+              :class="{ armed: armedClear === s }"
+              @click="askClearSlot(s)"
+            >
+              {{ armedClear === s ? '确认清空' : '清空' }}
+            </button>
+          </div>
         </div>
       </WidgetCard>
 
@@ -376,6 +407,30 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+.nlab {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ycl {
+  align-self: flex-end;
+  font-size: 10.5px;
+  color: var(--t3);
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: none;
+}
+.ycl:hover {
+  color: var(--t1);
+  border-color: var(--line);
+  background: var(--card-2);
+}
+.ycl.armed {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 40%, transparent);
+  background: color-mix(in srgb, var(--red) 14%, transparent);
 }
 .nh {
   font-size: 10px;

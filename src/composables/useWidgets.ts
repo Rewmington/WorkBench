@@ -60,12 +60,6 @@ export function useWidgets() {
     )
   }
 
-  /** 立刻落盘并返回该槽位当前的文本（编辑器要拿它当受控值的基线）。 */
-  async function saveNow(slot: number, value: string) {
-    edit(slot, value)
-    await flushSlot(slot)
-  }
-
   async function clearSlot(slot: number) {
     pending.delete(slot)
     await api.stickyClear(slot)
@@ -100,7 +94,8 @@ export function useWidgets() {
     countdowns.value = countdowns.value.filter((c) => c.id !== id)
   }
 
-  /** 系统资源每 1 秒跟一次：CPU 是两次采样作差，采样间隔就是它的时间分辨率。 */
+  /** 采一次系统读数：CPU 是两次采样作差，所以采样间隔就是它的时间分辨率。
+   *  节奏由侧栏定（`SideNav.vue` 的 `SAMPLE = 5_000`，窗口不在时不采），不在这里。 */
   async function pollLoad() {
     load.value = await api.sysLoad()
   }
@@ -111,7 +106,6 @@ export function useWidgets() {
     load,
     loadAll,
     edit,
-    saveNow,
     clearSlot,
     flushAll,
     addCountdown,

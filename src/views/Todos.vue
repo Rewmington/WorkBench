@@ -46,18 +46,28 @@ const { start: dragStart, draggingId, overId } = useDragSort(
   },
 )
 
+/** 切分区是「连着按」最常见的动作：没有序号，先发的慢响应会后到并盖掉新列表。
+ *  参照 `components/palette/CommandPalette.vue` 里的同一写法，不另立一套。 */
+let seq = 0
+
 async function reload() {
+  const mine = ++seq
   loading.value = true
   try {
-    rows.value = await api.todosList(zone.value)
+    const got = await api.todosList(zone.value)
+    if (mine !== seq) return
+    rows.value = got
     // 徽章走共享读模型，避免「列表 3 条、徽章 5 条」
     await todosModel.refresh()
     await loadGap()
+    if (mine !== seq) return
     error.value = null
   } catch (e) {
+    if (mine !== seq) return
     error.value = errText(e)
   } finally {
-    loading.value = false
+    // 只有最新那一轮才有权收掉 loading，否则旧响应会把新请求的转圈提前停下
+    if (mine === seq) loading.value = false
   }
 }
 
@@ -275,8 +285,6 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  min-height: 0;
-  flex: 1;
 }
 .bar {
   display: flex;

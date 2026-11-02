@@ -14,6 +14,8 @@ const trashed = ref<Note[]>([])
 const folders = ref<NoteFolder[]>([])
 const selectedId = ref<string | null>(null)
 const scope = ref<{ kind: 'all' } | { kind: 'folder'; id: string } | { kind: 'trash' }>({ kind: 'all' })
+/** 上一轮 flush 有没有没保存上的：界面那一行提示的唯一来源（不弹窗，见 §5.5 同一口径）。 */
+const saveError = ref<string | null>(null)
 
 const DEBOUNCE = 600
 let timer: number | undefined
@@ -75,17 +77,24 @@ export function useNotes() {
       window.clearTimeout(timer)
       timer = undefined
     }
-    const pending = [...dirty.entries()]
-    dirty.clear()
-    for (const [id, patch] of pending) {
+    let failed = 0
+    for (const [id, patch] of [...dirty.entries()]) {
       try {
         const saved = await api.notesUpdate(id, patch)
+        // 只撤"发出去的那一份"：防抖窗口里用户可能又敲了几个字，`scheduleSave` 会换一个
+        // 新对象进来，此时无条件 delete 会把那几个字连同待保存状态一起抹掉 —— 比原来
+        // 那个"失败即丢"更隐蔽。身份比较是这里唯一的正确性依赖。
+        if (dirty.get(id) === patch) dirty.delete(id)
         const at = notes.value.findIndex((n) => n.id === id)
         if (at >= 0) notes.value[at] = saved
       } catch (e) {
+        // 不删 dirty：内容留在内存里，切笔记/失焦/关页都会再试一次。
+        // 不自动定时重试：真故障时每 600ms 打一发 IPC 只会把问题藏起来。
+        failed += 1
         console.error('笔记保存失败', e)
       }
     }
+    saveError.value = failed > 0 ? `${failed} 条改动没保存上，内容还留着（切笔记或关掉这页会重试）` : null
   }
 
   async function open(id: string) {
@@ -160,6 +169,12 @@ export function useNotes() {
     await load()
   }
 
+  /** 换父级。选中的还是这个文件夹本身，所以 `scope` 不用动 —— 变的只是它在树里的位置。 */
+  async function moveFolder(id: string, parentId: string | null) {
+    await api.folderMove(id, parentId)
+    await load()
+  }
+
   function go(next: typeof scope.value) {
     scope.value = next
     void (async () => {
@@ -178,6 +193,7 @@ export function useNotes() {
     folders,
     selectedId,
     scope,
+    saveError,
     mode,
     go,
     load,
@@ -192,6 +208,7 @@ export function useNotes() {
     addFolder,
     removeFolder,
     renameFolder,
+    moveFolder,
     scheduleSave,
     selected,
     bodyOf,

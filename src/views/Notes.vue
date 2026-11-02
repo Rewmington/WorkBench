@@ -3,10 +3,12 @@ import { BookOpen, FilePlus2, Pin, RotateCcw, Scissors, Trash2 } from 'lucide-vu
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { api } from '../api'
+import type { NoteFolder } from '../api/types'
 import CollapsedRow from '../components/ui/CollapsedRow.vue'
 import Segmented from '../components/ui/Segmented.vue'
 import { useClock } from '../composables/useClock'
 import { EDITOR_MODES, useNotes, type EditorMode } from '../composables/useNotes'
+import { errText } from '../lib/err'
 import { linkHref, renderMarkdown } from '../lib/markdown'
 import { relTime } from '../lib/reltime'
 
@@ -22,6 +24,8 @@ const { now } = useClock()
 const newFolder = ref('')
 const confirmPurge = ref<string | null>(null)
 const tagDraft = ref('')
+/** 点了个交不出去预览的链接：说一句就完，别让它静默 —— 这条命令曾经整条是哑的。 */
+const linkError = ref<string | null>(null)
 
 const MODE_LABEL: Record<EditorMode, string> = { split: '双栏', source: '源码', preview: '预览' }
 const modeOptions = EDITOR_MODES.map((value) => ({ value, label: MODE_LABEL[value] }))
@@ -37,11 +41,39 @@ const rendered = computed(() => {
   return renderMarkdown(notes.bodyOf(note.id))
 })
 
-const tree = computed(() => {
-  const roots = notes.folders.value.filter((f) => f.parentId === null)
-  const kids = (id: string) => notes.folders.value.filter((f) => f.parentId === id)
-  return { roots, kids }
+/**
+ * 文件夹树摊平成 `{ f, depth }`。以前模板只写死「根 + 直接子级」两层，
+ * 而这次要补的「移到…」一旦把 A 挪进 B（B 本身是子级），A 就成了第三层 ——
+ * 老模板会直接把它渲染不出来，看起来就像数据没了。
+ * `depth < 8` 是兜底：造环后端已经拦（`note_folders::move_to`），但库里万一已经有一条环，
+ * 不能让笔记页把自己转死。
+ */
+const treeRows = computed(() => {
+  const all = notes.folders.value
+  const out: { f: NoteFolder; depth: number }[] = []
+  const walk = (parent: string | null, depth: number) => {
+    for (const f of all.filter((x) => x.parentId === parent)) {
+      out.push({ f, depth })
+      if (depth < 8) walk(f.id, depth + 1)
+    }
+  }
+  walk(null, 0)
+  return out
 })
+
+/** 能被选中的父级：排除它自己与它的整棵子树，否则一点就把树拧成环（后端也会拒）。 */
+function legalTargets(id: string): NoteFolder[] {
+  const banned = new Set<string>([id])
+  const grow = (parent: string) => {
+    for (const f of notes.folders.value.filter((x) => x.parentId === parent)) {
+      if (banned.has(f.id)) continue
+      banned.add(f.id)
+      grow(f.id)
+    }
+  }
+  grow(id)
+  return notes.folders.value.filter((f) => !banned.has(f.id))
+}
 
 function snippet(body: string): string {
   return body.replace(/[#>*`\-[\]()]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 46)
@@ -49,8 +81,15 @@ function snippet(body: string): string {
 
 function onPreviewClick(event: MouseEvent) {
   const href = linkHref(event.target)
-  // 链接一律交给系统浏览器：原生软件不在自己窗口里开网页（§8.6）
-  if (href) void api.openUrl(href)
+  if (!href) return
+  // 链接一律交给系统浏览器：原生软件不在自己窗口里开网页（§8.6）。
+  // 这一句 `preventDefault` 是这条规则的兑现点：预览里的 `<a>` 带着真 href，不拦下来
+  // WebView2 会自己导航过去，整个应用窗口就被带走 —— 真窗口里点一下才发现，jsdom 看不见导航。
+  event.preventDefault()
+  linkError.value = null
+  api.openUrl(href).catch((e) => {
+    linkError.value = errText(e)
+  })
 }
 
 async function commitTitle(value: string) {
@@ -80,6 +119,74 @@ async function addFolder() {
 }
 
 /**
+ * 文件夹的改名 / 移到 / 删除（2026-11-02 扫出来的整片盲区：`folder_rename`、`folder_delete`、
+ * `folder_move` 三条命令与 composable 都写好了，模板里一个按钮都没有 —— 于是文件夹只能建，
+ * 建歪了没法改也没法删。与速达分区「能建不能删」同一类账。）
+ *
+ * 一次只开一行；删除这一步要确认：删的是组织结构，笔记本身后端会退回上一层，不会被删掉。
+ */
+const folderMenu = ref<string | null>(null)
+const renamingId = ref<string | null>(null)
+const renameDraft = ref('')
+const movingId = ref<string | null>(null)
+const confirmDel = ref<string | null>(null)
+const folderNotice = ref<string | null>(null)
+
+function toggleFolderMenu(id: string) {
+  folderNotice.value = null
+  renamingId.value = null
+  movingId.value = null
+  confirmDel.value = null
+  folderMenu.value = folderMenu.value === id ? null : id
+}
+
+function startRename(f: NoteFolder) {
+  renamingId.value = f.id
+  renameDraft.value = f.name
+}
+
+async function commitRename(id: string) {
+  const name = renameDraft.value.trim()
+  renamingId.value = null
+  // 空名字后端会拒；名字没变就别写 —— 白涨一条 rev 会被同步当成一次真实改动带给手机
+  const current = notes.folders.value.find((f) => f.id === id)?.name
+  if (!name || name === current) return
+  try {
+    await notes.renameFolder(id, name)
+  } catch (e) {
+    folderNotice.value = errText(e)
+  }
+}
+
+async function moveFolder(id: string, parentId: string | null) {
+  movingId.value = null
+  try {
+    await notes.moveFolder(id, parentId)
+    folderNotice.value = parentId ? '已挪进所选文件夹' : '已挪到顶层'
+  } catch (e) {
+    folderNotice.value = errText(e)
+  }
+}
+
+/** 两步：第一下把这一行变成「确认删除」，第二下才真删（与分区删除、速达删除同一口径）。 */
+async function askDeleteFolder(id: string) {
+  if (confirmDel.value !== id) {
+    confirmDel.value = id
+    return
+  }
+  confirmDel.value = null
+  folderMenu.value = null
+  try {
+    const moved = await notes.removeFolder(id)
+    folderNotice.value = moved
+      ? `已删除 · ${moved} 篇笔记退回上一层，子目录也提上来了`
+      : '已删除 · 里面没有笔记，子目录提到了上一层'
+  } catch (e) {
+    folderNotice.value = errText(e)
+  }
+}
+
+/**
  * 彻底删除用两步内联确认，不用原生 alert —— 与备份页「还原远端快照」同一套做法。
  * 理由：`confirm()` 在 WebView2 里是系统模态框，样式不受设计令牌控制（§8.5 的债），
  * 而且它会打断「这一步之后只能靠快照找回」这句话该有的分量。
@@ -96,22 +203,23 @@ async function purge(id: string) {
   await notes.purge(id)
 }
 
-let blurFlush: (() => void) | null = null
-let visFlush: (() => void) | null = null
+// 处理器必须是**建组件时就有了的同一引用**：以前它们在 `await notes.load()` 之后才赋值，
+// 于是「载入没回来就切走」时卸载钩子拆的是空函数，随后 onMounted 的续体照样把监听挂上 ——
+// 每次快切漏一对，而且失焦时会去 flush 一个已经卸载的模型。
+const blurFlush = () => void notes.flush()
+const visFlush = () => {
+  if (document.visibilityState === 'hidden') void notes.flush()
+}
 
 onMounted(async () => {
-  await notes.load()
-  blurFlush = () => void notes.flush()
-  visFlush = () => {
-    if (document.visibilityState === 'hidden') void notes.flush()
-  }
   window.addEventListener('blur', blurFlush)
   document.addEventListener('visibilitychange', visFlush)
+  await notes.load()
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('blur', blurFlush ?? (() => {}))
-  document.removeEventListener('visibilitychange', visFlush ?? (() => {}))
+  window.removeEventListener('blur', blurFlush)
+  document.removeEventListener('visibilitychange', visFlush)
   void notes.flush()
 })
 </script>
@@ -124,28 +232,70 @@ onBeforeUnmount(() => {
         <BookOpen :size="13" /> 全部
         <span class="c">{{ notes.notes.value.length }}</span>
       </button>
-      <template v-for="f in tree.roots" :key="f.id">
-        <button
-          type="button"
-          class="ti"
-          :class="{ on: notes.scope.value.kind === 'folder' && notes.scope.value.id === f.id }"
-          @click="notes.go({ kind: 'folder', id: f.id })"
-        >
-          {{ f.name }}
-          <span class="c">{{ f.noteCount }}</span>
-        </button>
-        <button
-          v-for="k in tree.kids(f.id)"
-          :key="k.id"
-          type="button"
-          class="ti kid"
-          :class="{ on: notes.scope.value.kind === 'folder' && notes.scope.value.id === k.id }"
-          @click="notes.go({ kind: 'folder', id: k.id })"
-        >
-          {{ k.name }}
-          <span class="c">{{ k.noteCount }}</span>
-        </button>
+      <template v-for="row in treeRows" :key="row.f.id">
+        <div class="trow" :class="{ open: folderMenu === row.f.id }">
+          <button
+            type="button"
+            class="ti"
+            :class="{
+              kid: row.depth === 1,
+              kid2: row.depth >= 2,
+              on: notes.scope.value.kind === 'folder' && notes.scope.value.id === row.f.id,
+            }"
+            @click="notes.go({ kind: 'folder', id: row.f.id })"
+          >
+            {{ row.f.name }}
+            <span class="c">{{ row.f.noteCount }}</span>
+          </button>
+          <!-- 那颗 … 不能嵌在 .ti 里：按钮里不许再放交互元素（速达分区踩过同一条） -->
+          <button
+            type="button"
+            class="mg"
+            :class="{ lit: folderMenu === row.f.id }"
+            :aria-label="`管理文件夹 ${row.f.name}`"
+            :aria-expanded="folderMenu === row.f.id"
+            @click="toggleFolderMenu(row.f.id)"
+          >
+            …
+          </button>
+        </div>
+        <div v-if="folderMenu === row.f.id" class="fmenu" @keydown.esc.prevent="folderMenu = null">
+          <input
+            v-if="renamingId === row.f.id"
+            v-model="renameDraft"
+            class="txt rin"
+            placeholder="新名字，回车保存"
+            @keydown.enter.prevent="commitRename(row.f.id)"
+            @keydown.esc.prevent="renamingId = null"
+            @blur="renamingId === row.f.id ? commitRename(row.f.id) : null"
+          />
+          <template v-else-if="movingId === row.f.id">
+            <span class="ml">挪到哪儿</span>
+            <button type="button" class="y-chip tgt" @click="moveFolder(row.f.id, null)">顶层</button>
+            <button
+              v-for="t in legalTargets(row.f.id)"
+              :key="t.id"
+              type="button"
+              class="y-chip tgt"
+              @click="moveFolder(row.f.id, t.id)"
+            >
+              {{ t.name }}
+            </button>
+            <button type="button" class="y-chip cancel" @click="movingId = null">取消</button>
+          </template>
+          <template v-else-if="confirmDel === row.f.id">
+            <span class="ml">删除这个文件夹？里面的笔记退回上一层</span>
+            <button type="button" class="y-chip r" @click="askDeleteFolder(row.f.id)">确认删除</button>
+            <button type="button" class="y-chip cancel" @click="confirmDel = null">取消</button>
+          </template>
+          <template v-else>
+            <button type="button" class="fa" @click="startRename(row.f)">改名</button>
+            <button type="button" class="fa" @click="movingId = row.f.id">移到…</button>
+            <button type="button" class="fa del" @click="confirmDel = row.f.id">删除</button>
+          </template>
+        </div>
       </template>
+      <p v-if="folderNotice" class="fnote">{{ folderNotice }}</p>
       <button type="button" class="ti" :class="{ on: isTrash }" @click="notes.go({ kind: 'trash' })">
         <Trash2 :size="12" /> 回收站
         <span class="c">{{ notes.trashed.value.length }}</span>
@@ -210,6 +360,10 @@ onBeforeUnmount(() => {
         有 {{ rendered.blocked }} 个链接因协议不安全被禁用（只放行 http / https / mailto）。
       </p>
 
+      <p v-if="notes.saveError.value" class="warn">{{ notes.saveError.value }}</p>
+
+      <p v-if="linkError" class="warn">{{ linkError }}</p>
+
       <div v-if="isTrash" class="trashbar">
         <span>这条在回收站里，还原后正文与标签一字不差。</span>
         <button type="button" class="y-ghost tiny" @click="notes.restore(current.id)">
@@ -247,8 +401,6 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: 156px 208px minmax(0, 1fr);
   gap: 10px;
-  min-height: 0;
-  flex: 1;
 }
 .tree {
   border: 1px solid var(--line);
@@ -282,6 +434,91 @@ onBeforeUnmount(() => {
 .ti.kid {
   padding-left: 22px;
   font-size: 11.5px;
+}
+/* 第三层及更深：再缩一级。缩进只画到这儿，更深的树靠父级关系找，不靠缩进猜 */
+.ti.kid2 {
+  padding-left: 34px;
+  font-size: 11.5px;
+}
+.trow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.trow .ti {
+  flex: 1;
+  min-width: 0;
+}
+.mg {
+  flex: none;
+  width: 18px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--t3);
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0;
+}
+.trow:hover .mg,
+.mg.lit,
+.mg:focus-visible {
+  opacity: 1;
+}
+.mg:hover {
+  background: var(--card-2);
+  color: var(--t1);
+}
+.mg.lit {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.fmenu {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 3px 2px 6px 8px;
+}
+.fmenu .ml {
+  font-size: 10.5px;
+  color: var(--t3);
+  flex: 1 1 100%;
+}
+.fa {
+  font-size: 11px;
+  color: var(--t2);
+  padding: 3px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--card-2);
+}
+.fa:hover {
+  color: var(--t1);
+  border-color: var(--line-2);
+}
+.fa.del:hover {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 40%, transparent);
+}
+.fmenu .tgt {
+  cursor: pointer;
+}
+.fmenu .tgt:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.fmenu .cancel {
+  cursor: pointer;
+  opacity: 0.75;
+}
+.rin {
+  flex: 1 1 100%;
+  height: 24px;
+}
+.fnote {
+  font-size: 10.5px;
+  color: var(--t3);
+  padding: 4px 6px 0;
 }
 .ti:hover {
   background: var(--card-2);

@@ -6,6 +6,7 @@ import { api, usingMock } from '../api'
 import type { Resource, Zone } from '../api/types'
 import Tile from '../components/launch/Tile.vue'
 import { useShell } from '../composables/useShell'
+import { errText } from '../lib/err'
 
 const shell = useShell()
 
@@ -20,7 +21,15 @@ let unlistenDrop: (() => void) | null = null
 
 async function reload() {
   resources.value = await api.resourcesList()
-  zones.value = await api.zonesList()
+  // 分区清单读不出来时说出来：静默变成「只有全部/未分区两颗」看起来就像分区被人删光了
+  // （真窗口里撞过一条：库里 sort 列类型不对，zones_list 直接报错）。
+  try {
+    zones.value = await api.zonesList()
+    error.value = null
+  } catch (e) {
+    zones.value = []
+    error.value = errText(e)
+  }
   shell.setCount('launcher', resources.value.length)
 }
 
@@ -43,7 +52,10 @@ onMounted(async () => {
   }
 })
 
-onBeforeUnmount(() => unlistenDrop?.())
+onBeforeUnmount(() => {
+  unlistenDrop?.()
+  window.clearTimeout(zoneTimer)
+})
 
 async function addPaths(paths: string[]) {
   const zoneId = activeZone.value === 'all' || activeZone.value === 'none' ? null : activeZone.value
@@ -121,26 +133,68 @@ const filtered = computed(() => {
 })
 
 const zoneChips = computed(() => [
-  { id: 'all', name: '全部', count: resources.value.length },
-  ...zones.value.map((z) => ({ id: z.id, name: z.name, count: z.itemCount })),
-  { id: 'none', name: '未分区', count: resources.value.filter((r) => !r.zoneId).length },
+  { id: 'all', name: '全部', count: resources.value.length, deletable: false },
+  ...zones.value.map((z) => ({ id: z.id, name: z.name, count: z.itemCount, deletable: true })),
+  { id: 'none', name: '未分区', count: resources.value.filter((r) => !r.zoneId).length, deletable: false },
 ])
+
+/**
+ * 分区能建不能删（2026-11-02 用户报的）：`zone_delete` 命令与 `api.zoneDelete` 一直都在，
+ * 只是界面上没有入口 —— 有命令没入口和有能力没命令是同一类账。
+ *
+ * 删分区**不动里面的速达**：后端把它们的 `zone_id` 置空，它们退回「未分区」那一格。
+ * 所以这一步不是不可逆的数据丢失，但也不该一按就没了：沿用速达磁贴那条两步内联确认（同一个 5 秒）。
+ */
+const armedZone = ref<string | null>(null)
+let zoneTimer: number | undefined
+
+async function askZoneDelete(id: string) {
+  if (armedZone.value !== id) {
+    armedZone.value = id
+    window.clearTimeout(zoneTimer)
+    zoneTimer = window.setTimeout(() => (armedZone.value = null), 5000)
+    return
+  }
+  armedZone.value = null
+  window.clearTimeout(zoneTimer)
+  await api.zoneDelete(id)
+  // 正在看这个分区时别停在一个已经不存在的筛选上
+  if (activeZone.value === id) activeZone.value = 'all'
+  await reload()
+}
 </script>
 
 <template>
   <section class="y-view">
     <div class="bar">
       <div class="chips scroller">
-        <button
-          v-for="chip in zoneChips"
-          :key="chip.id"
-          type="button"
-          class="chip"
-          :class="{ on: activeZone === chip.id }"
-          @click="activeZone = chip.id"
-        >
-          {{ chip.name }}<span v-if="chip.count" class="c">{{ chip.count }}</span>
-        </button>
+        <span v-for="chip in zoneChips" :key="chip.id" class="chipwrap" :class="{ real: chip.deletable }">
+          <button
+            type="button"
+            class="chip"
+            :class="{ on: activeZone === chip.id }"
+            @click="activeZone = chip.id"
+          >
+            {{ chip.name }}<span v-if="chip.count" class="c">{{ chip.count }}</span>
+          </button>
+          <!-- 那个 × 不能做成 <button>：外面这颗已经是按钮了，按钮里不许再放交互元素。
+               与速达磁贴同一形状：平时不占视线，悬停/待确认时才出现 -->
+          <span
+            v-if="chip.deletable"
+            role="button"
+            tabindex="0"
+            class="kill"
+            :class="{ armed: armedZone === chip.id }"
+            :title="
+              armedZone === chip.id
+                ? '再点一次删除这个分区；里面的速达不会丢，会退回「未分区」'
+                : '删除分区（里面的速达退回未分区）'
+            "
+            @click.stop="askZoneDelete(chip.id)"
+            @keydown.enter.prevent="askZoneDelete(chip.id)"
+            @keydown.esc.prevent="armedZone = null"
+          >{{ armedZone === chip.id ? '?' : '×' }}</span>
+        </span>
         <input
           v-if="zoneDraft !== null"
           v-model="zoneDraft"
@@ -193,8 +247,6 @@ const zoneChips = computed(() => [
   display: flex;
   flex-direction: column;
   gap: 10px;
-  min-height: 0;
-  flex: 1;
 }
 .bar {
   display: flex;
@@ -209,6 +261,13 @@ const zoneChips = computed(() => [
   min-width: 0;
   padding-bottom: 2px;
 }
+/* 分区那颗胶囊 + 挂在它右边的 ×。胶囊本身是 <button>，所以 × 只能是它的**兄弟**
+   （按钮里不许再放交互元素），靠这个 wrapper 把它们粘成一枚看起来一体的控件 */
+.chipwrap {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
 .chip {
   flex: none;
   display: inline-flex;
@@ -221,6 +280,34 @@ const zoneChips = computed(() => [
   color: var(--t2);
   font-size: 11.5px;
   font-weight: 650;
+}
+.kill {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin-left: -6px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--t3);
+  background: var(--card-2);
+  border: 1px solid var(--line-2);
+  cursor: pointer;
+  /* 平时不占视线；悬停或待确认时才出现。armed 必须常驻可见，
+     否则指针一移开就看不见「再点一次」，回来再点等于误删 */
+  opacity: 0;
+}
+.chipwrap.real:hover .kill,
+.kill.armed,
+.kill:focus-visible {
+  opacity: 1;
+}
+.kill.armed {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+  border-color: color-mix(in srgb, var(--red) 40%, transparent);
 }
 .chip.on {
   background: var(--accent-soft);
