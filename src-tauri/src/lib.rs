@@ -5,6 +5,7 @@ pub mod db;
 pub mod error;
 pub mod hotkeys;
 pub mod linking;
+pub mod logger;
 pub mod model;
 pub mod net;
 pub mod notify;

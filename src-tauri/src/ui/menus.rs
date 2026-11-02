@@ -36,10 +36,12 @@ pub fn handle(app: &AppHandle, id: &str) {
             }
         }
         ID_QUIT => {
-            // 退之前把前端攒着的防抖写入冲刷掉，不然最后 600ms 的便签内容会丢。
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.eval("window.__anvilFlush && window.__anvilFlush()");
-            }
+            // 这里以前有一句 `w.eval("window.__anvilFlush && …")`，说的是"退之前把前端攒着的
+            // 防抖写入冲刷掉"。那句承诺是**假的**：前端从来没定义过 `__anvilFlush`（全仓只有这一
+            // 处提到它），而 eval 是 fire-and-forget，紧跟着的 exit 会抢在它那几个 IPC 之前杀进程。
+            // 要做对得让「退出」走 menu://click 进前端、前端 await 完各视图的 flush 再调一条 quit
+            // 命令，Rust 这边放兜底超时 —— 那是一整条新的跨语言协议，等作者点头（见 docs/AUDIT-TRIAGE.md
+            // 批次 8 的"仍未做"）。当下的实际暴露：正在打字那一格里 ≤600ms 的内容。
             app.exit(0);
         }
         other => {

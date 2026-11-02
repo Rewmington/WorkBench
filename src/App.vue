@@ -16,6 +16,7 @@ import { VIEW_TITLES, useShell } from './composables/useShell'
 import { useTodos } from './composables/useTodos'
 import { usePalette } from './composables/usePalette'
 import { toggleMode, useTheme } from './composables/useTheme'
+import { errText } from './lib/err'
 import Backup from './views/Backup.vue'
 import Blog from './views/Blog.vue'
 import Calendar from './views/Calendar.vue'
@@ -44,9 +45,17 @@ let linkedTimer = 0
 
 onMounted(async () => {
   startClock()
-  await theme.load()
-  await todosModel.refresh()
-  await linked.load()
+  // 窗口在配置里是 `visible: false`，等前端就绪再 show（免闪白底）。所以这三条里任何一条抛错
+  // 都必须照样把窗口唤出来：以前 `settingsAll` 一坏就整段 onMounted 中断，表现是"双击图标没反应、
+  // 进程却在托盘里跑"——最难查的那种坏法，而它恰好是 P1-3/P1-14 那一类"读不动"的故障。
+  let bootError: unknown = null
+  try {
+    await theme.load()
+    await todosModel.refresh()
+    await linked.load()
+  } catch (e) {
+    bootError = e
+  }
 
   window.addEventListener('keydown', onGlobalKey)
 
@@ -55,12 +64,18 @@ onMounted(async () => {
     const stopHint = await listen<string>('app://hint', (e) => showHint(e.payload))
     // 通知中心那条提醒点进来：切到待办、选中这一条，而不是只把窗口唤到前台
     const stopReveal = await listen<string>('app://reveal', (e) => revealTodo(e.payload))
+    // 托盘与右键菜单里 Rust 不自己处理的那些项，都以 id 走这条通道过来。
+    // 以前**没人听**：右键「复制选中内容」点了永远没反应，托盘「设置」只唤窗不切页。
+    const stopMenu = await listen<string>('menu://click', (e) => onMenuClick(e.payload))
     unlisten = () => {
       stopHint()
       stopReveal()
+      stopMenu()
     }
     await getCurrentWindow().show()
   }
+
+  if (bootError !== null) showHint(`界面数据没读上，先按空数据开着：${errText(bootError)}`)
 
   // 外部源在后台刷：站点首包 8 秒，把它放进渲染路径就是让界面转圈
   void linked.refreshBlog()
@@ -103,6 +118,31 @@ function onGlobalKey(event: KeyboardEvent) {
 function revealTodo(id: string) {
   shell.go('todos')
   shell.select({ kind: 'todo', id })
+}
+
+/**
+ * 托盘菜单与右键菜单里，Rust 那边不自己处理的项都以 id 走 `menu://click` 过来
+ * （`src-tauri/src/ui/menus.rs` 的 `other` 分支）。
+ *
+ * 这条通道以前没有监听方，所以两个功能一次都没生效过：右键「复制选中内容」点了没反应，
+ * 托盘「设置」只把窗口唤到前台、不切页。它和 N1（`open_url` 参数名对不上）是同一类 ——
+ * 跨语言的字符串协议，三层检查谁都不看，只有真点一次才暴露。现在 `npm run contract` 也比对事件名。
+ */
+function onMenuClick(id: string) {
+  if (id === 'settings') {
+    shell.go('settings')
+    return
+  }
+  if (id !== 'copy-selection') return
+  const text = window.getSelection()?.toString() ?? ''
+  if (!text) {
+    showHint('没有选中内容')
+    return
+  }
+  // 不用 navigator.clipboard：应用地址是 `http://tauri.localhost`，不是可信来源，
+  // 那道 API 在部分 WebView2 版本上是 undefined。execCommand 复制当前选区，不要权限。
+  document.execCommand('copy')
+  showHint(`已复制这 ${text.length} 个字`)
 }
 
 let hintTimer = 0
