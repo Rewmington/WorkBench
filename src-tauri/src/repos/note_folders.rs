@@ -178,6 +178,10 @@ pub fn delete(conn: &Connection, now: &dyn Now, device: &str, id: &str) -> Resul
     let folder = require(conn, id)?;
     let moved = notes::orphan_folder_contents(conn, now, device, id)?;
 
+    // 这一条挪动子目录的 UPDATE 不打 rev/touch，是**有意的**：
+    // `note_folders` 不在 `sync::snapshot::PC_TABLES` 里，这张表从来不出门，
+    // 所以少一个时间戳不会让任何设备看到旧结构。**若哪天把它放进 PC_TABLES，
+    // 这一行必须先补上 touch**，否则别人的机器会永远看不见这次挪动。
     conn.execute(
         "UPDATE note_folders SET parent_id = ?2 WHERE parent_id = ?1 AND deleted_at IS NULL",
         params![id, folder.parent_id],

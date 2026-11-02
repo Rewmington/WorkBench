@@ -100,10 +100,19 @@ impl Paths {
 pub struct AppState {
     /// 纪律：碰 DB 的命令一律写同步 `fn`，跨 `.await` 不持锁；repos 只收 `&Connection`。
     pub db: std::sync::Mutex<Connection>,
+    /// 当前真正注册进系统的全局组合键。
+    ///
+    /// 单独立一份而不是在回调里读库：快捷键回调在 Windows 上跑于**主线程**
+    /// （`global-hotkey` 的隐藏窗口建在主线程，WM_HOTKEY 同步派发），而同步那一整段
+    /// 网络 IO 都持着 `db` 那把锁（P1-13 的第 2 步明确没做）。回调去读库等于把整个 UI
+    /// 事件循环冻在锁上 —— 而用户恰恰是在窗口叫不上来的时候才按快捷键。
+    pub hotkey: std::sync::Mutex<String>,
     pub paths: Paths,
     pub device_id: Arc<str>,
-    /// 首次收进托盘时提示一次「关掉了但还在跑」，之后不再打扰。
-    pub tray_hint_shown: std::sync::atomic::AtomicBool,
+    /// 首次「关窗口 = 收进托盘」那句提示的状态机：0 还没收过、1 收了但话还没说出口、
+    /// 2 已经说过（之后不再打扰）。为什么要中间那一档：藏起来的页面里 toast 计时器照跑，
+    /// hide 之后立刻发就等于没人看见，得等窗口再出现时才补发（见 `ui::windows`）。
+    pub tray_hint: std::sync::atomic::AtomicU8,
     /// 备份连续失败次数，决定下一次退避多久。
     pub backup_failures: std::sync::atomic::AtomicU32,
 }

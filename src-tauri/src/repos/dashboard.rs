@@ -8,7 +8,7 @@
 //! 是 §2 原则 5 明确禁止的那类假状态。所以其余三项给 `note`（同一条 SQL 顺手
 //! 能算出的次级事实），不给 `delta`。
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::error::Result;
@@ -78,9 +78,10 @@ fn oldest_overdue(conn: &Connection, now: &dyn Now) -> Result<Option<i64>> {
             "SELECT min(due_at) FROM todos
              WHERE deleted_at IS NULL AND completed = 0 AND due_at IS NOT NULL AND due_at < ?1",
             params![now.day_start(now.today())],
-            |r| r.get(0),
+            |r| r.get::<_, Option<i64>>(0),
         )
-        .unwrap_or(None);
+        .optional()?
+        .flatten();
     let Some(at) = oldest else { return Ok(None) };
     let n = days::days_between(now.day_of(at), now.today());
     Ok((n > 0).then_some(n))
@@ -125,15 +126,17 @@ pub fn done_on(conn: &Connection, day: i32) -> Result<i64> {
 /// 统计页的门槛（时段直方图要 ≥ 30 天、时间轴要 ≥ 60 天才画趋势）全押在这一个数上，
 /// 所以它必须是唯一的口径 —— 两处各算一次会出现"门槛说够、图却是空的"。
 pub fn history_days(conn: &Connection, now: &dyn Now) -> Result<i64> {
-    Ok(conn
+    let first: Option<i64> = conn
         .query_row(
             "SELECT min(created_day) FROM todos WHERE deleted_at IS NULL",
             [],
             |r| r.get::<_, Option<i64>>(0),
         )
-        .unwrap_or(None)
-        .map(|first| days::days_between(first as i32, now.today()) + 1)
-        .unwrap_or(0))
+        .optional()?
+        .flatten();
+    // 这里剩下的那个 `unwrap_or(0)` 是**真空库**的意思（函数文档就是这么定的），
+    // 读故障已经由 `optional()?` 抛出去了，两者不再混在同一格里。
+    Ok(first.map(|d| days::days_between(d as i32, now.today()) + 1).unwrap_or(0))
 }
 
 pub fn summary(conn: &Connection, now: &dyn Now, focus_limit: i64) -> Result<Summary> {

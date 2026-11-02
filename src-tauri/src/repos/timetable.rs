@@ -188,13 +188,24 @@ pub fn parse(text: &str) -> Result<(String, Vec<ClassRow>)> {
         .position(|r| day_count(r) >= 5)
         .ok_or_else(|| Error::msg("没找到 星期一…星期日 的表头行"))?;
     let header = &rows[header_at];
-    // 表头行里非空的列就是各星期，按出现顺序编号 1..7
+    // 编号取自**认出来的那个星期字**，不是「第几个看起来像星期的列」。
+    // 按顺序数会出事：多出一列「周末安排」就把编号推到 8，撞上 `CHECK (day BETWEEN 1 AND 7)`，
+    // 而那已经是 DELETE 之后了。认不出星期字的列一律不当星期用。
+    let mut taken: std::collections::HashSet<i32> = std::collections::HashSet::new();
     let days: Vec<(usize, i32)> = header
         .iter()
         .enumerate()
-        .filter(|(_, c)| c.trim().starts_with("星期") || c.trim().starts_with("周"))
-        .enumerate()
-        .map(|(i, (col, _))| (col, i as i32 + 1))
+        .filter_map(|(col, c)| {
+            let t = c.trim();
+            let rest = t.strip_prefix("星期").or_else(|| t.strip_prefix('周'))?;
+            let name = rest.chars().next()?;
+            DAY_CHARS
+                .iter()
+                .position(|d| *d == name)
+                .map(|i| (col, i as i32 + 1))
+        })
+        // 同一个星期出现两次（有的导出会重一列）：只认第一个，别让一门课被写两遍
+        .filter(|(_, day)| taken.insert(*day))
         .collect();
 
     let mut out = Vec::new();
@@ -232,12 +243,17 @@ pub fn import(conn: &Connection, now: &dyn Now, device: &str, text: &str) -> Res
     let (term, rows) = parse(text)?;
     let ms = now.ms();
 
-    conn.execute("DELETE FROM classes WHERE term = ?1", params![term])?;
+    // 「先删后插」中间任何一步失败都会把这一学期留在空表上，所以这一整段是原子的。
+    // repo 层收 `&Connection`、事务通常由命令层持有（见 tags.rs 的说明）—— 这条例外是因为
+    // 只有这里知道删与插是同一件事，命令层拿着裸 conn 无从判断。
+    let tx = conn.unchecked_transaction()?;
+
+    tx.execute("DELETE FROM classes WHERE term = ?1", params![term])?;
     let mut ids = std::collections::HashSet::new();
     for r in &rows {
         let id = uuid::Uuid::now_v7().simple().to_string();
         ids.insert(r.name.clone());
-        conn.execute(
+        tx.execute(
             "INSERT INTO classes (id, rev, created_at, created_by, updated_at, updated_by,
                                   deleted_at, term, name, teacher, room, day,
                                   start_min, end_min, period, weeks)
@@ -246,7 +262,7 @@ pub fn import(conn: &Connection, now: &dyn Now, device: &str, text: &str) -> Res
         )?;
     }
 
-    let had_week1 = conn
+    let had_week1 = tx
         .query_row(
             "SELECT value_json FROM settings WHERE key = ?1",
             params![KEY_WEEK1],
@@ -255,26 +271,28 @@ pub fn import(conn: &Connection, now: &dyn Now, device: &str, text: &str) -> Res
         .optional()?
         .is_some_and(|v| !v.contains("null"));
     if !had_week1 {
-        conn.execute(
+        tx.execute(
             "INSERT INTO settings (key, value_json, updated_at, updated_by)
              VALUES (?1, 'null', ?2, ?3)
              ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
             params![KEY_WEEK1, ms, device],
         )?;
     }
-    conn.execute(
+    tx.execute(
         "INSERT INTO settings (key, value_json, updated_at, updated_by)
          VALUES (?1, ?4, ?2, ?3)
          ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
         params![KEY_TERM, ms, device, format!("\"{term}\"")],
     )?;
 
-    Ok(Report {
+    let report = Report {
         courses: ids.len(),
         rows: rows.len(),
         term,
         needs_week1: !had_week1,
-    })
+    };
+    tx.commit()?;
+    Ok(report)
 }
 
 /// 今天在第几周。开学日没设 / 还没开学 / 学期已结束 → `None`，
@@ -353,15 +371,21 @@ pub fn iso_to_day(iso: &str) -> Result<i32> {
     if parts.len() != 3 || parts[0].len() != 4 || parts[1].len() != 2 || parts[2].len() != 2 {
         return Err(Error::msg("开学日要用 yyyy-mm-dd 这种写法"));
     }
-    let (y, m, d) = (
-        parts[0].parse::<i32>().map_err(|_| Error::msg("开学日不是合法日期"))?,
-        parts[1].parse::<i32>().map_err(|_| Error::msg("开学日不是合法日期"))?,
-        parts[2].parse::<i32>().map_err(|_| Error::msg("开学日不是合法日期"))?,
+    let (y, mo, day) = (
+        parts[0].parse::<i32>(),
+        parts[1].parse::<u32>(),
+        parts[2].parse::<u32>(),
     );
-    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
-        return Err(Error::msg("开学日的月或日不在范围内"));
+    let (Ok(y), Ok(mo), Ok(day)) = (y, mo, day) else {
+        return Err(Error::msg("开学日不是合法日期"));
+    };
+    // 让日历而不是 `1..=31` 来判断：「格式对但那一天不存在」(2026-02-31、2026-04-31)
+    // 以前会被收下来，之后 `days_between` 认不出它、返回间隔 0 天，
+    // 于是周次恒等于第 1 周 —— 一整个学期都显示成开学第一周。
+    if chrono::NaiveDate::from_ymd_opt(y, mo, day).is_none() {
+        return Err(Error::msg("日历里没有这一天"));
     }
-    Ok(y * 10000 + m * 100 + d)
+    Ok(y * 10000 + mo as i32 * 100 + day as i32)
 }
 
 pub fn state(conn: &Connection, now: &dyn Now) -> Result<StateView> {
@@ -590,6 +614,51 @@ mod tests {
     }
 
     #[test]
+    fn an_extra_non_day_column_does_not_become_an_eighth_weekday() {
+        // 「周末安排」这类列以前会被当成第 8 个星期：编号撞 CHECK(day BETWEEN 1 AND 7)，
+        // 而那时整学期的 DELETE 已经执行完了。现在它只是一列被忽略掉的东西。
+        let with_extra = CSV.replace(
+            ",星期一,星期二,星期三,星期四,星期五,星期六,星期日",
+            ",星期一,星期二,星期三,星期四,星期五,星期六,星期日,周末安排",
+        );
+        let mut conn = Connection::open_in_memory().unwrap();
+        crate::db::migrations::migrate(&mut conn).unwrap();
+        let now = crate::time::FixedNow(1_700_000_000_000);
+
+        let report = import(&conn, &now, "pc", &with_extra).expect("多一列不是星期的列，不该毁掉整次导入");
+        assert_eq!(report.rows, 5);
+        let out_of_range: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM classes WHERE day NOT BETWEEN 1 AND 7",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(out_of_range, 0);
+    }
+
+    #[test]
+    fn a_failed_insert_leaves_the_previous_term_intact() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        crate::db::migrations::migrate(&mut conn).unwrap();
+        let now = crate::time::FixedNow(1_700_000_000_000);
+        import(&conn, &now, "pc", CSV).unwrap();
+        let count = |conn: &Connection| -> i64 {
+            conn.query_row("SELECT count(*) FROM classes", [], |r| r.get(0)).unwrap()
+        };
+        assert_eq!(count(&conn), 5);
+
+        // 「删与插是不是原子」没有别的证法：让 DELETE 之后的第一条 INSERT 必然失败。
+        // 没有事务时这里会变成 0 条课 —— 界面报一句错，一学期的表却空了。
+        conn.execute_batch(
+            "CREATE TRIGGER boom BEFORE INSERT ON classes BEGIN SELECT RAISE(ABORT, 'injected'); END;",
+        )
+        .unwrap();
+        assert!(import(&conn, &now, "pc", CSV).is_err(), "注入的失败该被报出来");
+        assert_eq!(count(&conn), 5, "半个导入不该把一学期的课删空");
+    }
+
+    #[test]
     fn a_week_is_seven_days_counted_from_the_first_monday() {
         // 2026-09-07 是周一
         assert_eq!(week_of(20260907, 20260907, 19), Some(1));
@@ -659,5 +728,11 @@ mod tests {
         for bad in ["2026-9-7", "20260907", "2026-13-01", "开学", ""] {
             assert!(iso_to_day(bad).is_err(), "{bad} 不该被接受");
         }
+        // 格式对、日历里没有：这类值以前能进来，然后把周次卡死在第 1 周
+        for ghost in ["2026-02-31", "2026-04-31", "2026-02-30"] {
+            assert!(iso_to_day(ghost).is_err(), "{ghost} 不存在，不该被接受");
+        }
+        // 闰年那一天是真的存在，别误杀
+        assert_eq!(iso_to_day("2028-02-29").unwrap(), 20280229);
     }
 }

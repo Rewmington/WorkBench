@@ -166,13 +166,12 @@ fn medicine_low(conn: &Connection, _now: &dyn Now) -> Result<Option<Suggestion>>
 
 /// ⑤ 未整理捕获超过 3 条。inbox 堆着不处理是这类系统最常见的死法。
 fn inbox_pileup(conn: &Connection, _now: &dyn Now) -> Result<Option<Suggestion>> {
-    let n: i64 = conn
-        .query_row(
-            "SELECT count(*) FROM todos WHERE deleted_at IS NULL AND completed = 0 AND zone = ?1",
-            params![zones::INBOX],
-            |r| r.get(0),
-        )
-        .unwrap_or(0);
+    // 读故障不该折成「0 条堆积」：那会让这张卡在库里其实堆着十条的时候安静地不出现。
+    let n: i64 = conn.query_row(
+        "SELECT count(*) FROM todos WHERE deleted_at IS NULL AND completed = 0 AND zone = ?1",
+        params![zones::INBOX],
+        |r| r.get(0),
+    )?;
     Ok((n > 3).then(|| Suggestion {
         rule: "inbox-pileup",
         headline: "整理捕获".into(),

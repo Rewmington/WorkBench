@@ -180,15 +180,19 @@ fn medicine_snapshot(state: &AppState, now: &SystemNow) -> Snapshot {
 }
 
 /// `None` = 没配第二条凭据，压根不启用云端（detail 里也不该出现"云端"字样）。
+///
+/// 但**凭据管理器读不出来不是没配**：那种走 `Failed`，卡片上就会是「云端这次没读上：…」
+/// 那句原话，而不是把一次真故障说成「你还没填」（与 webdav 那两处同一个 bug 的第三种形状）。
 fn cloud_read(state: &AppState, dav_dir: &str) -> Option<medicine_copy::CloudRead> {
-    if !crate::win32::creds::medicine_configured() {
-        return None;
+    match crate::win32::creds::medicine_password_present() {
+        Ok(true) => Some(match fetch_cloud(state, dav_dir) {
+            Ok(got) => medicine_copy::CloudRead::Fresh(got.today, got.device, got.published_at),
+            Err(e) => medicine_copy::CloudRead::Failed(e.to_string()),
+        }),
+        // 真的没有那条密码 = 没启用云端，这不是失败
+        Ok(false) => None,
+        Err(e) => Some(medicine_copy::CloudRead::Failed(e.to_string())),
     }
-    let read = match fetch_cloud(state, dav_dir) {
-        Ok(got) => medicine_copy::CloudRead::Fresh(got.today, got.device, got.published_at),
-        Err(e) => medicine_copy::CloudRead::Failed(e.to_string()),
-    };
-    Some(read)
 }
 
 fn fetch_cloud(state: &AppState, dav_dir: &str) -> Result<medicine_cloud::Fetched, Error> {
