@@ -98,6 +98,12 @@ Future<String> loadOrCreateDeviceId(Database db, int now) async {
     throw StateError('settings 里 device.id 那条解不开 JSON，本机身份不能换：'
         '把那一行修好（或整库恢复）再来。软件不替你生成一把新的。');
   }
+  if (existing != null && existing is! String) {
+    // 解得开、但根本不是字符串（如 `123`）：同样是坏行，不能借「读不到 id」顺手换身份。
+    // 空字符串仍视为没设过，保留第一次初始化路径；这里只拦"有值但形状不对"。
+    throw StateError('settings 里 device.id 那条不是字符串，本机身份不能换：'
+        '把那一行修好（或整库恢复）再来。软件不替你生成一把新的。');
+  }
   final rnd = Random.secure();
   final hex = List.generate(16, (_) => rnd.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
   final id = 'phone-$hex';
@@ -234,10 +240,16 @@ class PhoneRepo {
 
   /// 快照 meta 落进本机 settings：学期与开学日决定「今天第几周」，
   /// 它们不是本机偏好，是解释课表的基准（PLAN-MOBILE §3.2 补记）。
+  ///
+  /// 开学日在落库前验一次格式。坏值一旦进库，今天屏只能算不出周次，但那条坏值会一直
+  /// 留在本机；同步每次都会重新把它读出来，所以这里宁可少存一条、也不要存一条解释不了课表的。
   Future<void> saveMeta(Map<String, String> meta, int now) async {
     for (final entry in meta.entries) {
       if (entry.key != keyTerm && entry.key != keyWeek1) continue;
-      await writeSetting(db, entry.key, entry.value, now, deviceId);
+      final value = entry.value.trim();
+      if (value.isEmpty) continue;
+      if (entry.key == keyWeek1 && isoToDayOrNull(value) == null) continue;
+      await writeSetting(db, entry.key, value, now, deviceId);
     }
   }
 

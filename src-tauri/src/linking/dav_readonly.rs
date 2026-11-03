@@ -19,12 +19,21 @@ use crate::error::{Error, Result};
 pub const MEDICINE_DIR: &str = "medicine-sync";
 pub const DEFAULT_BASE: &str = "https://dav.jianguoyun.com/dav/medicine-sync/";
 
+/// 药箱 app 只发坚果云；这里不把它当成安全边界（凭据本来就是账号级的），
+/// 但地址一旦能填任意主机，这条只读路就会把应用密码送到那台机器上。
+/// 白名单只放行真服务；debug 构放本地桩，让 e2e 能跑。
+const MEDICINE_HOST: &str = "dav.jianguoyun.com";
+const LOOPBACKS: [&str; 3] = ["127.0.0.1", "localhost", "::1"];
+
 /// 一次最多读几份设备快照。真实使用是 2–3 台，给到 8 已经宽。
 /// 上限存在的理由是：这是健康数据，别对着一个陌生目录无界地拉文件。
 pub const MAX_DOCS: usize = 8;
 
 /// 单份快照的体积上限。药箱的全量快照是几百行 JSON，超这数说明地址填到了别处。
 const MAX_BYTES: u64 = 8 * 1024 * 1024;
+
+/// PROPFIND 清单的上限。`list_devices` 只认 `device-*.json`，4 MiB 的 XML 已经能列很久。
+const MAX_XML_BYTES: u64 = 4 * 1024 * 1024;
 
 fn agent() -> Agent {
     // 与备份那条共用一份底座（TLS provider 配错会在发请求前 panic）。
@@ -68,6 +77,56 @@ fn path_segments(base: &str) -> Vec<String> {
         .collect()
 }
 
+/// 把 `scheme://authority/path` 拆成 scheme + authority；不处理反斜杠之类的花样，
+/// 因为这类地址本来就不是合法 URL，直接拒掉比猜更安全。
+fn scheme_and_authority(raw: &str) -> Option<(String, String)> {
+    let trimmed = raw.trim();
+    let (scheme, rest) = trimmed.split_once("://")?;
+    let authority = rest
+        .split(['/', '?', '#'])
+        .next()
+        .filter(|a| !a.is_empty())?
+        .to_owned();
+    Some((scheme.to_ascii_lowercase(), authority))
+}
+
+/// `host[:port]`；拒绝 userinfo、拒绝裸 IPv6 这种我们解析不来的写法。
+/// debug 本地桩用 `http://127.0.0.1:PORT/...` 或 `http://localhost:PORT/...`。
+fn host_of_authority(authority: &str) -> Option<String> {
+    if authority.contains('@') {
+        return None;
+    }
+    let host = if let Some(stripped) = authority.strip_prefix('[') {
+        let (host, _) = stripped.split_once(']')?;
+        host
+    } else if let Some((host, _)) = authority.split_once(':') {
+        host
+    } else {
+        authority
+    };
+    if host.is_empty() {
+        return None;
+    }
+    Some(host.to_ascii_lowercase())
+}
+
+fn address_is_allowed(raw: &str, dev: bool) -> bool {
+    let Some((scheme, authority)) = scheme_and_authority(raw) else {
+        return false;
+    };
+    let Some(host) = host_of_authority(&authority) else {
+        return false;
+    };
+    let loopback = LOOPBACKS.contains(&host.as_str());
+    match scheme.as_str() {
+        "https" => host == MEDICINE_HOST || (dev && loopback),
+        // 只在 debug 放本地桩走 http；release 里这一支永远关着，
+        // 省得一个手滑少写一个 s 就把坚果云应用密码送进明文 HTTP。
+        "http" => dev && loopback,
+        _ => false,
+    }
+}
+
 impl ReadRemote {
     /// 只判地址本身，不碰凭据 —— 设置页存目录之前先用它挡一次，
     /// 免得填错的地址要等到下次刷新才暴露。
@@ -75,6 +134,11 @@ impl ReadRemote {
         let trimmed = base.trim();
         if trimmed.is_empty() {
             return Err(Error::msg("还没填药箱的同步目录地址"));
+        }
+        if !address_is_allowed(trimmed, cfg!(debug_assertions)) {
+            return Err(Error::msg(
+                "药箱同步目录必须是 https://dav.jianguoyun.com/...；这条路会带应用密码出网，不能手滑发到 http 或别的主机",
+            ));
         }
         // 反向钉子：这个客户端不该去读工作台自己的两个目录。
         // 读不到东西是小事，把两份数据混成一个"药箱进度"是大事。
@@ -169,19 +233,21 @@ impl ReadRemote {
     /// 列目录。只返回 `device-*.json` —— 药箱按这个前缀挑文件，别的都不是快照。
     pub fn list_devices(&self) -> Result<Vec<Entry>> {
         const BODY: &str = r#"<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:prop><D:displayname/><D:getcontentlength/><D:resourcetype/></D:prop></D:propfind>"#;
-        let mut resp = self.request(
-            Method::from_bytes(b"PROPFIND").expect("内置动词"),
-            None,
-            &[
-                ("Depth", "1"),
-                ("Content-Type", "application/xml; charset=utf-8"),
-            ],
-            Some(BODY.as_bytes()),
-        )?;
-        let xml = resp
+        let xml = crate::net::read_capped_text(
+            self.request(
+                Method::from_bytes(b"PROPFIND").expect("内置动词"),
+                None,
+                &[
+                    ("Depth", "1"),
+                    ("Content-Type", "application/xml; charset=utf-8"),
+                ],
+                Some(BODY.as_bytes()),
+            )?
             .body_mut()
-            .read_to_string()
-            .map_err(|e| Error::msg(format!("读目录列表失败：{e}")))?;
+            .as_reader(),
+            MAX_XML_BYTES,
+        )
+        .map_err(|e| Error::msg(format!("读目录列表失败：{e}")))?;
 
         // href 是站点绝对路径，比较时只取 base 的 path 部分 ——
         // 本地桩的 base 带 127.0.0.1 前缀，整串比一定对不上。
@@ -269,6 +335,22 @@ mod tests {
         // 反过来：不是那一段路径的名字不该被误杀，否则药箱换个目录名就用不了了
         assert!(ReadRemote::check_dir("https://dav.jianguoyun.com/dav/workbench-backup-notes/").is_ok());
         assert!(ReadRemote::check_dir("https://dav.jianguoyun.com/dav/medicine-sync/").is_ok());
+    }
+
+    /// 药箱这条路会带着坚果云应用密码出网。`medicine-sync` 目录名对了，不代表主机/协议对了：
+    /// 手滑少写一个 `s` 就是明文，写错主机就是把凭据送给别人。release 只放行坚果云；
+    /// debug 额外放行本地桩，否则 e2e 没有路可走。
+    #[test]
+    fn the_read_only_medicine_address_is_https_and_jianguoyun_only() {
+        assert!(ReadRemote::check_dir("http://dav.jianguoyun.com/dav/medicine-sync/").is_err());
+        assert!(ReadRemote::check_dir("https://evil.example/dav/medicine-sync/").is_err());
+        assert!(ReadRemote::check_dir("ftp://dav.jianguoyun.com/dav/medicine-sync/").is_err());
+        // 本地桩只在 debug 测试进程里被 check_dir 放过；release 口径单独验纯函数。
+        assert!(ReadRemote::check_dir("http://127.0.0.1:8791/dav/medicine-sync/").is_ok());
+        assert!(!address_is_allowed("http://127.0.0.1:8791/dav/medicine-sync/", false));
+        assert!(!address_is_allowed("https://127.0.0.1/dav/medicine-sync/", false));
+        assert!(address_is_allowed("https://127.0.0.1/dav/medicine-sync/", true));
+        assert!(!address_is_allowed("https://user@evil/dav/medicine-sync/", true));
     }
 
     #[test]

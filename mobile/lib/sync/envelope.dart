@@ -29,11 +29,13 @@ const _headerLen = 8 + 1 + 1 + 4 + 4 + 1 + _saltLen + _nonceLen; // 47
 const _aadLen = _headerLen - _nonceLen; // 35
 const _tagLen = 16;
 
-/// 头部是别人写的，不可信。不夹住 m_cost 的话，改过的一个字节就能让「打开」
-/// 去申请十几 GB 内存 —— 与 Rust 侧的 MAX_* 三个常量同一组值。
-const _maxMKib = 1048576; // 1 GiB
-const _maxTCost = 16;
-const _maxPCost = 8;
+/// 头部是别人写的，不可信。上限是「手机愿意为一个还没验签的文件付出的成本」，不是
+/// 「历史上见过的最大值」：认证标签要到派生之后才校验，1 GiB 那档足够在拒绝之前把
+/// 手机打到 OOM。Anvil 当前只用 16 MiB（同步）和 64 MiB（日备），这里给到 128 MiB
+/// 留未来调参的余量 —— 与 Rust 侧 MAX_* 三个常量同一组值。
+const _maxMKib = 131072; // 128 MiB
+const _maxTCost = 8;
+const _maxPCost = 4;
 
 /// 信封不合法时的说明。文字直接进界面那一行状态，所以要说人话。
 class EnvelopeException implements Exception {

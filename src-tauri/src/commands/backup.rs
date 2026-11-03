@@ -92,6 +92,24 @@ pub async fn backup_now(app: AppHandle) -> Result<backup::Outcome, Error> {
     Ok(outcome)
 }
 
+/// 「留空 = 沿用已存那条」和「邮箱也换了」这两条规则叠在一起时，会换掉信封口令：
+/// KDF secret 是 `邮箱:应用密码`。只改邮箱而密码不重填，旧备份和旧同步文件会当场解不开，
+/// 界面上却只是一次普通保存 —— 手机端为这一刻加了确认框（N20），桌面端不能再静默放过。
+fn validate_credential_update(
+    stored_email: Option<&str>,
+    next_email: &str,
+    incoming_password: &str,
+) -> Result<(), Error> {
+    let stored = stored_email.map(str::trim).filter(|s| !s.is_empty());
+    if stored.is_some_and(|old| old != next_email) && incoming_password.trim().is_empty() {
+        return Err(Error::msg(
+            "要改邮箱，请连同应用密码一起重填。备份与手机同步的口令是「邮箱:应用密码」派生的；\
+             只改邮箱会把这把钥匙换掉，旧快照会解不开。",
+        ));
+    }
+    Ok(())
+}
+
 /// 存凭据：邮箱进 settings，应用密码只进 Windows 凭据管理器。
 #[tauri::command]
 pub fn backup_save_credentials(
@@ -104,12 +122,17 @@ pub fn backup_save_credentials(
     if email.is_empty() {
         return Err(Error::msg("邮箱不能为空"));
     }
+
+    let conn = state.lock();
+    let stored_email = settings::get_json(&conn, settings::KEY_WDAV_EMAIL)?
+        .and_then(|v| v.as_str().map(str::to_owned));
+    validate_credential_update(stored_email.as_deref(), &email, &password)?;
+
     // 框里空着 = 沿用凭据管理器里那条（换页回来密码框本来就是不回显的）
     if let Some(password) = creds::keep_or_set(&password, creds::webdav_configured())? {
         creds::set_webdav_password(&password)?;
     }
 
-    let conn = state.lock();
     settings::set_json(&conn, settings::KEY_WDAV_EMAIL, &json!(email), now.ms(), &state.device_id)?;
     read_status(&conn, &state)
 }
@@ -195,7 +218,7 @@ pub async fn backup_restore(app: AppHandle, name: String) -> Result<backup::Outc
     .await
     .map_err(|e| Error::msg(format!("还原任务没跑起来：{e}")))??;
 
-    if outcome.ok {
+    if outcome.ok || outcome.restart_required {
         app.restart();
     }
     Ok(outcome)
@@ -214,4 +237,26 @@ pub async fn backup_self_test(email: String, password: String) -> Result<bool, E
     })
     .await
     .map_err(|e| Error::msg(format!("自证没跑起来：{e}")))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_credential_update;
+
+    #[test]
+    fn changing_the_mailbox_without_retyping_the_password_is_blocked() {
+        let err = validate_credential_update(Some("me@example.com"), "new@example.com", "   ")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("邮箱"), "{err}");
+        assert!(err.contains("解不开"), "要说出代价，而不是只说格式错：{err}");
+    }
+
+    #[test]
+    fn same_mailbox_or_a_retyped_password_still_saves() {
+        validate_credential_update(Some("me@example.com"), "me@example.com", "").unwrap();
+        validate_credential_update(Some("me@example.com"), "new@example.com", " app-pass ").unwrap();
+        // 第一次配置没有旧邮箱，沿用「空密码先报错」那条，不在这里多拦一层。
+        validate_credential_update(None, "new@example.com", "").unwrap();
+    }
 }

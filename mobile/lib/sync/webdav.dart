@@ -8,6 +8,7 @@
 /// 拒绝 `medicine-sync` / `workbench-backup`；文件名只认 `device-*.enc`。
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -123,12 +124,21 @@ class WebDavRemote {
     }
   }
 
+  /// 边收边截。先 `toBytes()` 收完再判 32 MiB 不算上限 —— 内存爆掉的时候那句「已停止读取」
+  /// 已经没有意义了。越界时保留已经收到的字节也没用：这轮不能拿半截信封去解密。
   Future<Uint8List> _read(http.StreamedResponse resp) async {
-    final bytes = await resp.stream.toBytes().timeout(timeout);
-    if (bytes.length > maxBytes) {
-      throw WebDavException('文件体积异常（超过 32 MiB），已停止读取');
+    final out = BytesBuilder(copy: false);
+    try {
+      await for (final chunk in resp.stream.timeout(timeout)) {
+        out.add(chunk);
+        if (out.length > maxBytes) {
+          throw WebDavException('文件体积异常（超过 32 MiB），已停止读取');
+        }
+      }
+    } on TimeoutException {
+      throw WebDavException('读响应超时：对端没有把整份文件送完');
     }
-    return bytes;
+    return out.toBytes();
   }
 
   /// 401/403 的文案沿用备份那条已经调好的句子 —— 它准确指出了最常见的两个错因。

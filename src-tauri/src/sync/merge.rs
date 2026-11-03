@@ -58,9 +58,72 @@ fn stamp_of(table: &str, row: &Map<String, Value>) -> Result<(String, i64, Strin
     Ok((id, updated_at, updated_by))
 }
 
+/// SQLite 的列类型只决定 affinity；光看 JSON 形状不够。对端把整数列写成 `"123"`
+/// 会被本地列悄悄转换成数字，读回来时又成了整数；这种"看起来成功、语义已经变了"的
+/// 事故必须按声明类型拒绝，不能靠 SQLite 的隐式转换兜。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Affinity {
+    Integer,
+    Real,
+    Text,
+    Blob,
+    Numeric,
+}
+
+fn affinity_of(declared: &str) -> Affinity {
+    let declared = declared.to_ascii_uppercase();
+    if declared.contains("INT") {
+        Affinity::Integer
+    } else if declared.contains("CHAR") || declared.contains("CLOB") || declared.contains("TEXT") {
+        Affinity::Text
+    } else if declared.contains("BLOB") || declared.is_empty() {
+        Affinity::Blob
+    } else if declared.contains("REAL") || declared.contains("FLOA") || declared.contains("DOUB") {
+        Affinity::Real
+    } else {
+        Affinity::Numeric
+    }
+}
+
+fn kind_name(v: &Value) -> &'static str {
+    match v {
+        Value::Null => "空值",
+        Value::Bool(_) => "布尔值",
+        Value::Number(_) => "数字",
+        Value::String(_) => "字符串",
+        Value::Array(_) => "数组",
+        Value::Object(_) => "对象",
+    }
+}
+
+fn shape_matches(affinity: Affinity, v: &Value) -> bool {
+    match v {
+        Value::Null => true,
+        Value::Bool(_) => matches!(affinity, Affinity::Integer | Affinity::Real | Affinity::Numeric),
+        Value::Number(n) => match affinity {
+            Affinity::Integer => n
+                .as_i64()
+                .is_some()
+                || n.as_f64().is_some_and(|f| f.is_finite() && f.fract() == 0.0),
+            Affinity::Real | Affinity::Numeric => n.as_f64().is_some_and(f64::is_finite),
+            Affinity::Text | Affinity::Blob => false,
+        },
+        Value::String(_) => matches!(affinity, Affinity::Text | Affinity::Blob),
+        Value::Array(_) | Value::Object(_) => false,
+    }
+}
+
 /// JSON 值 → SQL 值。数组/对象一律拒绝：这几张表里没有 JSON 列，真出现了就是
 /// schema 与传输对不上，存成文本会让下次读回来的是带引号的字符串，那种错更难查。
-fn to_sql(table: &str, id: &str, col: &str, v: &Value) -> Result<Box<dyn ToSql>> {
+fn to_sql(table: &str, id: &str, col: &str, declared: &str, v: &Value) -> Result<Box<dyn ToSql>> {
+    let affinity = affinity_of(declared);
+    if !shape_matches(affinity, v) {
+        return Err(Error::msg(format!(
+            "{table} 的行 {id} 列 {col} 本地声明是 {declared}，对端却发来{}；拒绝让 SQLite 猜一个转换",
+            kind_name(v)
+        )));
+    }
+
     Ok(match v {
         Value::Null => Box::new(Null),
         Value::Bool(b) => Box::new(i64::from(*b)),
@@ -84,8 +147,25 @@ fn to_sql(table: &str, id: &str, col: &str, v: &Value) -> Result<Box<dyn ToSql>>
     })
 }
 
+fn declared_types(conn: &Connection, table: &str) -> Result<HashMap<String, String>> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(1)?,
+            r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+        ))
+    })?;
+    let mut out = HashMap::new();
+    for row in rows {
+        let (name, declared) = row?;
+        out.insert(name, declared);
+    }
+    Ok(out)
+}
+
 fn apply_table(conn: &Connection, table: &str, rows: &[Map<String, Value>]) -> Result<(usize, usize)> {
     let local_cols = wire_columns(conn, table)?;
+    let types = declared_types(conn, table)?;
     let local_set: BTreeSet<&str> = local_cols.iter().map(String::as_str).collect();
 
     // 一次读光现有版本戳，别每行查一次：全量合并本来就要跑几百上千行
@@ -134,7 +214,13 @@ fn apply_table(conn: &Connection, table: &str, rows: &[Map<String, Value>]) -> R
             );
             let mut args: Vec<Box<dyn ToSql>> = Vec::with_capacity(sets.len() + 1);
             for k in &sets {
-                args.push(to_sql(table, &id, k, row.get(*k).expect("刚从 keys 里取的"))?);
+                args.push(to_sql(
+                    table,
+                    &id,
+                    k,
+                    types.get(k.as_str()).map(String::as_str).unwrap_or(""),
+                    row.get(*k).expect("刚从 keys 里取的"),
+                )?);
             }
             args.push(Box::new(id.clone()));
             let refs: Vec<&dyn ToSql> = args.iter().map(|a| a.as_ref()).collect();
@@ -160,7 +246,13 @@ fn apply_table(conn: &Connection, table: &str, rows: &[Map<String, Value>]) -> R
             );
             let mut args: Vec<Box<dyn ToSql>> = Vec::with_capacity(cols.len());
             for k in &cols {
-                args.push(to_sql(table, &id, k, row.get(*k).expect("刚从 keys 里取的"))?);
+                args.push(to_sql(
+                    table,
+                    &id,
+                    k,
+                    types.get(k.as_str()).map(String::as_str).unwrap_or(""),
+                    row.get(*k).expect("刚从 keys 里取的"),
+                )?);
             }
             let refs: Vec<&dyn ToSql> = args.iter().map(|a| a.as_ref()).collect();
             match conn.execute(&sql, refs.as_slice()) {
@@ -434,6 +526,39 @@ mod tests {
         let err = apply(&c, &snap_of(&[("todos", vec![weird])]), PC_ACCEPTS).unwrap_err();
         assert!(err.to_string().contains("note"), "报错要点名是哪一列：{err}");
         assert_eq!(live_rows(&c), 0);
+    }
+
+    /// `"100"` 进 INTEGER 列会被 SQLite 悄悄转成 100；"1" 进 TEXT 列也会悄悄变形状。
+    /// 这类转换不报错，等到下一次按类型比较或统计时才表现成"数据莫名不对"。
+    #[test]
+    fn a_scalar_of_the_wrong_declared_shape_is_refused_by_name() {
+        let c = conn();
+        let mut wrong = row("t1", 100, "phone-a");
+        wrong.insert("priority".to_owned(), json!("2"));
+        let err = apply(&c, &snap_of(&[("todos", vec![wrong])]), PC_ACCEPTS)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("priority") && err.contains("INTEGER"), "{err}");
+        assert_eq!(live_rows(&c), 0, "整批一个事务：类型错也不能落一半");
+
+        let mut wrong = row("t2", 100, "phone-a");
+        wrong.insert("title".to_owned(), json!(123));
+        let err = apply(&c, &snap_of(&[("todos", vec![wrong])]), PC_ACCEPTS)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("title") && err.contains("TEXT"), "{err}");
+
+        let mut fractional = row("t3", 100, "phone-a");
+        fractional.insert("priority".to_owned(), json!(1.5));
+        let err = apply(&c, &snap_of(&[("todos", vec![fractional])]), PC_ACCEPTS)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("priority"), "{err}");
+
+        let mut whole_float = row("t4", 100, "phone-a");
+        whole_float.insert("priority".to_owned(), json!(2.0));
+        apply(&c, &snap_of(&[("todos", vec![whole_float])]), PC_ACCEPTS)
+            .expect("整数值的浮点可以落到 INTEGER，不该被误杀");
     }
 
     #[test]

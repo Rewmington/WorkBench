@@ -94,10 +94,17 @@ class Medicine {
           return h * 60 + m;
         })
         .whereType<int>()
+        .take(maxScheduleSlots)
         .toList()
       ..sort();
     if (parsed.isNotEmpty) return parsed;
-    final n = dosesPerDay.round();
+    // 这不是「正常人一天吃不了这么多」的医学判断，是资源上限：云端那行是明文 JSON，
+    // 一个损坏的 1e9 / Infinity 先进入 `round()` 与 `List.generate`，代价由这台手机付。
+    // 正无穷夹到上限；NaN / 负数没有格子，不能拿 max 冒充一份真实计划。
+    if (dosesPerDay.isNaN || dosesPerDay <= 0) return const [];
+    final n = dosesPerDay.isFinite
+        ? dosesPerDay.round().clamp(0, maxScheduleSlots)
+        : maxScheduleSlots;
     if (n <= 0) return const [];
     if (n == 1) return const [8 * 60];
     const start = 7 * 60 + 30;
@@ -108,6 +115,10 @@ class Medicine {
   static String _trim(double v) =>
       v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(2);
 }
+
+/// 与桌面 `medicine_math::MAX_SCHEDULE_SLOTS` 同一把尺子。两边改要一起改：
+/// 一格之差不会让谁崩，但会让同一支药在两个程序里画出不同的格子数。
+const int maxScheduleSlots = 24;
 
 /// 库存顺序：快没的那支排最前。口径照药箱自己的统计页（`stats_page.dart`）——
 /// 算不出天数的记成 9999 沉底、同值按名字；桌面端 Rust 的 `by_stock_risk` 是同一条。

@@ -18,17 +18,34 @@ int daysBetween(int from, int to) {
   return b.difference(a).inDays;
 }
 
-/// `yyyy-mm-dd` → yyyymmdd。
-int isoToDay(String iso) {
-  final p = iso.split('-').map(int.parse).toList();
-  return p[0] * 10000 + p[1] * 100 + p[2];
+/// `yyyy-mm-dd` → yyyymmdd；**格式不对时返回 null，不是抛异常**。
+///
+/// 这个值可能来自同步快照的 meta（`saveMeta` 已经挡一道，但本机库里也可能躺着旧版本
+/// 或手改留下的坏值）。它今天是「算不算得出第几周」的输入，不该是一条 UI 崩溃的入口：
+/// 一个 `"x"` 让 `int.parse` 抛掉整个 Today 屏，代价远大于那一格显示不出来。
+int? isoToDayOrNull(String iso) {
+  final parts = iso.trim().split('-');
+  if (parts.length != 3 || parts[0].length != 4) return null;
+  final y = int.tryParse(parts[0]);
+  final mo = int.tryParse(parts[1]);
+  final d = int.tryParse(parts[2]);
+  if (y == null || mo == null || d == null || mo < 1 || mo > 12 || d < 1 || d > 31) {
+    return null;
+  }
+  // 日历里没有的那一天（2026-02-31）会被 `DateTime.utc` 顺到 3 月，不能照字面收下；
+  // 桌面 `iso_to_day` 用 `from_ymd_opt` 拒掉，这里对齐同一条口径。
+  final day = DateTime.utc(y, mo, d);
+  if (day.year != y || day.month != mo || day.day != d) return null;
+  return y * 10000 + mo * 100 + d;
 }
 
 /// 今天在第几周。开学日没设 / 还没开学 / 学期已结束 → null，
 /// 而不是 0 或者硬猜 —— 猜错会把一整个学期的课表显示成另一周的样子。
 int? weekOf(String? week1Monday, DateTime today, int? totalWeeks) {
   if (week1Monday == null || totalWeeks == null) return null;
-  final elapsed = daysBetween(isoToDay(week1Monday), dayInt(today));
+  final start = isoToDayOrNull(week1Monday);
+  if (start == null) return null;
+  final elapsed = daysBetween(start, dayInt(today));
   if (elapsed < 0) return null;
   final week = elapsed ~/ 7 + 1;
   return week <= totalWeeks ? week : null;

@@ -13,7 +13,7 @@ pub mod webdav;
 use std::io::Write;
 use std::path::Path;
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
 
 use crate::error::{Error, Result};
@@ -32,6 +32,10 @@ pub struct Outcome {
     pub remote_path: Option<String>,
     pub error: Option<String>,
     pub skipped: bool,
+    /// 这次还原之后进程已经不能继续跑了（成功换库、或失败后连回滚都没成功）。
+    /// 调用方要重启；不重启时成功路径会拿着空内存库满屏 "no such table"，
+    /// 回滚失败路径会拿着 `db::open` 新建出来的空库装作还能用。
+    pub restart_required: bool,
 }
 
 /// 保留多少份本地暂存副本。远端保留数由设置决定，默认不动远端历史。
@@ -214,6 +218,7 @@ pub fn run_with(
             remote_path: Some(name),
             error: None,
             skipped: false,
+            restart_required: false,
         },
         Err(e) => Outcome {
             at: ms,
@@ -222,6 +227,7 @@ pub fn run_with(
             remote_path: None,
             error: Some(e.to_string()),
             skipped: false,
+            restart_required: false,
         },
     };
 
@@ -244,6 +250,7 @@ pub fn run(conn: &Connection, tmp_dir: &Path, now: &dyn Now, kind: &str) -> Outc
                 remote_path: None,
                 error: Some("还没配好坚果云凭据，备份先不跑".to_owned()),
                 skipped: true,
+                restart_required: false,
             };
         }
         Err(e) => {
@@ -254,6 +261,7 @@ pub fn run(conn: &Connection, tmp_dir: &Path, now: &dyn Now, kind: &str) -> Outc
                 remote_path: None,
                 error: Some(e.to_string()),
                 skipped: false,
+                restart_required: false,
             };
             record(conn, &out, kind);
             return out;
@@ -275,6 +283,7 @@ pub fn run(conn: &Connection, tmp_dir: &Path, now: &dyn Now, kind: &str) -> Outc
             remote_path: None,
             error: Some(e.to_string()),
             skipped: false,
+            restart_required: false,
         },
     }
 }
@@ -329,16 +338,17 @@ pub fn list(conn: &Connection) -> Result<Vec<RemoteSnapshot>> {
 pub fn restore(conn: &mut Connection, paths: &Paths, remote_name: &str, now: &dyn Now) -> Result<Outcome> {
     let ms = now.ms();
     // 凭据必须在换库之前读：换完库连接就是旧机器那份的了
-    let outcome = match (webdav_email(conn), creds::webdav_password()) {
-        (Ok(email), Ok(password)) => {
-            let secret = format!("{email}:{password}");
-            match Remote::from_env(&email, &password) {
-                Ok(remote) => restore_with(conn, paths, &remote, &secret, remote_name, ms),
-                Err(e) => Err(e),
+    let outcome: std::result::Result<u64, RestoreFailure> =
+        match (webdav_email(conn), creds::webdav_password()) {
+            (Ok(email), Ok(password)) => {
+                let secret = format!("{email}:{password}");
+                match Remote::from_env(&email, &password) {
+                    Ok(remote) => restore_with(conn, paths, &remote, &secret, remote_name, ms),
+                    Err(e) => Err(e.into()),
+                }
             }
-        }
-        _ => Err(Error::msg("还没配好坚果云凭据，取不回快照")),
-    };
+            _ => Err(Error::msg("还没配好坚果云凭据，取不回快照").into()),
+        };
 
     match outcome {
         Ok(bytes) => Ok(Outcome {
@@ -348,19 +358,92 @@ pub fn restore(conn: &mut Connection, paths: &Paths, remote_name: &str, now: &dy
             remote_path: Some(remote_name.to_owned()),
             error: None,
             skipped: false,
+            // 成功换库后进程手里那个连接已经指向新库，但盘上文件名、设备 id、
+            // 可能还有其它视图的缓存都还停在旧现场 —— 一律重启，让 bootstrap 重新认一遍。
+            restart_required: true,
         }),
         Err(e) => {
+            let restart_required = e.restart_required;
             let out = Outcome {
                 at: ms,
                 ok: false,
                 bytes: None,
                 remote_path: None,
-                error: Some(e.to_string()),
+                error: Some(e.message),
                 skipped: false,
+                restart_required,
             };
-            // 失败路径上连接没被动过，可以安全留痕
-            record(conn, &out, "restore");
+            // 回滚失败那一格，`conn` 已经不是真库了；往它里面写流水只会再报一次 no such table。
+            // 其他失败路径上连接没被动过（或已指回原库），可以安全留痕。
+            if !restart_required {
+                record(conn, &out, "restore");
+            }
             Ok(out)
+        }
+    }
+}
+
+/// 还原失败的现场比「一句错误」更重要：
+/// `restart_required=true` 表示进程里已经没有可继续用的真库（或库文件已经换过），
+/// 调用方必须重启；普通错误（凭据、网络、校验不过）则不该把用户已经配好的现场搅掉。
+#[derive(Debug)]
+pub struct RestoreFailure {
+    message: String,
+    restart_required: bool,
+}
+
+impl std::fmt::Display for RestoreFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl From<Error> for RestoreFailure {
+    fn from(e: Error) -> Self {
+        Self { message: e.to_string(), restart_required: false }
+    }
+}
+
+impl From<std::io::Error> for RestoreFailure {
+    fn from(e: std::io::Error) -> Self {
+        Error::Io(e).into()
+    }
+}
+
+impl From<rusqlite::Error> for RestoreFailure {
+    fn from(e: rusqlite::Error) -> Self {
+        Error::Db(e).into()
+    }
+}
+
+/// `swap_db` 的三种失败现场不能折成同一个 `Error`：
+/// 回滚成功时把连接指回真库就够了；回滚失败时必须让调用方重启，
+/// 绝不能再 `db::open(&paths.db)` —— 那个调用会在文件缺失时**新建一个空库**，
+/// 把错误里那句「先别再造新的」当场变成事实。
+#[derive(Debug)]
+enum SwapFailure {
+    /// 没动过现库，或已经把现库改回去了：进程可以继续，错误只是没还原成。
+    Reversible(Error),
+    /// 现库已被改名、incoming 换不进、改名回来又失败：只剩手工恢复这一条路。
+    RollbackFailed(Error),
+}
+
+impl std::fmt::Display for SwapFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SwapFailure::Reversible(e) | SwapFailure::RollbackFailed(e) => f.write_str(&e.to_string()),
+        }
+    }
+}
+
+impl SwapFailure {
+    fn into_restore_failure(self) -> RestoreFailure {
+        match self {
+            SwapFailure::Reversible(e) => e.into(),
+            SwapFailure::RollbackFailed(e) => RestoreFailure {
+                message: e.to_string(),
+                restart_required: true,
+            },
         }
     }
 }
@@ -371,11 +454,12 @@ pub fn restore(conn: &mut Connection, paths: &Paths, remote_name: &str, now: &dy
 /// 带 `pre-restore` 名字的位置上 —— 半个换库比不换更糟，界面上什么都看不见的空库
 /// 会让人以为数据没了，接着再还原一次，把唯一那份也盖掉。
 /// 回滚本身也失败时不假装没事：错误里必须写清该手工改哪个文件。
-fn swap_db(paths: &Paths, incoming: &Path, ms: i64) -> Result<()> {
+fn swap_db(paths: &Paths, incoming: &Path, ms: i64) -> std::result::Result<(), SwapFailure> {
     let backup_of_current = paths.root.join(format!("app.pre-restore-{ms}.db"));
     let moved_current = paths.db.exists();
     if moved_current {
-        std::fs::rename(&paths.db, &backup_of_current)?;
+        std::fs::rename(&paths.db, &backup_of_current)
+            .map_err(|e| SwapFailure::Reversible(Error::Io(e)))?;
     }
     for suffix in ["-wal", "-shm"] {
         let side = format!("{}{suffix}", paths.db.display());
@@ -387,18 +471,20 @@ fn swap_db(paths: &Paths, incoming: &Path, ms: i64) -> Result<()> {
         Err(e) => {
             if !moved_current {
                 // 原来就没有现库（全新机器），没什么可回滚的
-                return Err(Error::msg(format!("还原没完成（{e}），这台机器上本来还没有库")));
+                return Err(SwapFailure::Reversible(Error::msg(format!(
+                    "还原没完成（{e}），这台机器上本来还没有库"
+                ))));
             }
             if std::fs::rename(&backup_of_current, &paths.db).is_ok() {
-                return Err(Error::msg(format!(
+                return Err(SwapFailure::Reversible(Error::msg(format!(
                     "还原没完成（{e}），这台机器的库已经改回原样，你的数据一条没动"
-                )));
+                ))));
             }
-            Err(Error::msg(format!(
-                "还原没完成（{e}），而且没能自动改回去：现库在 {}，先别再造新的，把它改回 {} 再启动",
+            Err(SwapFailure::RollbackFailed(Error::msg(format!(
+                "还原没完成（{e}），而且没能自动改回去：现库在 {}，Anvil 现在会退出。请把那个文件改名回 {} 再启动，不要在这期间让程序新建 app.db。",
                 backup_of_current.display(),
                 paths.db.display()
-            )))
+            ))))
         }
     }
 }
@@ -453,6 +539,7 @@ pub fn notice_interrupted_restore(conn: &Connection, now: &dyn Now, root: &Path)
             remote_path: None,
             error: Some(msg),
             skipped: false,
+            restart_required: false,
         },
         "restore",
     );
@@ -466,9 +553,9 @@ pub fn restore_with(
     secret: &str,
     remote_name: &str,
     ms: i64,
-) -> Result<u64> {
+) -> std::result::Result<u64, RestoreFailure> {
     if remote_name.starts_with("device-") {
-        return Err(Error::msg("那是药箱的同步文件，不是工作台的备份"));
+        return Err(Error::msg("那是药箱的同步文件，不是工作台的备份").into());
     }
 
     // 本机那四项要在换库之前抄：换完之后 conn 指向的是快照里那份库，
@@ -483,18 +570,11 @@ pub fn restore_with(
     let incoming = paths.backups.join(format!("incoming-{ms}.db"));
     std::fs::write(&incoming, &db_bytes)?;
 
-    // 先验再换：integrity_check 不过就原样退回，绝不覆盖可用的库
-    {
-        let probe = Connection::open_with_flags(
-            &incoming,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )?;
-        let ok: String = probe.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
-        if ok != "ok" {
-            let _ = std::fs::remove_file(&incoming);
-            return Err(Error::msg("快照里的库没通过完整性检查，已放弃还原"));
-        }
-    }
+    // 先验再换：integrity_check 不过、版本比这个程序新、或表结构根本不是 Anvil，
+    // 都原样退回。换库不是修复数据；把一个本机读不懂的库换进来只会把事故变成空库。
+    validate_incoming_db(&incoming).inspect_err(|_| {
+        let _ = std::fs::remove_file(&incoming);
+    })?;
 
     // 换库：先放开文件句柄（丢掉连接会顺带 checkpoint WAL），再改名。
     // 那个内存连接是为「让 Windows 允许 rename」付出的代价 —— 中途失败时进程手里就
@@ -505,50 +585,92 @@ pub fn restore_with(
         // 那份明文副本到此没用了：留着就是"备份目录里躺着整库明文"，而 `prune_local` 只扫
         // `snap-*`、`prune_pre_restore` 只扫 `app.pre-restore-*`，谁都不会来收它。
         let _ = std::fs::remove_file(&incoming);
-        // 回滚成没成都要把手里的连接指回 `paths.db`：带着一个没有表的内存库继续跑，
-        // 下一条命令只会报 "no such table"，那是把一次能解释清楚的失败变成满屏乱码。
-        *conn = crate::db::open(&paths.db)?;
-        return Err(e);
+        // 回滚成功或根本没动过现库时，把连接指回 `paths.db`，进程还能继续讲那句错误。
+        if let SwapFailure::Reversible(err) = e {
+            *conn = crate::db::open(&paths.db)?;
+            return Err(err.into());
+        }
+        // 回滚也失败：这里绝不能 `db::open(&paths.db)`。那个调用会在文件缺失时
+        // 新建一个空库，然后把「先别再造新的」变成程序自己造了一个。
+        // 让命令层重启；下一次 bootstrap 会走 `notice_interrupted_restore`。
+        Err(e.into_restore_failure())
+    } else {
+        // 换库成功也要把连接指回真库。原来这一句只有失败分支有，于是成功之后进程手里那个
+        // 还是空内存库，一直留到 `app.restart()` 才死 —— 中间在 mutex 上排队的每条命令都会
+        // 报 "no such table"（还原含一次网络 GET，那几秒是常态）。打开失败不该把已经成功的
+        // 还原说成失败 —— 库已经换好了 —— 重启会修好，日志要说清。
+        match crate::db::open(&paths.db) {
+            Ok(reopened) => *conn = reopened,
+            Err(e) => log::error!("还原后重新打开真库失败，重启前的命令会读不到表：{e}"),
+        }
+
+        // 设备 id 必须换新的：整文件恢复会把旧机器的 created_by 带回来，
+        // 不换的话「最后写入设备」在两台机器上会说同一个名字。
+        let fresh = format!("pc-{}", uuid::Uuid::now_v7().simple());
+        match std::fs::write(&paths.device_id, &fresh) {
+            Ok(()) => log::info!("已还原快照 {remote_name}（{stamp}），新设备 id {fresh}"),
+            // 库已经换好了，这一步失败不该把还原说成失败（那会诱发第二次还原）。
+            // 继续用旧 id 的后果是「最后写入设备」暂时还是旧机器那台，日志要说清。
+            Err(e) => log::error!("新设备 id 没写进去（{e}），这台机器暂时还沿用旧设备 id 上报"),
+        }
+
+        prune_pre_restore(&paths.root);
+
+        // 还原进来的每一行都要重新标脏（见 `mark_all_pending`）。
+        // 这一步失败不该把已经成功的还原说成失败 —— 库已经换好了 —— 但它会让手机端
+        // 看不到这台 PC 的数据，所以日志要说清后果，别说成"无害"。
+        match mark_all_pending(&paths.db) {
+            Ok(n) => log::info!("还原后把 {n} 条待办标成待上传：这台机器从没传过它们"),
+            Err(e) => {
+                log::error!("还原后没能把待办标成待上传，在手机看到这台 PC 的数据之前先检查它：{e}")
+            }
+        }
+
+        // 写回本机设置。这一步失败不该把已经成功的还原说成失败：库已经换好了，
+        // 顶多邮箱空着、重填一次就能用，所以只记日志。
+        match keep_machine_local(&paths.db, &local, ms, &fresh) {
+            Ok(0) => log::info!("这台机器还没有本机专属的设置，还原后无需补回"),
+            Ok(n) => log::info!("还原后保留本机设置 {n} 项（两个邮箱与两个绝对路径）"),
+            Err(e) => log::error!("还原后写回本机设置失败，需要重填：{e}"),
+        }
+
+        Ok(db_bytes.len() as u64)
     }
+}
 
-    // 换库成功也要把连接指回真库。原来这一句只有失败分支有，于是成功之后进程手里那个
-    // 还是空内存库，一直留到 `app.restart()` 才死 —— 中间在 mutex 上排队的每条命令都会
-    // 报 "no such table"（还原含一次网络 GET，那几秒是常态）。打开失败不该把已经成功的
-    // 还原说成失败 —— 库已经换好了 —— 重启会修好，日志要说清。
-    match crate::db::open(&paths.db) {
-        Ok(reopened) => *conn = reopened,
-        Err(e) => log::error!("还原后重新打开真库失败，重启前的命令会读不到表：{e}"),
+/// 换库前能便宜做的体检全做一遍。`integrity_check` 只证明「这是 SQLite 认得的字节」，
+/// 不证明「这台机器能继续用它」：
+/// - 比当前程序新的库会在重启时直接起不来，而旧数据只躺在 pre-restore 里，提示不指向那里；
+/// - 没有 `todos` / `settings` 的库会被当成一个可用空库启动，用户看到的是「数据没了」。
+fn validate_incoming_db(path: &Path) -> Result<()> {
+    let probe = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let ok: String = probe.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
+    if ok != "ok" {
+        return Err(Error::msg("快照里的库没通过完整性检查，已放弃还原"));
     }
-
-    // 设备 id 必须换新的：整文件恢复会把旧机器的 created_by 带回来，
-    // 不换的话「最后写入设备」在两台机器上会说同一个名字。
-    let fresh = format!("pc-{}", uuid::Uuid::now_v7().simple());
-    match std::fs::write(&paths.device_id, &fresh) {
-        Ok(()) => log::info!("已还原快照 {remote_name}（{stamp}），新设备 id {fresh}"),
-        // 库已经换好了，这一步失败不该把还原说成失败（那会诱发第二次还原）。
-        // 继续用旧 id 的后果是「最后写入设备」暂时还是旧机器那台，日志要说清。
-        Err(e) => log::error!("新设备 id 没写进去（{e}），这台机器暂时还沿用旧设备 id 上报"),
+    let version: i64 = probe.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version > crate::db::migrations::target_version() as i64 {
+        return Err(Error::msg(format!(
+            "这份快照来自更新的 Anvil（库里第 {version} 版，本机只认到第 {} 版）。先装回不低于它的版本再还原，别拿旧程序去猜新表结构。",
+            crate::db::migrations::target_version()
+        )));
     }
-
-    prune_pre_restore(&paths.root);
-
-    // 还原进来的每一行都要重新标脏（见 `mark_all_pending`）。
-    // 这一步失败不该把已经成功的还原说成失败 —— 库已经换好了 —— 但它会让手机端
-    // 看不到这台 PC 的数据，所以日志要说清后果，别说成"无害"。
-    match mark_all_pending(&paths.db) {
-        Ok(n) => log::info!("还原后把 {n} 条待办标成待上传：这台机器从没传过它们"),
-        Err(e) => log::error!("还原后没能把待办标成待上传，在手机看到这台 PC 的数据之前先检查它：{e}"),
+    for table in ["todos", "settings"] {
+        let has: bool = probe
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                params![table],
+                |_| Ok(true),
+            )
+            .optional()?
+            .unwrap_or(false);
+        if !has {
+            return Err(Error::msg(format!(
+                "这份快照里没有 {table} 表，不是 Anvil 的库；已放弃还原"
+            )));
+        }
     }
-
-    // 写回本机设置。这一步失败不该把已经成功的还原说成失败：库已经换好了，
-    // 顶多邮箱空着、重填一次就能用，所以只记日志。
-    match keep_machine_local(&paths.db, &local, ms, &fresh) {
-        Ok(0) => log::info!("这台机器还没有本机专属的设置，还原后无需补回"),
-        Ok(n) => log::info!("还原后保留本机设置 {n} 项（两个邮箱与两个绝对路径）"),
-        Err(e) => log::error!("还原后写回本机设置失败，需要重填：{e}"),
-    }
-
-    Ok(db_bytes.len() as u64)
+    Ok(())
 }
 
 
@@ -713,6 +835,7 @@ mod tests {
                     remote_path: Some(format!("anvil-{i}.abackup")),
                     error: if i == 1 { Some(" dns error".into()) } else { None },
                     skipped: false,
+                    restart_required: false,
                 },
                 "manual",
             );
@@ -793,6 +916,47 @@ mod tests {
         assert!(!incoming.exists(), "换进来的那份不该再留着");
 
         std::fs::remove_dir_all(&tmp.root).ok();
+    }
+
+    /// 回滚失败那一格没法便宜地造出来（要让 rename 反过来也失败，得在现库已被改名之后
+    /// 再把目标占住），但它的后果可以单独钉死：这种失败必须让调用方重启，
+    /// 绝不能用普通错误把「进程里没有真库了」说成「这次没还原成，还能继续用」。
+    #[test]
+    fn a_failed_rollback_is_the_one_failure_that_demands_a_restart() {
+        let reversible = SwapFailure::Reversible(Error::msg("已经改回去了"));
+        assert!(!reversible.into_restore_failure().restart_required);
+
+        let stuck = SwapFailure::RollbackFailed(Error::msg("没能自动改回去"));
+        let failure = stuck.into_restore_failure();
+        assert!(failure.restart_required);
+        assert!(failure.message.contains("没能自动改回去"), "{}", failure.message);
+    }
+
+    #[test]
+    fn a_database_this_program_cannot_use_is_refused_before_the_swap() {
+        let tmp = std::env::temp_dir().join(format!("anvil-validate-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let file = tmp.join("incoming.db");
+
+        let mut conn = Connection::open(&file).unwrap();
+        migrate(&mut conn).unwrap();
+        drop(conn);
+        validate_incoming_db(&file).expect("刚迁移好的库当然能用");
+
+        conn = Connection::open(&file).unwrap();
+        conn.execute_batch("PRAGMA user_version = 99999;").unwrap();
+        drop(conn);
+        let err = validate_incoming_db(&file).unwrap_err().to_string();
+        assert!(err.contains("更新的 Anvil"), "{err}");
+
+        let foreign = tmp.join("foreign.db");
+        let conn = Connection::open(&foreign).unwrap();
+        conn.execute_batch("CREATE TABLE unrelated (x);").unwrap();
+        drop(conn);
+        let err = validate_incoming_db(&foreign).unwrap_err().to_string();
+        assert!(err.contains("不是 Anvil 的库"), "{err}");
+
+        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]

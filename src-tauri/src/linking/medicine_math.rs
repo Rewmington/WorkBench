@@ -13,6 +13,12 @@ use crate::time::days::{day_of_ms, day_start_ms, days_between, shift};
 /// 「近 7 天」这一个窗口长度写在这里，桌面与手机端各自照搬时只有一个数要对。
 pub const WEEK_DAYS: i64 = 7;
 
+/// 一份药箱数据能为一台机器生成多少个服药格子。**这是资源上限，不是医学口径**：
+/// `doses_per_day` 与 `times` 都来自外部程序（药箱本地库或它发到坚果云的明文 JSON），
+/// 一个损坏/被塞进去的 `1e9` 会让 [`Medicine::schedule_minutes`] 当场申请几 GB 并 abort。
+/// 正常人一天不会吃 24 次以上；超出就当没设，宁可显示「未设用量」也不拿用户的进程去赌。
+const MAX_SCHEDULE_SLOTS: usize = 24;
+
 #[derive(Debug, Clone)]
 pub struct Medicine {
     pub id: String,
@@ -90,14 +96,26 @@ impl Medicine {
                 }
                 Some(h * 60 + m)
             })
+            // 先限量再 collect：`take` 之后的解析器不会为一个 8 MB 的 times 串攒几十万个格子。
+            .take(MAX_SCHEDULE_SLOTS)
             .collect();
         if !parsed.is_empty() {
             parsed.sort_unstable();
             return parsed;
         }
 
-        let n = self.doses_per_day.round() as i32;
-        if n <= 0 {
+        // 非有限值（JSON 里的 1e400 会变成 inf）不能进 `as i64` 之后变成天文数字次循环。
+        // NaN 和负数没有格子；正无穷代表一份坏掉的"每天无穷多次"，直接按本机愿意分配的
+        // 资源上限夹住，而不是悄悄变成 0 格——0 格会把这支药从当天计划里整个抹掉。
+        if self.doses_per_day.is_nan() || self.doses_per_day <= 0.0 {
+            return Vec::new();
+        }
+        let n = if self.doses_per_day.is_finite() {
+            (self.doses_per_day.round() as i64).clamp(0, MAX_SCHEDULE_SLOTS as i64) as usize
+        } else {
+            MAX_SCHEDULE_SLOTS
+        };
+        if n == 0 {
             return Vec::new();
         }
         if n == 1 {
@@ -105,7 +123,9 @@ impl Medicine {
         }
         let (start, end) = (7 * 60 + 30, 21 * 60);
         (0..n)
-            .map(|i| (start as f64 + (end - start) as f64 * i as f64 / (n - 1) as f64).round() as i32)
+            .map(|i| {
+                (start as f64 + (end - start) as f64 * i as f64 / (n - 1) as f64).round() as i32
+            })
             .collect()
     }
 }
@@ -424,6 +444,22 @@ mod tests {
         assert_eq!(med("", 0.0, 1.0, 1.0).schedule_minutes(), Vec::<i32>::new());
         // 中文逗号与分号都要认，坏时刻丢掉而不是崩
         assert_eq!(med("08:00，20:00；99:99", 3.0, 1.0, 1.0).schedule_minutes(), vec![480, 1200]);
+    }
+
+    /// `doses_per_day` 与 `times` 都来自**另一个程序**（它的本地库，或它发到坚果云的明文 JSON）。
+    /// 这条钉的是「一份坏数据不该把工作台进程换掉」：格子数必须在分配之前夹住。
+    #[test]
+    fn a_poisoned_dose_count_cannot_ask_for_a_billion_slots() {
+        assert_eq!(med("", 1.0e9, 1.0, 1.0).schedule_minutes().len(), MAX_SCHEDULE_SLOTS);
+        assert_eq!(med("", f64::INFINITY, 1.0, 1.0).schedule_minutes().len(), MAX_SCHEDULE_SLOTS);
+        assert!(med("", f64::NEG_INFINITY, 1.0, 1.0).schedule_minutes().is_empty());
+        assert!(med("", f64::NAN, 1.0, 1.0).schedule_minutes().is_empty());
+
+        let crowded = (0..500)
+            .map(|i| format!("{:02}:{:02}", (i / 60) % 24, i % 60))
+            .collect::<Vec<_>>()
+            .join(",");
+        assert_eq!(med(&crowded, 1.0e9, 1.0, 1.0).schedule_minutes().len(), MAX_SCHEDULE_SLOTS);
     }
 
     #[test]

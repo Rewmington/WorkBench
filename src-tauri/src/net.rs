@@ -8,10 +8,13 @@
 //! 就是一个只在真机上、只在按下那个按钮时才炸的闪退：桩测试走的是 127.0.0.1 的 http，
 //! 压根到不了这段代码。
 
+use std::io::Read;
 use std::time::Duration;
 
 use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 use ureq::Agent;
+
+use crate::error::{Error, Result};
 
 /// Windows 证书库那套。不引 rustls，也就不用自己带一份根证书。
 ///
@@ -39,6 +42,31 @@ pub fn agent(global: Duration, connect: Duration, user_agent: &str) -> Agent {
         .into()
 }
 
+/// 外部响应最多读多少：**边读边夹**，而不是先 `read_to_end` 再把长度判一遍。
+/// 后者在内存爆掉之后才说「超过 32 MiB」，那句话已经没有意义了。多取一个字节
+/// 就为了知道「越界了」；合法的小响应完全不受影响。
+pub(crate) fn read_capped(mut reader: impl Read, max: u64) -> Result<Vec<u8>> {
+    let mut out = Vec::new();
+    reader
+        .by_ref()
+        .take(max + 1)
+        .read_to_end(&mut out)
+        .map_err(|e| Error::msg(format!("读响应失败：{e}")))?;
+    if out.len() as u64 > max {
+        return Err(Error::msg(format!(
+            "响应超过 {max} 字节上限，已停止读取（对端多半不是我们以为的那个服务）"
+        )));
+    }
+    Ok(out)
+}
+
+/// 文本响应的有上限读法。WebDAV 的 XML、博客 JSON 都走这里；非 UTF-8 不 panic，
+/// 折成 lossy 文本后交给各层的「不是合法 XML/JSON」判据去说人话。
+pub(crate) fn read_capped_text(reader: impl Read, max: u64) -> Result<String> {
+    let bytes = read_capped(reader, max)?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -55,5 +83,14 @@ mod tests {
         }));
         assert!(!ran.is_err(), "https 请求 panic 了：那就是闪退的原文");
         assert!(ran.unwrap().is_err(), "连不上应该是 Err");
+    }
+
+    #[test]
+    fn a_capped_reader_stops_before_the_whole_bomb_is_in_memory() {
+        let big = vec![0u8; 4096];
+        let ok = read_capped(big.as_slice(), 4096).unwrap();
+        assert_eq!(ok.len(), 4096, "刚好到上限要放行");
+        let err = read_capped(big.as_slice(), 4095).unwrap_err().to_string();
+        assert!(err.contains("上限"), "{err}");
     }
 }

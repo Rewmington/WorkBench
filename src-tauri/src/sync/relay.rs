@@ -47,6 +47,9 @@ pub const REQUIRED_SEGMENT: &str = "/workbench-sync/";
 pub const FILE_PREFIX: &str = "device-";
 pub const FILE_SUFFIX: &str = ".enc";
 
+/// PROPFIND 清单的上限；同步目录只有几份 `device-*.enc`，4 MiB 已经宽到不像个人用量。
+const MAX_XML_BYTES: u64 = 4 * 1024 * 1024;
+
 /// 一次最多读几份对端文件。真实使用是 1–2 台手机 + 1 台 PC；上限存在的理由是
 /// 别对着一个陌生目录无界地拉文件（与 `dav_readonly::MAX_DOCS` 同款防护）。
 pub const MAX_PEERS: usize = 8;
@@ -249,8 +252,8 @@ impl Remote {
     /// 列目录，只返回 `device-*.enc` —— 备份件、目录、以及任何别的名字都不该被上层看见。
     pub fn list(&self) -> Result<Vec<Entry>> {
         let body = r#"<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:prop><D:displayname/><D:getcontentlength/><D:getlastmodified/><D:resourcetype/></D:prop></D:propfind>"#;
-        let xml = self
-            .request(
+        let xml = crate::net::read_capped_text(
+            self.request(
                 verb("PROPFIND"),
                 None,
                 &[
@@ -260,8 +263,10 @@ impl Remote {
                 Some(body.as_bytes()),
             )?
             .body_mut()
-            .read_to_string()
-            .map_err(|e| Error::msg(format!("读目录列表失败：{e}")))?;
+            .as_reader(),
+            MAX_XML_BYTES,
+        )
+        .map_err(|e| Error::msg(format!("读目录列表失败：{e}")))?;
 
         // href 是站点绝对路径，比较时只取 base 的 path 部分 ——
         // 本地桩的 base 带 127.0.0.1 前缀，整串比一定对不上。

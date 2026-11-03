@@ -7,7 +7,7 @@ import 'package:anvil_mobile/db.dart';
 import 'package:anvil_mobile/repo.dart';
 import 'package:anvil_mobile/store.dart';
 import 'package:anvil_mobile/sync/merge.dart';
-import 'package:anvil_mobile/timetable.dart' show dayInt;
+import 'package:anvil_mobile/timetable.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -167,6 +167,24 @@ void main() {
     expect(store.pending, 0);
   });
 
+  /// 桌面 PC 的 `iso_to_day` 和这里必须拒同一批坏值。开学日一旦存坏，今天屏只该「算不出
+  /// 这一周」，不该让一个 `int.parse` / 下标越界把 UI build 崩掉。
+  test('坏开学日不进本机设置，weekOf 也只回 null', () async {
+    final db = await memoryDb();
+    final repo = await PhoneRepo.open(db, now: fixedNow);
+    await repo.saveMeta(const {
+      'timetable.term': '2026-2027-1',
+      'timetable.week1Monday': '开学再说',
+    }, fixedNow);
+
+    expect(await repo.term(), '2026-2027-1');
+    expect(await repo.week1Monday(), isNull, reason: '格式不对的 meta 不该把本机库污染掉');
+    expect(isoToDayOrNull('2026-09'), isNull);
+    expect(isoToDayOrNull('2026-02-31'), isNull);
+    expect(isoToDayOrNull('2026-09-07'), 20260907);
+    expect(weekOf('开学再说', DateTime(2026, 11, 2), 16), isNull);
+  });
+
   test('失败时间比成功新时是离线态；从没成功过就是「还没同步过」', () async {
     final db = await memoryDb();
     final repo = await PhoneRepo.open(db, now: fixedNow);
@@ -214,6 +232,22 @@ void main() {
 
     final row = (await db.query('settings', where: "key = 'device.id'")).single;
     expect(row['value_json'], '"phone-abc', reason: '坏的那条是唯一线索，不能被一把新 id 盖掉');
+  });
+
+  test('device.id 是合法 JSON 但形状不对时也不能换身份', () async {
+    final db = await memoryDb();
+    await db.insert('settings', {
+      'key': 'device.id',
+      'value_json': '123',
+      'updated_at': fixedNow,
+      'updated_by': 'phone-abc',
+    });
+
+    await expectLater(
+        loadOrCreateDeviceId(db, fixedNow), throwsA(isA<StateError>()));
+
+    final row = (await db.query('settings', where: "key = 'device.id'")).single;
+    expect(row['value_json'], '123', reason: '能解开不代表能用作身份；旧行仍是唯一线索');
   });
 
   /// 「上次同步的状态读不出来」与「还没同步过」在界面上必须是两句话：后者会让人以为手机从没

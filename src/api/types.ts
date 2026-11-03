@@ -250,6 +250,8 @@ export interface BackupOutcome {
   error: string | null
   /** 没配凭据是跳过，不是失败：不该进失败退避，也不该在 UI 上写成错误 */
   skipped: boolean
+  /** 换库成功或失败后连回滚都没成功：进程已经没有可用现场，Rust 侧会直接重启 */
+  restartRequired: boolean
 }
 
 export interface RemoteFile {

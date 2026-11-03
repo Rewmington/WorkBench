@@ -213,18 +213,28 @@ pub fn dump(conn: &Connection, tables: &[&str], device: &str, sealed_at: i64) ->
 }
 
 /// [`META_KEYS`] 里那几条当前的字符串值；没设过或不是字符串就不发。
+///
+/// 开学日要过桌面那套严格格式再发：手机把它当「解释课表的基准」原样存进本机，一条
+/// `"x"` 或 `"2026-09"` 不该被带到对面去。这里不修本机那条坏值，只是**不把它发出去**；
+/// 用户自己设的那一步仍由 `timetable::set_week1` 管。
 fn meta_of(conn: &Connection) -> Result<std::collections::BTreeMap<String, String>> {
     let mut meta = std::collections::BTreeMap::new();
     for key in META_KEYS {
         let value = crate::repos::settings::get_json(conn, key)?;
-        if let Some(s) = value
+        let Some(s) = value
             .as_ref()
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|s| !s.is_empty())
+        else {
+            continue;
+        };
+        if *key == crate::repos::timetable::KEY_WEEK1
+            && crate::repos::timetable::iso_to_day(s).is_err()
         {
-            meta.insert((*key).to_owned(), s.to_owned());
+            continue;
         }
+        meta.insert((*key).to_owned(), s.to_owned());
     }
     Ok(meta)
 }
@@ -233,6 +243,7 @@ fn meta_of(conn: &Connection) -> Result<std::collections::BTreeMap<String, Strin
 mod tests {
     use super::*;
     use crate::db;
+    use crate::time::Now;
 
     fn conn() -> Connection {
         let mut c = db::open_in_memory().unwrap();
@@ -398,6 +409,33 @@ mod tests {
         assert!(
             !back.meta.contains_key(settings::KEY_THEME_MODE),
             "主题这类本机 UX 不许跟着课表基准混上云：{:?}",
+            back.meta
+        );
+    }
+
+    /// 开学日本机可能躺着一条旧版本/手改留下的坏值。这里不替用户改库，但也不能把
+    /// 一条对面解释不了的值发出去 —— 手机端 `saveMeta` 同一条判据，两边一起挡才不漏。
+    #[test]
+    fn a_malformed_week1_is_left_out_of_the_snapshot() {
+        use crate::repos::{settings, timetable};
+        use crate::time::FixedNow;
+
+        let c = conn();
+        let now = FixedNow(1_700_000_000_000);
+        settings::set_json(
+            &c,
+            timetable::KEY_WEEK1,
+            &serde_json::json!("2026-02-31"),
+            now.ms(),
+            "pc-a",
+        )
+        .unwrap();
+
+        let bytes = dump(&c, PC_TABLES, "pc-a", now.ms()).unwrap().to_bytes().unwrap();
+        let back = Snapshot::from_bytes(&bytes).unwrap();
+        assert!(
+            !back.meta.contains_key(timetable::KEY_WEEK1),
+            "日历里没有的那一天不该发给手机：{:?}",
             back.meta
         );
     }

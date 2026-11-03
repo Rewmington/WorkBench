@@ -3,7 +3,6 @@
 //! 工作台一旦往 `/dav/medicine-sync/` 写，就会被当成一台设备，把待办数据混进用药记录。
 //! 这条边界在 `new`、`url`、`list` 三处各钉了一次钉子，不靠自觉。
 
-use std::io::Read;
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -15,6 +14,14 @@ use super::propfind::{self, Entry};
 use crate::error::{Error, Result};
 
 pub const DEFAULT_BASE: &str = "https://dav.jianguoyun.com/dav/workbench-backup/";
+
+/// PROPFIND 的清单只有文件名/大小/时间；4 MiB 已经够列几十万份。超过这个数不是备份多，
+/// 是对端根本不是我们以为的那个目录。
+const MAX_XML_BYTES: u64 = 4 * 1024 * 1024;
+
+/// 一份加密备份最多下载多少。还原上限是解压后 512 MiB，信封/ gzip 不会比它大太多；
+/// 这里给 1 GiB 余量。这不是「防攻击者」的精确数，是「别让一次手滑的超大文件把内存吃掉」的数。
+const MAX_BACKUP_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// 站点侧的目录名。改这个之前先想清楚上面那段话。
 pub const REQUIRED_SEGMENT: &str = "/workbench-backup/";
@@ -168,8 +175,8 @@ impl Remote {
 
     pub fn list(&self) -> Result<Vec<Entry>> {
         let body = r#"<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:prop><D:displayname/><D:getcontentlength/><D:resourcetype/></D:prop></D:propfind>"#;
-        let xml = self
-            .request(
+        let xml = crate::net::read_capped_text(
+            self.request(
                 verb("PROPFIND"),
                 None,
                 &[
@@ -179,8 +186,10 @@ impl Remote {
                 Some(body.as_bytes()),
             )?
             .body_mut()
-            .read_to_string()
-            .map_err(|e| Error::msg(format!("读目录列表失败：{e}")))?;
+            .as_reader(),
+            MAX_XML_BYTES,
+        )
+        .map_err(|e| Error::msg(format!("读目录列表失败：{e}")))?;
 
         // href 是站点绝对路径，比较时只取 base 的 path 部分 ——
         // 本地桩的 base 带 127.0.0.1 前缀，整串比一定对不上。
@@ -212,12 +221,7 @@ impl Remote {
 
     pub fn get(&self, name: &str) -> Result<Vec<u8>> {
         let mut resp = self.request(Method::GET, Some(name), &[], None)?;
-        let mut buf = Vec::new();
-        resp.body_mut()
-            .as_reader()
-            .read_to_end(&mut buf)
-            .map_err(|e| Error::msg(format!("下载失败：{e}")))?;
-        Ok(buf)
+        crate::net::read_capped(resp.body_mut().as_reader(), MAX_BACKUP_BYTES)
     }
 
     /// 幂等删除：404（本来就不在）与 405（不是可删的资源）都算删干净了。

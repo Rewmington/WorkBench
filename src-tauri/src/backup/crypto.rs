@@ -38,11 +38,13 @@ const SALT_LEN: usize = 16;
 const NONCE_LEN: usize = 12;
 const HEADER_LEN: usize = MAGIC.len() + 1 + 1 + 4 + 4 + 1 + SALT_LEN + NONCE_LEN;
 
-/// 头部里的 kdf 参数是文件带来的，不可信。不夹住的话，一个被改过的
-/// m_cost 字节就能让「还原」在派生密钥时申请十几 GB 内存。
-const MAX_M_KIB: u32 = 1_048_576; // 1 GiB
-const MAX_T_COST: u32 = 16;
-const MAX_P_COST: u32 = 8;
+/// 头部里的 kdf 参数是文件带来的，不可信。**上限必须是「这台机器愿意为一个还没验签的
+/// 文件付出的成本」**，不是「历史上可能出现过的最大值」：1 GiB 那档在认证标签拒绝之前
+/// 就足够把手机打到 OOM。Anvil 当前只用 16 MiB（同步）和 64 MiB（日备），128 MiB 留给
+/// 以后真的调参；超过这个范围的文件直接拒绝，而不是先派生一把注定不对的钥匙。
+const MAX_M_KIB: u32 = 131_072; // 128 MiB
+const MAX_T_COST: u32 = 8;
+const MAX_P_COST: u32 = 4;
 
 pub struct Envelope {
     pub kdf: u8,

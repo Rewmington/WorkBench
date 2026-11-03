@@ -80,6 +80,13 @@ pub fn version(conn: &Connection) -> Result<u32> {
     Ok(conn.query_row("PRAGMA user_version", [], |r| r.get(0))?)
 }
 
+/// 这个程序认到的最高迁移编号。备份还原在换库之前要用同一个数验一份快照：
+/// 「integrity_check 合法」不等于「这台机器能用」—— 比当前程序更新的库会被拒绝启动，
+/// 而一份缺表的空库会被换进来、看起来只是「数据没了」。
+pub fn target_version() -> u32 {
+    MIGRATIONS.len() as u32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

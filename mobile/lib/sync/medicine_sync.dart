@@ -8,6 +8,7 @@
 /// （应用密码是账号级的，任一把都能读；Anvil 不读药箱存在它自己 prefs 里的那把）。
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -97,12 +98,20 @@ class MedicineCloud {
     }
   }
 
+  /// 与 `webdav.dart` 同一条规则：有界读，越界当场停；不要先把整份响应攒进内存再判断长度。
   Future<Uint8List> _read(http.StreamedResponse resp) async {
-    final bytes = await resp.stream.toBytes().timeout(timeout);
-    if (bytes.length > _maxBytes) {
-      throw MedicineCloudException('药箱快照体积异常（超过 16 MiB），已停止读取');
+    final out = BytesBuilder(copy: false);
+    try {
+      await for (final chunk in resp.stream.timeout(timeout)) {
+        out.add(chunk);
+        if (out.length > _maxBytes) {
+          throw MedicineCloudException('药箱快照体积异常（超过 16 MiB），已停止读取');
+        }
+      }
+    } on TimeoutException {
+      throw MedicineCloudException('读响应超时：对端没有把整份快照送完');
     }
-    return bytes;
+    return out.toBytes();
   }
 
   Never _httpError(int code) {

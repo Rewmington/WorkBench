@@ -76,15 +76,15 @@ fn agent() -> Agent {
     )
 }
 
+/// 七个公开清单的上限。站点真实内容远小于这个数；超了不是「博客变大了」，是地址/
+/// 对端已经不是我们以为的那个内容目录，不能让一次自动刷新把整个工作台拖去 OOM。
+const MAX_JSON_BYTES: u64 = 8 * 1024 * 1024;
+
 /// 拉一个清单并归一化成与本地读取同样的形状 —— 两边同形状，`sig` 才可直接比。
 pub fn fetch_normalized_with(agent: &Agent, kind: &str, file: &str) -> Result<String, String> {
     let url = content_url(file);
-    let body = agent
-        .get(&url)
-        .call()
-        .map_err(|e| format!("取不到 {url}：{e}"))?
-        .body_mut()
-        .read_to_string()
+    let mut resp = agent.get(&url).call().map_err(|e| format!("取不到 {url}：{e}"))?;
+    let body = crate::net::read_capped_text(resp.body_mut().as_reader(), MAX_JSON_BYTES)
         .map_err(|e| format!("读 {url} 失败：{e}"))?;
 
     let value: Value =

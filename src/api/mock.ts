@@ -802,10 +802,22 @@ function mockPaths(): SourcePaths {
   }
 }
 
+/// 与 Rust `commands::settings::UI_SETTINGS_KEYS` 同一份名单。mock 不镜像这条，测试里
+/// `settingsSet('webdav.email')` 会照样成功，真机却拒绝 —— 那种差值最难查。
+const UI_SETTINGS_KEYS = [
+  'theme.mode',
+  'theme.preset',
+  'theme.accent',
+  'ui.reducedMotion',
+  'ui.widgetOrder',
+  'backup.enabled',
+]
+
 export const mockApi: Api = {
   settingsAll: async (): Promise<SettingsView> => ({ values: store.settings, paths, deviceId: DEVICE_ID }),
   settingsGet: async (key) => store.settings[key] ?? null,
   settingsSet: async (key, value) => {
+    if (!UI_SETTINGS_KEYS.includes(key)) throw new Error(`设置项 ${key} 要走它自己的命令，不能从通用设置口写`)
     store.settings[key] = value
     save()
   },
@@ -1148,14 +1160,14 @@ export const mockApi: Api = {
   backupNow: async (): Promise<BackupOutcome> => {
     const at = Date.now()
     if (!store.backup.email || !store.backup.hasPass) {
-      return { at, ok: false, bytes: null, remotePath: null, error: '还没配好坚果云凭据，备份先不跑', skipped: true }
+      return { at, ok: false, bytes: null, remotePath: null, error: '还没配好坚果云凭据，备份先不跑', skipped: true, restartRequired: false }
     }
     const bytes = 120_000 + Math.floor(Math.random() * 40_000)
     const remotePath = abackupName(new Date(at), Math.random().toString(16).slice(2, 10))
     store.backup.log.unshift({ at, ok: true, bytes, remotePath, error: null, kind: 'manual' })
     store.backup.remote.unshift({ name: remotePath, size: bytes, readable: true })
     save()
-    return { at, ok: true, bytes, remotePath, error: null, skipped: false }
+    return { at, ok: true, bytes, remotePath, error: null, skipped: false, restartRequired: false }
   },
   backupSaveCredentials: async (email, password): Promise<BackupStatus> => {
     if (!email.trim()) throw new Error('邮箱不能为空')
@@ -1184,7 +1196,7 @@ export const mockApi: Api = {
     if (name.startsWith('device-')) throw new Error('那是药箱的同步文件，不是工作台的备份')
     store.backup.log.unshift({ at, ok: true, bytes: null, remotePath: name, error: null, kind: 'restore' })
     save()
-    return { at, ok: true, bytes: null, remotePath: name, error: null, skipped: false }
+    return { at, ok: true, bytes: null, remotePath: name, error: null, skipped: false, restartRequired: true }
   },
   backupSelfTest: async (email, password) => !!email.trim() && !!password.trim(),
 

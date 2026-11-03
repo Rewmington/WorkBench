@@ -29,9 +29,49 @@ class MergeReport {
   const MergeReport({this.applied = 0, this.kept = 0, this.refused = const []});
 }
 
+/// SQLite 的列类型只决定 affinity。`"2"` 进 INTEGER 会被悄悄转成 2，`123` 进 TEXT
+/// 会变成字符串；本地不报错，下一次统计/比较时才表现成"数据莫名变了形状"。所以这里按
+/// 声明类型拒绝，和 Rust `sync::merge` 用同一份 affinity 规则。
+String _affinityOf(String declaredType) {
+  final t = declaredType.toUpperCase();
+  if (t.contains('INT')) return 'INTEGER';
+  if (t.contains('CHAR') || t.contains('CLOB') || t.contains('TEXT')) return 'TEXT';
+  if (t.contains('BLOB') || t.isEmpty) return 'BLOB';
+  if (t.contains('REAL') || t.contains('FLOA') || t.contains('DOUB')) return 'REAL';
+  return 'NUMERIC';
+}
+
+bool _shapeMatches(String affinity, Object? v) {
+  if (v == null) return true;
+  if (v is bool) {
+    return affinity == 'INTEGER' || affinity == 'REAL' || affinity == 'NUMERIC';
+  }
+  if (v is int) return affinity != 'TEXT' && affinity != 'BLOB';
+  if (v is double) {
+    if (!v.isFinite) return false;
+    if (affinity == 'TEXT' || affinity == 'BLOB') return false;
+    if (affinity == 'INTEGER') return v == v.roundToDouble();
+    return true;
+  }
+  if (v is String) return affinity == 'TEXT' || affinity == 'BLOB';
+  return false;
+}
+
 /// JSON 值 → SQL 值。数组/对象一律拒绝：这几张表里没有 JSON 列，
 /// 真出现了就是 schema 与传输对不上，存成文本会让下次读回来的是带引号的字符串。
-Object? _toSql(String table, String id, String col, Object? v) {
+Object? _toSql(String table, String id, String col, String declaredType, Object? v) {
+  final affinity = _affinityOf(declaredType);
+  if (!_shapeMatches(affinity, v)) {
+    final kind = v is bool
+        ? '布尔值'
+        : v is num
+            ? '数字'
+            : v is String
+                ? '字符串'
+                : '数组/对象';
+    throw SnapshotException(
+        '$table 的行 $id 列 $col 本地声明是 $declaredType，对端却发来$kind；拒绝让 SQLite 猜一个转换');
+  }
   if (v == null || v is int || v is double || v is String) return v;
   if (v is bool) return v ? 1 : 0;
   throw SnapshotException('$table 的行 $id 列 $col 是数组/对象，同步表里没有这种列，拒绝写入');
@@ -87,10 +127,14 @@ Future<({int applied, int kept})> _applyTable(
   }
 
   final localCols = (await wireColumns(db, table)).toSet();
+  final typeRows = await db.rawQuery('PRAGMA table_info($table)');
+  final declaredTypes = <String, String>{
+    for (final r in typeRows)
+      if (r['name'] is String) r['name'] as String: (r['type'] as String?) ?? '',
+  };
   // `todos` 有 dirty，`classes` 没有（手机对课表只读，整表随快照发布即可）。
   // 所以「并进来的行不算本机欠账」这句只在有该列的表上写成 SET dirty = 0。
-  final hasDirty = (await db.rawQuery('PRAGMA table_info($table)'))
-      .any((c) => c['name'] == 'dirty');
+  final hasDirty = declaredTypes.containsKey('dirty');
 
   // 一次读光现有版本戳，别每行查一次：全量合并本来就要跑几百上千行
   final current = <String, (int, String)>{};
@@ -119,7 +163,7 @@ Future<({int applied, int kept})> _applyTable(
       final sql = 'UPDATE $table SET ${sets.map((k) => '"$k" = ?').join(', ')}'
           '${hasDirty ? ', dirty = 0' : ''} WHERE id = ?';
       final args = [
-        for (final k in sets) _toSql(table, stamp.id, k, row[k]),
+        for (final k in sets) _toSql(table, stamp.id, k, declaredTypes[k] ?? '', row[k]),
         stamp.id,
       ];
       await db.rawUpdate(sql, args);
@@ -137,7 +181,7 @@ Future<({int applied, int kept})> _applyTable(
       final sql = 'INSERT INTO $table (${cols.map((k) => '"$k"').join(', ')}'
           '${hasDirty ? ', dirty' : ''}) '
           'VALUES (${List.filled(cols.length, '?').join(', ')}${hasDirty ? ', 0' : ''})';
-      final args = [for (final k in cols) _toSql(table, stamp.id, k, row[k])];
+      final args = [for (final k in cols) _toSql(table, stamp.id, k, declaredTypes[k] ?? '', row[k])];
       try {
         await db.rawInsert(sql, args);
       } catch (e) {

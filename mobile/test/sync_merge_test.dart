@@ -228,6 +228,38 @@ void main() {
     expect(await db.query('todos'), isEmpty);
   });
 
+  test('标量类型和本地表声明不一致时点名拒绝，不让 SQLite 猜', () async {
+    final db = await memoryDb();
+    final stringForInt = row('t1', 100, 'phone-a')..['priority'] = '2';
+    await expectLater(
+      applySnapshot(db, snapOf({'todos': [stringForInt]}), phoneAccepts),
+      throwsA(predicate((e) {
+        final s = e.toString();
+        return s.contains('priority') && s.contains('INTEGER');
+      })),
+    );
+
+    final numberForText = row('t2', 100, 'phone-a')..['title'] = 123;
+    await expectLater(
+      applySnapshot(db, snapOf({'todos': [numberForText]}), phoneAccepts),
+      throwsA(predicate((e) {
+        final s = e.toString();
+        return s.contains('title') && s.contains('TEXT');
+      })),
+    );
+
+    final fractional = row('t3', 100, 'phone-a')..['priority'] = 1.5;
+    await expectLater(
+      applySnapshot(db, snapOf({'todos': [fractional]}), phoneAccepts),
+      throwsA(predicate((e) => e.toString().contains('priority'))),
+    );
+
+    final wholeFloat = row('t4', 100, 'phone-a')..['priority'] = 2.0;
+    await applySnapshot(db, snapOf({'todos': [wholeFloat]}), phoneAccepts);
+    expect((await read(db, 't4'))['priority'], 2);
+    expect(await db.query('todos'), isNotEmpty, reason: '整数值的浮点不该被误杀');
+  });
+
   test('清脏比的是快照自己的时间戳，不是本机 now', () async {
     final db = await memoryDb();
     await seed(db, 't1', 100, 'pc-a', '快照里带着的');

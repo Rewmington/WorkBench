@@ -37,7 +37,7 @@ vi.mock('../api', () => ({
 const { useBackup } = await import('../composables/useBackup')
 
 function outcome(over: Partial<BackupOutcome> = {}): BackupOutcome {
-  return { at: 1, ok: true, bytes: 1200, remotePath: 'anvil-2026-11-02.enc', error: null, skipped: false, ...over }
+  return { at: 1, ok: true, bytes: 1200, remotePath: 'anvil-2026-11-02.enc', error: null, skipped: false, restartRequired: false, ...over }
 }
 
 function status(over: Partial<BackupStatus> = {}): BackupStatus {

@@ -110,6 +110,20 @@ void main() {
     test('未设置用量时不生成时间点', () {
       expect(med(doses: 0).scheduleMinutes, isEmpty);
     });
+
+    test('损坏的次数与 times 不能把手机格子数撑爆', () {
+      // 与桌面 medicine_math 的同名测试一条尺子：数据来自外部程序，先限量再分配。
+      expect(med(doses: 1e9).scheduleMinutes.length, maxScheduleSlots);
+      expect(med(doses: double.infinity).scheduleMinutes.length, maxScheduleSlots);
+      expect(med(doses: double.negativeInfinity).scheduleMinutes, isEmpty);
+      expect(med(doses: double.nan).scheduleMinutes, isEmpty);
+
+      final crowded = List.generate(
+        500,
+        (i) => '${(i ~/ 60 % 24).toString().padLeft(2, '0')}:${(i % 60).toString().padLeft(2, '0')}',
+      ).join(',');
+      expect(med(times: crowded, doses: 1e9).scheduleMinutes.length, maxScheduleSlots);
+    });
   });
 
   group('槽位与打卡就近匹配', () {
